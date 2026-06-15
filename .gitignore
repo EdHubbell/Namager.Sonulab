@@ -1,0 +1,15 @@
+# Wireshark / USBPcap captures — kept out of the repo by request (large, in parent folder)
+*.pcapng
+*.pcap
+
+# Device slot backups (binary, machine/device-specific)
+docs/backups/
+
+# Probe run output (generated; regenerate with tools/probe.ps1)
+docs/probe-output.txt
+
+# .NET build output (future Avalonia app)
+bin/
+obj/
+*.user
+.vs/
