@@ -82,7 +82,29 @@ Sonulab.sln
 - Contract tests replay recorded device transcripts (from the Phase 0 captures) against FakeSonuLink.
 - Avalonia view-model tests for list/drag/dirty logic; UI verified manually via a device checklist.
 
-## 8. Risks / open items
+## 8. Firmware compatibility & write-gating (don't brick devices)
+The app **never writes firmware or the bootloader** — only the documented control protocol, the
+same surface VoidX uses. A true brick is therefore out of scope; the realistic worst case is a bad
+preset slot (covered by backup + read-back verify + restore). The actual hazard is **protocol
+drift**: a firmware update could change slot sizes, chunk size, the node schema, or `save` semantics
+and invalidate our write assumptions. Two independent guards, checked at connect:
+
+1. **Version gate.** Read `root\sys\_ver` (e.g. `2.5.1`), `root\sys\_arch` (`ESP32S3`), and
+   `root\sys\_license`/model (`stompstation1`). Compare against a shipped `compatibility.json`
+   listing tested (version × model) combos. Unknown or newer ⇒ show a banner and **disable writes by
+   default**; the user may explicitly acknowledge "enable writes on untested firmware (at my own
+   risk)". Read-only features (connect, list, view, **backup**) always remain available.
+2. **Structural preflight (version-independent, the stronger guard).** Before enabling any write,
+   assert the live device still matches expectations from `browse`/list metadata: `count==30`,
+   `chunk==128`, expected `size` per type (presets 8192 / amp 12288 / ir 4096), the `item_type`
+   strings, and that `root\app` parses into the known schema. Any mismatch ⇒ writes stay disabled
+   regardless of the version string. This catches drift even within a "known" version.
+
+The current firmware version and a clear compatibility status (Tested / Untested-newer / Mismatch)
+are shown prominently in the UI. `compatibility.json` is data, not code, so adding a newly-validated
+version is a config edit + a quick guarded re-test, not a rebuild.
+
+## 9. Risks / open items
 - **RESOLVED: preset content is NOT written via `dwrite`** (that path is for amp/IR model files).
   Presets persist via **save-from-live-state**, and **`save` targets the slot whose name matches**.
   Write-preset-to-slot N: (1) `dwrite` name to slot N (chunk -1); (2) `write` each `root\app\…`
