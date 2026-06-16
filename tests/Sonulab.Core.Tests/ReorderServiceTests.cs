@@ -326,6 +326,36 @@ public class ReorderServiceTests
         Assert.DoesNotContain(names, n => n.StartsWith("__sstmp_", StringComparison.Ordinal));
     }
 
+    // Throws on the Nth `read root\presets` (used to fail the post-move name verify).
+    sealed class FailOnceOnListRead : FakePresetDevice
+    {
+        private readonly int _n; private int _count; public bool Fired;
+        public FailOnceOnListRead(int n) => _n = n;
+        public override Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (command == "read root\\presets") { _count++; if (!Fired && _count == _n) { Fired = true; throw new System.IO.IOException("list read fail"); } }
+            return base.SendAsync(command, ct);
+        }
+    }
+
+    [Fact] public async Task MoveStep_relocate_up_rolls_back_safely_when_verify_fails()
+    {
+        // Regression: an UPWARD relocate whose post-move verify fails must NOT lose content.
+        // (read #1 = MoveStep's initial list; read #2 = the verify, which we fail — by then the
+        // move has fully applied, so the surviving copy sits in `to`, the LOWER-indexed slot.)
+        var d = new FailOnceOnListRead(2);
+        d.SeedSlot(1, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });   // slot 0 empty
+        await d.OpenAsync(); var r = Repo(d);
+        await Assert.ThrowsAnyAsync<System.Exception>(
+            () => new ReorderService(r).MoveStepAsync(from: 1, up: true));      // relocate UP into slot 0
+        Assert.True(d.Fired);
+        var names = await Names(r);
+        Assert.Equal("\"mA\"", await Amp(r, 1));   // content preserved (the bug destroyed it)
+        Assert.Equal("A", names[1]);               // restored to the original slot
+        Assert.Equal("", names[0]);
+        Assert.DoesNotContain(names, n => n.StartsWith("__sstmp_", StringComparison.Ordinal));
+    }
+
     [Fact] public async Task MoveStep_swap_falls_back_and_still_swaps_when_device_full()
     {
         var d = Dev(used: 30); await d.OpenAsync(); var r = Repo(d);   // no empty temp slot anywhere

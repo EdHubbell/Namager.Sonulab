@@ -135,13 +135,21 @@ public sealed class ReorderService
         var slots = await _repo.ListPresetsAsync(ct);
         if (slots[from].Name != origName && !slots[to].IsEmpty)
         {
-            // `from` was vacated; the content lives in `to` — copy it back via select+save.
-            await _repo.SelectPresetAsync(slots[to].Name, ct);
-            await _repo.RenameAsync(from, origName, ct);
-            await _repo.SaveCurrentAsAsync(origName, ct);
+            // `from` was vacated; the content lives in `to`. Copy it back using a UNIQUE staging
+            // name: `from` and `to` must not share `origName` while a save-by-name runs, because
+            // save targets the LOWEST-indexed match — which for an upward move would be `to`, so a
+            // naive save+delete(to) would write to `to` and then destroy the only copy. Save into
+            // `from` (uniquely named) first, then drop the copy left in `to`.
+            string stage = TempPrefix + "undo";
+            await _repo.SelectPresetAsync(slots[to].Name, ct);   // live = content (read from `to`)
+            await _repo.RenameAsync(from, stage, ct);            // unique name on `from`
+            await _repo.SaveCurrentAsAsync(stage, ct);           // save-by-name unambiguously targets `from`
+            await _repo.DeleteAsync(to, ct);                     // remove the copy in `to`
+            await _repo.RenameAsync(from, origName, ct);         // restore the real name
+            return;
         }
-        slots = await _repo.ListPresetsAsync(ct);
-        if (to != from && !slots[to].IsEmpty) await _repo.DeleteAsync(to, ct);   // drop the partial copy
+        // `from` is untouched/correct — just drop any partial copy left in `to`.
+        if (to != from && !slots[to].IsEmpty) await _repo.DeleteAsync(to, ct);
     }
 
     // FAST PATH: swap two occupied adjacent slots via select+save through one temp slot.
@@ -231,6 +239,9 @@ public sealed class ReorderService
     }
 
     // Cheap, content-free verify: confirm the expected names landed in the expected slots (1 command).
+    // This is name-level only BY DESIGN — the lean paths trade the old 8 KB content read-back for
+    // speed; names are the device's authoritative slot identity and each copy was placed by a
+    // confirmed select+save. Content-level corruption is out of scope here.
     private async Task VerifyNamesAsync(CancellationToken ct, params (int Slot, string Name)[] expected)
     {
         var slots = await _repo.ListPresetsAsync(ct);
