@@ -6,14 +6,16 @@ using Sonulab.Core.Connection;
 using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
 
-// Ports: explicit args win; otherwise auto-discover by probing every present COM port
-// (whichever answers `read root\sys\_name` is the pedal — no hardcoded COM6 assumption).
-var ports = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
-if (ports.Length == 0)
-{
+// Ports: `--port COMx` pins a port; otherwise auto-discover by probing every present COM port
+// (whichever answers `read root\sys\_name` is the pedal). Command flags like --restore carry their
+// own positional args, so we must NOT treat bare args as port names.
+string[] ports;
+int portFlag = Array.IndexOf(args, "--port");
+if (portFlag >= 0 && portFlag + 1 < args.Length)
+    ports = new[] { args[portFlag + 1] };
+else
     ports = System.IO.Ports.SerialPort.GetPortNames();
-    if (ports.Length == 0) { Console.WriteLine("RESULT: no COM ports present. Is the pedal plugged in via USB?"); return 1; }
-}
+if (ports.Length == 0) { Console.WriteLine("RESULT: no COM ports present. Is the pedal plugged in via USB?"); return 1; }
 bool writeTest = Array.IndexOf(args, "--write-test") >= 0;
 bool reorderTest = Array.IndexOf(args, "--reorder-test") >= 0;
 
