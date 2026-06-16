@@ -53,4 +53,17 @@ public class SerialSonuLinkTests
         Assert.Contains("\"value\":1", resp);
         Assert.True(sw.ElapsedMilliseconds < 1000, $"expected NUL-stop (<1s), took {sw.ElapsedMilliseconds}ms");
     }
+
+    [Fact] public async Task SendAsync_returns_promptly_when_no_response_arrives()
+    {
+        // A write gets no serial response; with a huge MaxWaitMs, returning quickly proves we stop
+        // at FirstByteTimeoutMs instead of blocking the full ceiling.
+        var port = new FakeSerialPort { Responder = _ => "" };
+        var link = new SerialSonuLink(port, "COM6", 115200, new SerialLinkOptions { PollMs = 2, FirstByteTimeoutMs = 40, MaxWaitMs = 10_000 });
+        await link.OpenAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal("", await link.SendAsync(@"write root\app\x:{""value"":1}"));
+        sw.Stop();
+        Assert.True(sw.ElapsedMilliseconds < 1000, $"expected FirstByteTimeout-stop (<1s), took {sw.ElapsedMilliseconds}ms");
+    }
 }

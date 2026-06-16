@@ -57,6 +57,9 @@ public sealed class SerialSonuLink : ISonuLink
             else
             {
                 if (sawData && sw.ElapsedMilliseconds - lastData >= _options.IdleGapMs) break;
+                // No-response command (e.g. a write): if nothing has arrived by the first-byte
+                // timeout, stop instead of blocking the full MaxWaitMs.
+                if (!sawData && sw.ElapsedMilliseconds >= _options.FirstByteTimeoutMs) break;
                 await Task.Delay(_options.PollMs, ct);
             }
         }
