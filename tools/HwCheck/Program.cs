@@ -9,6 +9,7 @@ using Sonulab.Core.Transport;
 var ports = args.Where(a => !a.StartsWith("--")).ToArray();
 if (ports.Length == 0) ports = new[] { "COM6" };
 bool writeTest = Array.IndexOf(args, "--write-test") >= 0;
+bool reorderTest = Array.IndexOf(args, "--reorder-test") >= 0;
 
 var options = new SerialLinkOptions { OpenSettleMs = 1500, ProbeAttempts = 3 };
 var connector = new SonuConnector(() => new SystemSerialPort(), options);
@@ -28,9 +29,47 @@ var slots = await repo.ListPresetsAsync();
 Console.WriteLine($"Presets: {slots.Count(s => !s.IsEmpty)}/30 in use:");
 foreach (var s in slots) if (!s.IsEmpty) Console.WriteLine($"   slot {s.Index + 1,2} (idx {s.Index,2}): {s.Name}");
 
+int ri = Array.IndexOf(args, "--restore");
+if (ri >= 0 && ri + 3 < args.Length)
+{
+    if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); return 3; }
+    int idx = int.Parse(args[ri + 1]); var pst = args[ri + 2]; var nm = args[ri + 3];
+    var doc = Sonulab.Core.Model.PresetDocument.Parse(System.IO.File.ReadAllBytes(pst));
+    Console.WriteLine($"restoring idx {idx} <- '{pst}' as '{nm}'...");
+    await repo.WritePresetToSlotAsync(idx, nm, doc);
+    var names = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+    Console.WriteLine(names[idx] == nm ? $"  OK: idx {idx} now '{nm}'" : "  FAIL");
+    session.Disconnect();
+    return names[idx] == nm ? 0 : 4;
+}
+
+if (reorderTest)
+{
+    Console.WriteLine("\n--- GUARDED REORDER TEST (small move, then move back) ---");
+    if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); return 3; }
+    var svc = new ReorderService(repo);
+    var before = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+    int rfrom = Array.FindIndex(before, n => !string.IsNullOrEmpty(n));
+    int rto = Math.Min(rfrom + 2, 29);                 // small range for speed (each shifted slot replays ~157 params)
+    if (rfrom < 0 || rfrom == rto) { Console.WriteLine("need a movable preset; abort."); return 3; }
+    Console.WriteLine($"moving idx {rfrom} ('{before[rfrom]}') -> idx {rto}, then back...");
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    await svc.MoveAsync(rfrom, rto, new Progress<ReorderProgress>(p => Console.WriteLine($"   [{p.Done}/{p.Total}] {p.Message}")));
+    var moved = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+    Console.WriteLine(moved[rto] == before[rfrom] ? $"  OK: '{before[rfrom]}' now at idx {rto}" : "  FAIL: move did not land");
+    await svc.MoveAsync(rto, rfrom);                   // move it back
+    sw.Stop();
+    var restored = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+    bool rok = restored.SequenceEqual(before);
+    Console.WriteLine(rok ? $"  OK: order restored to original (round trip {sw.ElapsedMilliseconds} ms)" : "  FAIL: not restored");
+    session.Disconnect();
+    Console.WriteLine(rok ? "RESULT: REORDER-TEST PASS" : "RESULT: REORDER-TEST FAIL");
+    return rok ? 0 : 4;
+}
+
 if (!writeTest)
 {
-    Console.WriteLine("RESULT: read-only PASS. (pass --write-test for the guarded duplicate test)");
+    Console.WriteLine("RESULT: read-only PASS. (pass --write-test or --reorder-test)");
     return 0;
 }
 

@@ -16,6 +16,11 @@ public sealed class ReorderService
         if (to < 0 || to >= slots.Count) throw new ArgumentOutOfRangeException(nameof(to));
         if (from == to) return;
         if (slots[from].IsEmpty) throw new InvalidOperationException($"Slot {from} is empty; nothing to move.");
+        // Collision guard: our temporary slot names use TempPrefix. If a real preset already uses it,
+        // save-by-name could land in the wrong slot — refuse rather than risk corruption.
+        if (slots.Any(s => s.Name.StartsWith(TempPrefix, StringComparison.Ordinal)))
+            throw new InvalidOperationException(
+                $"A preset name uses the reserved reorder prefix '{TempPrefix}'; rename it before reordering.");
         var occupants = new int[slots.Count];
         for (int i = 0; i < slots.Count; i++) occupants[i] = slots[i].IsEmpty ? -1 : i;
 
@@ -85,5 +90,9 @@ public sealed class ReorderService
         }
     }
 
-    private static string TempName(int slot) => $"__sstmp_{slot}_{Guid.NewGuid():N}";
+    // Short temp names (the device caps names at ~31 chars; a GUID suffix would not round-trip).
+    // Unique per slot within the affected range; the collision guard in MoveAsync ensures no real
+    // preset uses this prefix.
+    private const string TempPrefix = "__sstmp_";
+    private static string TempName(int slot) => $"{TempPrefix}{slot}";
 }

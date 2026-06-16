@@ -174,4 +174,15 @@ public class ReorderServiceTests
         var (repo, dev) = Seed(); await dev.OpenAsync();   // slots 4..29 are empty
         await Assert.ThrowsAsync<InvalidOperationException>(() => new ReorderService(repo).MoveAsync(10, 0));
     }
+
+    [Fact] public async Task Refuses_reorder_if_a_preset_uses_the_reserved_temp_prefix()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.SeedSlot(1, "__sstmp_9", new[] { @"root\app\amp\amp:{""value"":""mB""}" });  // squats the reserved prefix
+        dev.SeedSlot(2, "C", new[] { @"root\app\amp\amp:{""value"":""mC""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new ReorderService(repo).MoveAsync(0, 2));
+    }
 }
