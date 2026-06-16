@@ -31,8 +31,11 @@ public sealed class SystemSerialPort : ISerialPortStream { public SystemSerialPo
 
 public sealed class SerialLinkOptions {
     public int PollMs { get; init; } = 10;
-    public int IdleGapMs { get; init; } = 120;   // stop after this much silence following data
-    public int MaxWaitMs { get; init; } = 1500;  // hard cap per command
+    public int IdleGapMs { get; init; } = 120;       // stop after this much silence following data
+    public int MaxWaitMs { get; init; } = 1500;      // hard cap per command
+    public int OpenSettleMs { get; init; } = 0;      // delay after Open before first command (ESP32 DTR/RTS reset); real connect uses ~1500
+    public int ProbeAttempts { get; init; } = 1;     // identity-probe tries per (port,baud); real connect uses ~3
+    public int ProbeRetryDelayMs { get; init; } = 300;
 }
 
 public sealed class SerialSonuLink : ISonuLink {
@@ -375,8 +378,18 @@ public sealed class SerialLinkOptions
     public int PollMs { get; init; } = 10;
     public int IdleGapMs { get; init; } = 120;
     public int MaxWaitMs { get; init; } = 1500;
+    public int OpenSettleMs { get; init; } = 0;      // delay after Open before first command (ESP32 DTR/RTS reset)
+    public int ProbeAttempts { get; init; } = 1;     // identity-probe tries per (port,baud)
+    public int ProbeRetryDelayMs { get; init; } = 300;
 }
 ```
+
+> **Hardware note (verified on the device 2026-06-15):** Opening the CH340 port resets the ESP32, so
+> the FIRST command after `Open` is lost while it reboots (~1–1.5 s). `OpenAsync` therefore honors
+> `OpenSettleMs`, and `SonuConnector` retries the identity probe `ProbeAttempts` times. Unit tests
+> keep these at the defaults (0 / 1) so they stay fast; the real connect path passes
+> `OpenSettleMs≈1500, ProbeAttempts≈3`. Also note: over serial the device does NOT stream meters when
+> idle (BLE did) — the channel is silent until queried, so the read window terminates cleanly.
 
 - [ ] **Step 4: Implement SerialSonuLink**
 
@@ -402,10 +415,10 @@ public sealed class SerialSonuLink : ISonuLink
 
     public bool IsOpen => _port.IsOpen;
 
-    public Task OpenAsync(CancellationToken ct = default)
+    public async Task OpenAsync(CancellationToken ct = default)
     {
         _port.Open(_portName, _baud);
-        return Task.CompletedTask;
+        if (_options.OpenSettleMs > 0) await Task.Delay(_options.OpenSettleMs, ct); // ESP32 reboots on DTR/RTS at open
     }
 
     public void Close() => _port.Close();
@@ -537,13 +550,20 @@ public sealed class SonuConnector
         {
             ct.ThrowIfCancellationRequested();
             var link = new SerialSonuLink(_portFactory(), port, baud, _options);
+            int attempts = Math.Max(1, _options?.ProbeAttempts ?? 1);
+            int retryDelay = _options?.ProbeRetryDelayMs ?? 300;
             try
             {
                 await link.OpenAsync(ct);
-                var resp = await link.SendAsync(@"read root\sys\_name", ct);
-                bool ok = ResponseParser.NonMeterRecords(resp)
-                    .Any(r => r.StartsWith(@"root\sys\_name:{", StringComparison.Ordinal));
-                if (ok) return link;
+                for (int attempt = 0; attempt < attempts; attempt++)
+                {
+                    // First command after open is often lost to the ESP32 reset — retry.
+                    var resp = await link.SendAsync(@"read root\sys\_name", ct);
+                    bool ok = ResponseParser.NonMeterRecords(resp)
+                        .Any(r => r.StartsWith(@"root\sys\_name:{", StringComparison.Ordinal));
+                    if (ok) return link;
+                    if (attempt + 1 < attempts) await Task.Delay(retryDelay, ct);
+                }
                 link.Close();
             }
             catch
@@ -983,8 +1003,9 @@ Run with the pedal on USB and **VoidX-Control CLOSED** (it holds COM6 open).
 A tiny console harness (or `dotnet run` from a scratch program / a unit-test marked
 `[Trait("Category","Hardware")]` and run explicitly) should, using the REAL `SystemSerialPort`:
 
-1. **Connect:** `SonuConnector(() => new SystemSerialPort())` over ports `["COM6"]` (or all
-   `SerialPort.GetPortNames()`), bauds `[115200]`. Expect a non-null link.
+1. **Connect:** `SonuConnector(() => new SystemSerialPort(), new SerialLinkOptions { OpenSettleMs = 1500, ProbeAttempts = 3 })`
+   over ports `["COM6"]` (or all `SerialPort.GetPortNames()`), bauds `[115200]`. Expect a non-null link.
+   (The settle + retries absorb the ESP32 open-reset proven during reverse-engineering.)
 2. **Identify:** `DeviceSession.ConnectAsync` returns `Connected=true`, `Device.Name == "AMP Station"`,
    `Device.Version` populated (e.g. "2.5.1").
 3. **Compatibility:** with `2.5.1/ESP32S3/stompstation1` in the tested list, `Status == Tested`,
