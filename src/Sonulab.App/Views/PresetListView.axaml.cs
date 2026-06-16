@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -25,6 +26,9 @@ public partial class PresetListView : UserControl
 
     private async void OnItemPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        // Ignore presses on the per-row reorder buttons so they fire their command, not a drag.
+        if ((e.Source as Visual)?.FindAncestorOfType<Button>(includeSelf: true) != null) return;
+
         if (sender is Control c && c.DataContext is PresetItemViewModel item && !item.IsEmpty)
         {
             _dragFrom = item.Index;

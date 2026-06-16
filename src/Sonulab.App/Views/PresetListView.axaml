@@ -4,6 +4,15 @@
              xmlns:conv="using:Sonulab.App.Converters"
              x:Class="Sonulab.App.Views.PresetListView"
              x:DataType="vm:PresetListViewModel">
+  <UserControl.Styles>
+    <Style Selector="Button.reorder">
+      <Setter Property="Padding" Value="4"/>
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </UserControl.Styles>
   <DockPanel>
 
     <!-- Icon command bar -->
@@ -41,15 +50,29 @@
 
     <!-- Preset list -->
     <ListBox x:Name="PresetList" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
+             IsEnabled="{Binding !IsBusy}"
              DragDrop.AllowDrop="True">
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:PresetItemViewModel">
-          <StackPanel Orientation="Horizontal" Spacing="8" PointerPressed="OnItemPointerPressed">
+          <DockPanel PointerPressed="OnItemPointerPressed">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2"
+                        IsVisible="{Binding !IsEmpty}" VerticalAlignment="Center">
+              <Button Classes="reorder" IsEnabled="{Binding CanMoveUp}" ToolTip.Tip="Move up"
+                      Command="{Binding $parent[ListBox].((vm:PresetListViewModel)DataContext).MoveItemUpCommand}"
+                      CommandParameter="{Binding}">
+                <PathIcon Data="{StaticResource Icon.ChevronUp}" Width="12" Height="12"/>
+              </Button>
+              <Button Classes="reorder" IsEnabled="{Binding CanMoveDown}" ToolTip.Tip="Move down"
+                      Command="{Binding $parent[ListBox].((vm:PresetListViewModel)DataContext).MoveItemDownCommand}"
+                      CommandParameter="{Binding}">
+                <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="12" Height="12"/>
+              </Button>
+            </StackPanel>
             <TextBlock Text="{Binding DisplaySlot, StringFormat='{}{0:00}'}"
                        Width="28" VerticalAlignment="Center"
                        FontFamily="Consolas,Cascadia Mono,monospace"
                        Opacity="0.6"/>
-            <TextBlock VerticalAlignment="Center"
+            <TextBlock VerticalAlignment="Center" Margin="8,0,0,0"
                        Opacity="{Binding IsEmpty, Converter={x:Static conv:BoolToOpacity.Instance}}">
               <TextBlock.Text>
                 <Binding Path="Name"/>
@@ -58,7 +81,7 @@
                 <Binding Path="IsEmpty" Converter="{x:Static conv:BoolToItalic.Instance}"/>
               </TextBlock.FontStyle>
             </TextBlock>
-          </StackPanel>
+          </DockPanel>
         </DataTemplate>
       </ListBox.ItemTemplate>
     </ListBox>
