@@ -144,4 +144,66 @@ public class PresetListViewModelTests
         Assert.Equal("A", vm.Items[0].Name);                     // unchanged — writes gated
         Assert.Equal("B", vm.Items[1].Name);
     }
+
+    [Fact] public async Task InPlace_rename_changes_name()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var item = vm.Items[0];                       // "A"
+        item.BeginRenameCommand.Execute(null);
+        Assert.True(item.IsEditing);
+        Assert.Equal("A", item.EditName);
+        item.EditName = "Aprime";
+        await vm.CommitRenameCommand.ExecuteAsync(item);
+        Assert.Equal("Aprime", vm.Items[0].Name);
+    }
+
+    [Fact] public async Task CommitRename_noop_when_blank_and_exits_edit()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var item = vm.Items[0];
+        item.BeginRenameCommand.Execute(null);
+        item.EditName = "   ";                        // whitespace -> treated as no change
+        await vm.CommitRenameCommand.ExecuteAsync(item);
+        Assert.Equal("A", vm.Items[0].Name);
+        Assert.False(item.IsEditing);
+    }
+
+    [Fact] public async Task BeginRename_on_empty_row_does_nothing()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Items[5].BeginRenameCommand.Execute(null); // empty slot
+        Assert.False(vm.Items[5].IsEditing);
+    }
+
+    [Fact] public async Task CancelRename_exits_edit_without_change()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var item = vm.Items[0];
+        item.BeginRenameCommand.Execute(null);
+        item.EditName = "Aprime";
+        item.CancelRenameCommand.Execute(null);
+        await vm.CommitRenameCommand.ExecuteAsync(item);   // guarded by IsEditing -> no-op
+        Assert.False(item.IsEditing);
+        Assert.Equal("A", vm.Items[0].Name);
+    }
+
+    [Fact] public async Task InPlace_rename_gated_when_writes_disallowed()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: false);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var item = vm.Items[0];
+        item.BeginRenameCommand.Execute(null);
+        item.EditName = "Nope";
+        await vm.CommitRenameCommand.ExecuteAsync(item);
+        Assert.Equal("A", vm.Items[0].Name);          // unchanged (gated)
+        Assert.False(item.IsEditing);                 // left edit mode
+    }
 }

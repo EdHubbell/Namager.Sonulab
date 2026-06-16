@@ -89,4 +89,15 @@ public partial class PresetListViewModel : ObservableObject
     {
         if (Selected is { } s && !string.IsNullOrWhiteSpace(newName)) await RunAsync($"Renaming…", () => _repo.RenameAsync(s.Index, newName!));
     }
+
+    [RelayCommand] private async Task CommitRenameAsync(PresetItemViewModel? item)
+    {
+        if (item is not { IsEditing: true } s) return;          // guard: Escape-then-LostFocus won't re-commit
+        var name = (s.EditName ?? "").Trim();
+        if (name.Length == 0 || name == s.Name) { s.IsEditing = false; return; }
+        // RunAsync reloads the list (recreating items) on success; on a gated/failed write it does not,
+        // so clear the edit flag ourselves in that case.
+        if (!await RunAsync($"Renaming '{s.Name}'…", () => _repo.RenameAsync(s.Index, name)))
+            s.IsEditing = false;
+    }
 }
