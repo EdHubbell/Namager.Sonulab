@@ -6,8 +6,14 @@ using Sonulab.Core.Connection;
 using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
 
-var ports = args.Where(a => !a.StartsWith("--")).ToArray();
-if (ports.Length == 0) ports = new[] { "COM6" };
+// Ports: explicit args win; otherwise auto-discover by probing every present COM port
+// (whichever answers `read root\sys\_name` is the pedal — no hardcoded COM6 assumption).
+var ports = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+if (ports.Length == 0)
+{
+    ports = System.IO.Ports.SerialPort.GetPortNames();
+    if (ports.Length == 0) { Console.WriteLine("RESULT: no COM ports present. Is the pedal plugged in via USB?"); return 1; }
+}
 bool writeTest = Array.IndexOf(args, "--write-test") >= 0;
 bool reorderTest = Array.IndexOf(args, "--reorder-test") >= 0;
 
@@ -18,7 +24,13 @@ var checker = new CompatibilityChecker(FirmwareCatalog.Default);
 Console.WriteLine($"Connecting on [{string.Join(",", ports)}] @115200 ...");
 using var session = new DeviceSession(connector, checker);
 var state = await session.ConnectAsync(ports, new[] { 115200 });
-if (!state.Connected) { Console.WriteLine("RESULT: NOT CONNECTED (is VoidX closed?)."); return 1; }
+if (!state.Connected)
+{
+    Console.WriteLine($"RESULT: NOT CONNECTED — no StompStation answered on [{string.Join(", ", ports)}].");
+    Console.WriteLine("  Check: (1) VoidX-Control is CLOSED — it holds the COM port exclusively;");
+    Console.WriteLine("         (2) the pedal is connected via USB (the CH340 'USB-SERIAL' port).");
+    return 1;
+}
 
 var d = state.Device!; var c = state.Compatibility!;
 Console.WriteLine($"CONNECTED  name='{d.Name}'  ver={d.Version}  arch={d.Arch}  license={d.License}");
