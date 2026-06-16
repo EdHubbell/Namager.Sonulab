@@ -39,6 +39,29 @@ public sealed class DeviceRepository
         return PresetDocument.Parse(bytes);
     }
 
+    public async Task WritePresetToSlotAsync(int index, string name, PresetDocument doc, bool verify = true, CancellationToken ct = default)
+    {
+        // 1) name the target slot so save-by-name lands here
+        await RenameAsync(index, name, ct);
+        // 2) replay the document's app params into live state
+        foreach (var line in doc.Lines)
+        {
+            if (!NodeRecord.TryParse(line, out var rec)) continue;
+            if (!rec.Path.StartsWith(@"root\app", StringComparison.Ordinal)) continue;
+            if (!rec.Json.TryGetProperty("value", out var v)) continue;
+            await _client.WriteAsync(rec.Path, v.GetRawText(), ct);
+        }
+        // 3) save live state into the slot named `name`
+        await SaveCurrentAsAsync(name, ct);
+        // 4) verify by reading the slot back
+        if (verify)
+        {
+            var back = await ReadPresetAsync(index, ct);
+            if (!back.ToBytes().AsSpan().SequenceEqual(doc.ToBytes()))
+                throw new InvalidOperationException($"Write-back verify failed for slot {index} ('{name}').");
+        }
+    }
+
     private static byte[] NamePad(string name)
     {
         var buf = new byte[128];
