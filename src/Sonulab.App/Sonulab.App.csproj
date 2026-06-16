@@ -15,6 +15,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="labels.en.json">
+      <WithCulture>false</WithCulture>
+      <LogicalName>Sonulab.App.labels.en.json</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="hidden-params.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.0.4" />
     <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />

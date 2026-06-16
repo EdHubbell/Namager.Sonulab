@@ -1,0 +1,11 @@
+{
+  "root\\app\\exp": "Expression",
+  "root\\app\\comp": "Compressor",
+  "root\\app\\eq": "Equalizer",
+  "root\\app\\ir": "Impulse Response",
+  "root\\app\\delay\\tcfolder": "Tone and Character",
+  "root\\app\\delay\\modfolder": "Modulation",
+  "root\\app\\delay\\ddfolder": "Dual Delay",
+  "root\\app\\mod\\tcfolder": "Tone and Character",
+  "root\\app\\ir\\ir2": "Stereo IR"
+}
