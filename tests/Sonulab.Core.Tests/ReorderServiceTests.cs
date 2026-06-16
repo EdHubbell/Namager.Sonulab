@@ -155,4 +155,43 @@ public class ReorderServiceTests
         Assert.Equal(new[] { "A", "B", "C", "D" }, (await Names(r))[..4]);
         Assert.Equal("\"mD\"", await Amp(r, 3));
     }
+
+    [Fact] public async Task MoveStep_down_swaps_with_occupied_neighbour()
+    {
+        var d = Dev(); await d.OpenAsync(); var r = Repo(d);
+        await new ReorderService(r).MoveStepAsync(from: 0, up: false);   // A <-> B
+        Assert.Equal(new[] { "B", "A", "C", "D" }, (await Names(r))[..4]);
+        Assert.Equal("\"mA\"", await Amp(r, 1));
+        Assert.Equal("\"mB\"", await Amp(r, 0));
+    }
+
+    [Fact] public async Task MoveStep_up_swaps_with_occupied_neighbour()
+    {
+        var d = Dev(); await d.OpenAsync(); var r = Repo(d);
+        await new ReorderService(r).MoveStepAsync(from: 3, up: true);    // D <-> C
+        Assert.Equal(new[] { "A", "B", "D", "C" }, (await Names(r))[..4]);
+        Assert.Equal("\"mD\"", await Amp(r, 2));
+    }
+
+    [Fact] public async Task MoveStep_up_from_first_slot_is_noop()
+    {
+        var d = Dev(); await d.OpenAsync(); var r = Repo(d);
+        await new ReorderService(r).MoveStepAsync(from: 0, up: true);    // to = -1
+        Assert.Equal(new[] { "A", "B", "C", "D" }, (await Names(r))[..4]);
+    }
+
+    [Fact] public async Task MoveStep_down_from_last_slot_is_noop()
+    {
+        var d = Dev(); await d.OpenAsync(); var r = Repo(d);
+        d.SeedSlot(29, "Z", new[] { @"root\app\amp\amp:{""value"":""mZ""}" });
+        await new ReorderService(r).MoveStepAsync(from: 29, up: false);  // to = 30
+        Assert.Equal("Z", (await Names(r))[29]);
+    }
+
+    [Fact] public async Task MoveStep_on_empty_slot_throws()
+    {
+        var d = Dev(); await d.OpenAsync(); var r = Repo(d);            // slots 4..29 empty
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new ReorderService(r).MoveStepAsync(from: 10, up: true));
+    }
 }

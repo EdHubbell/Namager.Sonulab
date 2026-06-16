@@ -59,6 +59,36 @@ public sealed class ReorderService
         }
     }
 
+    /// <summary>
+    /// Move a single preset one physical slot up or down. Occupied neighbour → adjacent
+    /// swap (3-copy fast path via <see cref="MoveAsync"/>); empty neighbour → 1-copy relocate.
+    /// A move past the first/last slot is a no-op.
+    /// </summary>
+    public async Task MoveStepAsync(int from, bool up,
+        IProgress<ReorderProgress>? progress = null, CancellationToken ct = default)
+    {
+        var slots = await _repo.ListPresetsAsync(ct);
+        if (from < 0 || from >= slots.Count) throw new ArgumentOutOfRangeException(nameof(from));
+        int to = up ? from - 1 : from + 1;
+        if (to < 0 || to >= slots.Count) return;                 // at a boundary: nothing to do
+        if (slots[from].IsEmpty) throw new InvalidOperationException($"Slot {from} is empty; nothing to move.");
+        if (slots.Any(s => s.Name.StartsWith(TempPrefix, StringComparison.Ordinal)))
+            throw new InvalidOperationException($"A preset name uses the reserved prefix '{TempPrefix}'; rename it before reordering.");
+
+        if (!slots[to].IsEmpty)
+        {
+            await MoveAsync(from, to, progress, ct);             // occupied neighbour: adjacent swap
+            return;
+        }
+
+        await RelocateToEmptyAsync(slots[from].Name, from, to, progress, ct);   // empty neighbour
+    }
+
+    // TEMPORARY STUB — replaced with the real implementation in a later task.
+    private Task RelocateToEmptyAsync(string origName, int from, int to,
+        IProgress<ReorderProgress>? progress, CancellationToken ct) =>
+        throw new NotImplementedException();
+
     // FAST PATH: rotate [min,max] in place using select+save and one temp slot.
     private async Task RotateViaSelectSaveAsync(
         string[] origName, int from, int to, int min, int max, int temp,
