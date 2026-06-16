@@ -9,7 +9,7 @@ namespace Sonulab.App.ViewModels;
 
 public sealed partial class ParameterEditorViewModel : ObservableObject
 {
-    public static readonly string[] Blocks_InScope = { "gate", "exp", "comp", "amp", "eq", "ir", "delay", "reverb" };
+    public static IReadOnlyList<string> Blocks_InScope { get; } = new[] { "gate", "exp", "comp", "amp", "eq", "ir", "delay", "reverb" };
 
     private readonly SonuClient _client;
     private readonly LabelService _labels;

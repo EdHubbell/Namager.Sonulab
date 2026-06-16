@@ -5,6 +5,8 @@
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
       <Button Content="Load" Command="{Binding LoadCommand}"/>
       <Button Content="Save" Command="{Binding SaveCommand}"/>
+      <TextBlock Text="●" IsVisible="{Binding IsDirty}" Foreground="#FF9900"
+                 VerticalAlignment="Center" ToolTip.Tip="Unsaved changes"/>
     </StackPanel>
     <ScrollViewer>
       <ItemsControl ItemsSource="{Binding Blocks}">
@@ -16,10 +18,15 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ParameterFieldViewModel">
                       <Grid ColumnDefinitions="180,*" Margin="4,2">
-                        <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"
+                                   ToolTip.Tip="{Binding Label}" TextTrimming="CharacterEllipsis"/>
                         <Panel Grid.Column="1">
-                          <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}"
-                                  IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Float}}"/>
+                          <StackPanel Orientation="Horizontal" Spacing="6"
+                                      IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Float}}">
+                            <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
+                            <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
+                                       VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
+                          </StackPanel>
                           <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"
                                     IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}"/>
                           <TextBox Text="{Binding Text}" IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Str}}"/>
@@ -37,10 +44,15 @@
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ParameterFieldViewModel">
                               <Grid ColumnDefinitions="168,*" Margin="4,2">
-                                <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"
+                                           ToolTip.Tip="{Binding Label}" TextTrimming="CharacterEllipsis"/>
                                 <Panel Grid.Column="1">
-                                  <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}"
-                                          IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Float}}"/>
+                                  <StackPanel Orientation="Horizontal" Spacing="6"
+                                              IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Float}}">
+                                    <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
+                                    <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
+                                               VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
+                                  </StackPanel>
                                   <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"
                                             IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}"/>
                                   <TextBox Text="{Binding Text}" IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Str}}"/>

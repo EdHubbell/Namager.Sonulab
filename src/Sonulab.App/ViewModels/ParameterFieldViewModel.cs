@@ -7,7 +7,8 @@ namespace Sonulab.App.ViewModels;
 public partial class ParameterFieldViewModel : ObservableObject
 {
     public string Path { get; }
-    public string Label { get; set; }
+    private string _label = "";
+    public string Label { get => _label; set => SetProperty(ref _label, value); }
     public string Kind { get; }
     public double Min { get; }
     public double Max { get; }
@@ -23,7 +24,7 @@ public partial class ParameterFieldViewModel : ObservableObject
     public ParameterFieldViewModel(NodeSchema schema, string currentValueJson)
     {
         Path = schema.Path;
-        Label = string.IsNullOrEmpty(schema.Desc) ? schema.Path : schema.Desc;
+        _label = string.IsNullOrEmpty(schema.Desc) ? schema.Path : schema.Desc;
         Options = schema.Options;
         Min = schema.Min ?? 0; Max = schema.Max ?? 1;
 
