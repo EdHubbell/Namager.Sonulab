@@ -56,6 +56,22 @@ public partial class PresetListViewModel : ObservableObject
         }
     }
 
+    [RelayCommand] private async Task MoveItemUpAsync(PresetItemViewModel? item)
+    {
+        if (item is not { IsEmpty: false } s || s.Index <= 0) return;
+        int dest = s.Index - 1;
+        if (await RunAsync($"Moving '{s.Name}' up…", () => _reorder.MoveStepAsync(s.Index, up: true)) && dest < Items.Count)
+            Selected = Items[dest];
+    }
+
+    [RelayCommand] private async Task MoveItemDownAsync(PresetItemViewModel? item)
+    {
+        if (item is not { IsEmpty: false } s || s.Index >= DeviceRepository.SlotCount - 1) return;
+        int dest = s.Index + 1;
+        if (await RunAsync($"Moving '{s.Name}' down…", () => _reorder.MoveStepAsync(s.Index, up: false)) && dest < Items.Count)
+            Selected = Items[dest];
+    }
+
     [RelayCommand] private async Task DuplicateAsync()
     {
         if (Selected is not { IsEmpty: false } s) return;

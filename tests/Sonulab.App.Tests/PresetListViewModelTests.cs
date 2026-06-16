@@ -114,4 +114,57 @@ public class PresetListViewModelTests
         Assert.False(vm.Items[5].CanMoveDown);
         Assert.False(vm.Items[29].CanMoveDown);  // last slot
     }
+
+    [Fact] public async Task MoveItemDown_moves_that_row_and_selects_it()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);   // A (slot 0) down, swaps with B
+        Assert.Equal("B", vm.Items[0].Name);
+        Assert.Equal("A", vm.Items[1].Name);
+        Assert.Equal("A", vm.Selected?.Name);                    // selection follows the moved preset
+    }
+
+    [Fact] public async Task MoveItemUp_moves_that_row_independent_of_selection()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];                               // selection is on A, not the moved row
+        await vm.MoveItemUpCommand.ExecuteAsync(vm.Items[2]);     // C (slot 2) up, swaps with B
+        Assert.Equal("A", vm.Items[0].Name);
+        Assert.Equal("C", vm.Items[1].Name);
+        Assert.Equal("B", vm.Items[2].Name);
+    }
+
+    [Fact] public async Task MoveItemDown_into_empty_gap_relocates()
+    {
+        var (vm, _) = Make();                                    // A,B,C at 0..2; slot 3 empty
+        await vm.RefreshCommand.ExecuteAsync(null);
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[2]);   // C down into empty slot 3
+        Assert.True(vm.Items[2].IsEmpty);
+        Assert.Equal("C", vm.Items[3].Name);
+    }
+
+    [Fact] public async Task MoveItem_on_empty_row_is_noop()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        await vm.MoveItemUpCommand.ExecuteAsync(vm.Items[5]);     // empty slot
+        Assert.True(vm.Items[5].IsEmpty);
+        Assert.Equal("A", vm.Items[0].Name);                     // nothing moved
+    }
+
+    [Fact] public async Task MoveItem_is_gated_when_writes_disallowed()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: false);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);
+        Assert.Equal("A", vm.Items[0].Name);                     // unchanged — writes gated
+        Assert.Equal("B", vm.Items[1].Name);
+    }
 }
