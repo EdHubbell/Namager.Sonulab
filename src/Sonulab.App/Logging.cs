@@ -29,7 +29,8 @@ public static class Logging
             KeepFileOpen = true,
             AutoFlush = true,   // flush each write so timings show up immediately
         };
-        // Debug captures per-command device timings; Info captures high-level operation summaries.
+        // Debug captures per-operation reorder phase timing + summaries (low volume). Lower this to
+        // LogLevel.Trace to also capture per-command device timings (~130 lines per reorder).
         config.AddRule(LogLevel.Debug, LogLevel.Fatal, target);
         LogManager.Configuration = config;
         return file;

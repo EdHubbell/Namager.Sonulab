@@ -24,10 +24,11 @@ public sealed class SonuClient
         {
             sw.Stop();
             _gate.Release();
-            // Per-command device timing. The command head (verb + path) identifies it;
-            // long dwrite hex payloads are truncated so the log stays readable.
-            if (Log.IsDebugEnabled)
-                Log.Debug("cmd {0,5}ms  {1}", sw.ElapsedMilliseconds,
+            // Per-command device timing — Trace level (off by default; ~130 lines per reorder).
+            // Raise the file target to Trace in Logging.cs to capture it for perf diagnosis.
+            // The command head (verb + path) identifies it; long dwrite hex payloads are truncated.
+            if (Log.IsTraceEnabled)
+                Log.Trace("cmd {0,5}ms  {1}", sw.ElapsedMilliseconds,
                     command.Length > 70 ? command[..70] + "…" : command);
         }
     }
