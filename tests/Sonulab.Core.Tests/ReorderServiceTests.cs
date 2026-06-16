@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using Sonulab.Core;
 using Sonulab.Core.Services;
 using Xunit;
@@ -62,35 +64,99 @@ public class ReorderServiceTests
         Assert.All(seen, p => Assert.True(p.Done <= p.Total));
     }
 
-    // A device that fails the Nth save lets us prove rollback restores the original arrangement.
-    sealed class FailAfterNSaves : FakePresetDevice
+    // Fails exactly once on the Nth save; tracks that it fired and how many saves ran (so we can prove rollback saves executed).
+    sealed class FailOnceOnSave : FakePresetDevice
     {
-        private readonly int _n; private int _saves;
-        public FailAfterNSaves(int n) => _n = n;
+        private readonly int _failOnSave; private int _saves; public bool Fired;
+        public int Saves => _saves;
+        public FailOnceOnSave(int failOnSave) => _failOnSave = failOnSave;
         public override Task<string> SendAsync(string command, System.Threading.CancellationToken ct = default)
         {
-            if (command.Contains("\"save\":\"save\"") && ++_saves == _n + 1)
-                throw new System.IO.IOException("simulated write failure");
+            if (command.Contains("\"save\":\"save\""))
+            {
+                _saves++;
+                if (!Fired && _saves == _failOnSave) { Fired = true; throw new System.IO.IOException("simulated save failure"); }
+            }
             return base.SendAsync(command, ct);
         }
     }
 
-    [Fact] public async Task Rollback_restores_original_on_failure()
+    // Fails exactly once on a finalize rename (a dwrite chunk:-1 whose decoded name is NOT a temp "__sstmp_" name).
+    sealed class FailOnceOnFinalRename : FakePresetDevice
     {
-        var dev = new FailAfterNSaves(1);   // allow the first slot's save, fail the next
+        public bool Fired;
+        public override Task<string> SendAsync(string command, System.Threading.CancellationToken ct = default)
+        {
+            if (!Fired && command.StartsWith("dwrite root\\presets:", StringComparison.Ordinal) && command.Contains("\"chunk\":-1"))
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(command, "\"value\":\"([0-9a-fA-F]*)\"");
+                if (m.Success)
+                {
+                    var hex = m.Groups[1].Value;
+                    var bytes = new byte[hex.Length / 2];
+                    for (int i = 0; i < bytes.Length; i++) bytes[i] = System.Convert.ToByte(hex.Substring(i * 2, 2), 16);
+                    var name = System.Text.Encoding.ASCII.GetString(bytes).TrimEnd('\0');
+                    if (name.Length > 0 && !name.StartsWith("__sstmp_", StringComparison.Ordinal))
+                    { Fired = true; throw new System.IO.IOException("simulated rename failure"); }
+                }
+            }
+            return base.SendAsync(command, ct);
+        }
+    }
+
+    static void SeedABCD(FakePresetDevice dev)
+    {
         dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
         dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
         dev.SeedSlot(2, "C", new[] { @"root\app\amp\amp:{""value"":""mC""}" });
         dev.SeedSlot(3, "D", new[] { @"root\app\amp\amp:{""value"":""mD""}" });
-        await dev.OpenAsync();
+    }
+
+    [Fact] public async Task Rollback_restores_original_on_save_failure()
+    {
+        var dev = new FailOnceOnSave(failOnSave: 2);   // fail the 2nd save (mid forward pass)
+        SeedABCD(dev); await dev.OpenAsync();
         var repo = new DeviceRepository(new SonuClient(dev));
 
         await Assert.ThrowsAnyAsync<System.Exception>(() => new ReorderService(repo).MoveAsync(1, 3));
 
-        // After rollback the original A,B,C,D order and content are intact.
+        Assert.True(dev.Fired, "the injected save failure should have fired");
+        Assert.True(dev.Saves > 2, "rollback saves must have run after the failure");
         var slots = await repo.ListPresetsAsync();
         Assert.Equal(new[] { "A", "B", "C", "D" }, slots.Take(4).Select(s => s.Name).ToArray());
         Assert.Equal("\"mB\"", (await repo.ReadPresetAsync(1)).GetValueJson(@"root\app\amp\amp"));
+    }
+
+    [Fact] public async Task Rollback_restores_original_on_phase2_rename_failure()
+    {
+        var dev = new FailOnceOnFinalRename();
+        SeedABCD(dev); await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+
+        await Assert.ThrowsAnyAsync<System.Exception>(() => new ReorderService(repo).MoveAsync(1, 3));
+
+        Assert.True(dev.Fired, "the injected rename failure should have fired");
+        var slots = await repo.ListPresetsAsync();
+        Assert.Equal(new[] { "A", "B", "C", "D" }, slots.Take(4).Select(s => s.Name).ToArray());
+        Assert.Equal("\"mC\"", (await repo.ReadPresetAsync(2)).GetValueJson(@"root\app\amp\amp"));
+    }
+
+    [Fact] public async Task Move_through_empty_slot_in_range_deletes_and_shifts()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        // slot 1 intentionally empty
+        dev.SeedSlot(2, "C", new[] { @"root\app\amp\amp:{""value"":""mC""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+
+        await new ReorderService(repo).MoveAsync(0, 2);   // occupants [0,-1,2] -> [-1,2,0]
+
+        var names = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+        Assert.Equal("", names[0]);
+        Assert.Equal("C", names[1]);
+        Assert.Equal("A", names[2]);
+        Assert.Equal("\"mA\"", (await repo.ReadPresetAsync(2)).GetValueJson(@"root\app\amp\amp"));
     }
 
     [Theory]

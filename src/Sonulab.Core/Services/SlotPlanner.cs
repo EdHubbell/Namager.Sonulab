@@ -4,6 +4,8 @@ public static class SlotPlanner
 {
     public static int[] Move(int[] occupants, int from, int to)
     {
+        if (from < 0 || from >= occupants.Length) throw new ArgumentOutOfRangeException(nameof(from));
+        if (to < 0 || to >= occupants.Length) throw new ArgumentOutOfRangeException(nameof(to));
         var list = new List<int>(occupants);
         var item = list[from];
         list.RemoveAt(from);

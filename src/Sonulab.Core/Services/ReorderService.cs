@@ -11,11 +11,10 @@ public sealed class ReorderService
 
     public async Task MoveAsync(int from, int to, IProgress<ReorderProgress>? progress = null, CancellationToken ct = default)
     {
-        if (from == to) return;
-
         var slots = await _repo.ListPresetsAsync(ct);
         if (from < 0 || from >= slots.Count) throw new ArgumentOutOfRangeException(nameof(from));
         if (to < 0 || to >= slots.Count) throw new ArgumentOutOfRangeException(nameof(to));
+        if (from == to) return;
         if (slots[from].IsEmpty) throw new InvalidOperationException($"Slot {from} is empty; nothing to move.");
         var occupants = new int[slots.Count];
         for (int i = 0; i < slots.Count; i++) occupants[i] = slots[i].IsEmpty ? -1 : i;
@@ -33,10 +32,18 @@ public sealed class ReorderService
         {
             await WriteRangeAsync(target, snap, min, max, progress, ct);
         }
-        catch
+        catch (Exception original)
         {
-            // Roll back: restore the original arrangement (identity over the affected range).
-            await WriteRangeAsync(occupants, snap, min, max, null, ct);
+            try
+            {
+                await WriteRangeAsync(occupants, snap, min, max, null, CancellationToken.None);
+            }
+            catch (Exception rollbackEx)
+            {
+                throw new AggregateException(
+                    "Reorder failed and rollback also failed; the device may be in an inconsistent state.",
+                    original, rollbackEx);
+            }
             throw;
         }
     }
@@ -64,7 +71,7 @@ public sealed class ReorderService
                 var (_, doc) = snap[src];
                 await _repo.WritePresetToSlotAsync(slot, TempName(slot), doc, verify: true, ct);
             }
-            progress?.Report(new ReorderProgress(++done, total, $"slot {slot + 1}: content"));
+            progress?.Report(new ReorderProgress(++done, total, src == -1 ? $"slot {slot + 1}: clear" : $"slot {slot + 1}: content"));
         }
 
         // Phase 2: final names (name-only; never triggers save-by-name, so duplicates are impossible here).
@@ -74,9 +81,9 @@ public sealed class ReorderService
             int src = arrangement[slot];
             if (src != -1)
                 await _repo.RenameAsync(slot, snap[src].Name, ct);
-            progress?.Report(new ReorderProgress(++done, total, $"slot {slot + 1}: name"));
+            progress?.Report(new ReorderProgress(++done, total, src == -1 ? $"slot {slot + 1}: (empty)" : $"slot {slot + 1}: name"));
         }
     }
 
-    private static string TempName(int slot) => $"__sstmp_{slot}";
+    private static string TempName(int slot) => $"__sstmp_{slot}_{Guid.NewGuid():N}";
 }
