@@ -50,11 +50,10 @@
 
     <!-- Preset list -->
     <ListBox x:Name="PresetList" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
-             IsEnabled="{Binding !IsBusy}"
-             DragDrop.AllowDrop="True">
+             IsEnabled="{Binding !IsBusy}">
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:PresetItemViewModel">
-          <DockPanel PointerPressed="OnItemPointerPressed">
+          <DockPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2"
                         IsVisible="{Binding !IsEmpty}" VerticalAlignment="Center">
               <Button Classes="reorder" IsEnabled="{Binding CanMoveUp}" ToolTip.Tip="Move up"

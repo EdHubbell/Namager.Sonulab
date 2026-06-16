@@ -89,15 +89,4 @@ public partial class PresetListViewModel : ObservableObject
     {
         if (Selected is { } s && !string.IsNullOrWhiteSpace(newName)) await RunAsync($"Renaming…", () => _repo.RenameAsync(s.Index, newName!));
     }
-
-    [RelayCommand]
-    private async Task MoveToAsync((int from, int to) move)
-    {
-        if (move.from == move.to) return;
-        if (move.from < 0 || move.from >= Items.Count) return;
-        if (Items[move.from].IsEmpty) return;
-        int clampedTo = Math.Clamp(move.to, 0, Items.Count - 1);
-        if (await RunAsync($"Moving '{Items[move.from].Name}'…", () => _reorder.MoveAsync(move.from, clampedTo)))
-            { /* reloaded by RunAsync */ }
-    }
 }

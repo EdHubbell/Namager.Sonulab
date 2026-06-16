@@ -79,29 +79,6 @@ public class PresetListViewModelTests
         Assert.Equal("B", vm.Items[1].Name);
     }
 
-    [Fact] public async Task MoveTo_reorders_via_service()
-    {
-        var (vm, _) = Make();                 // existing helper seeds A,B,C in slots 0..2
-        await vm.RefreshCommand.ExecuteAsync(null);
-        await vm.MoveToCommand.ExecuteAsync((0, 2));   // A -> slot 2
-        Assert.Equal("B", vm.Items[0].Name);
-        Assert.Equal("C", vm.Items[1].Name);
-        Assert.Equal("A", vm.Items[2].Name);
-    }
-
-    [Fact] public async Task MoveTo_is_gated_when_writes_disallowed()
-    {
-        var dev = new FakePresetDevice();
-        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
-        dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
-        await dev.OpenAsync();
-        var repo = new DeviceRepository(new SonuClient(dev));
-        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: false);
-        await vm.RefreshCommand.ExecuteAsync(null);
-        await vm.MoveToCommand.ExecuteAsync((0, 1));
-        Assert.Equal("A", vm.Items[0].Name);   // unchanged
-    }
-
     [Fact] public async Task Move_flags_reflect_position_and_occupancy()
     {
         var (vm, _) = Make();
