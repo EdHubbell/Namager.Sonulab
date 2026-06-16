@@ -5,9 +5,23 @@ namespace Sonulab.Core.Protocol;
 public static class ResponseParser
 {
     public static IEnumerable<string> Records(string raw) =>
-        raw.Replace(" ", "").Split('\n')
+        RemoveSpacesOutsideQuotes(raw).Split('\n')
            .Select(l => l.TrimEnd('\r'))
            .Where(l => l.Length > 0);
+
+    private static string RemoveSpacesOutsideQuotes(string s)
+    {
+        var result = new System.Text.StringBuilder();
+        bool inQuotes = false;
+        for (int i = 0; i < s.Length; i++)
+        {
+            char c = s[i];
+            if (c == '"') inQuotes = !inQuotes;
+            if (c != ' ' || inQuotes)
+                result.Append(c);
+        }
+        return result.ToString();
+    }
 
     public static bool IsMeter(string record) =>
         record.Contains(@"root\sys\_meters\") || record.Contains(@"root\usb\_status");
