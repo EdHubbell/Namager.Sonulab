@@ -11,4 +11,6 @@ public partial class PresetItemViewModel : ObservableObject
     public bool IsEmpty => string.IsNullOrEmpty(Name);
 
     public PresetItemViewModel(PresetSlot slot) { Index = slot.Index; _name = slot.Name; }
+
+    partial void OnNameChanged(string value) => OnPropertyChanged(nameof(IsEmpty));
 }

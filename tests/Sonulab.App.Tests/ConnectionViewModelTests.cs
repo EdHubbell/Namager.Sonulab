@@ -33,6 +33,7 @@ public class ConnectionViewModelTests
     {
         var vm = new ConnectionViewModel(Session(), new[] { "COM6" });
         Assert.False(vm.IsConnected);
+        bool fired = false; vm.Connected += (_, _) => fired = true;
         await vm.ConnectCommand.ExecuteAsync(null);
         Assert.True(vm.IsConnected);
         Assert.True(vm.WritesAllowed);
@@ -40,5 +41,7 @@ public class ConnectionViewModelTests
         Assert.Contains("2.5.1", vm.Status);
         Assert.NotNull(vm.Repository);
         Assert.NotNull(vm.Reorder);
+        Assert.True(fired);
+        Assert.NotNull(vm.Client);
     }
 }

@@ -19,11 +19,11 @@ public partial class PresetListViewModel : ObservableObject
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _busyMessage = "";
 
-    private async Task RunAsync(string message, Func<Task> work)
+    private async Task<bool> RunAsync(string message, Func<Task> work)
     {
-        if (!_writes) return;
+        if (!_writes) return false;
         IsBusy = true; BusyMessage = message;
-        try { await work(); await ReloadAsync(); }
+        try { await work(); await ReloadAsync(); return true; }
         finally { IsBusy = false; BusyMessage = ""; }
     }
 
@@ -38,12 +38,22 @@ public partial class PresetListViewModel : ObservableObject
 
     [RelayCommand] private async Task MoveUpAsync()
     {
-        if (Selected is { Index: > 0 } s) await RunAsync($"Moving slot {s.DisplaySlot} up…", () => _reorder.MoveAsync(s.Index, s.Index - 1));
+        if (Selected is { Index: > 0 } s)
+        {
+            int dest = s.Index - 1;
+            if (await RunAsync($"Moving slot {s.DisplaySlot} up…", () => _reorder.MoveAsync(s.Index, dest)) && dest < Items.Count)
+                Selected = Items[dest];
+        }
     }
 
     [RelayCommand] private async Task MoveDownAsync()
     {
-        if (Selected is { } s && s.Index < Items.Count - 1) await RunAsync($"Moving slot {s.DisplaySlot} down…", () => _reorder.MoveAsync(s.Index, s.Index + 1));
+        if (Selected is { } s && s.Index < Items.Count - 1)
+        {
+            int dest = s.Index + 1;
+            if (await RunAsync($"Moving slot {s.DisplaySlot} down…", () => _reorder.MoveAsync(s.Index, dest)) && dest < Items.Count)
+                Selected = Items[dest];
+        }
     }
 
     [RelayCommand] private async Task DuplicateAsync()

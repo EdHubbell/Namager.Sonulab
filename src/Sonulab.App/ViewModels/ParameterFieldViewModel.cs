@@ -16,6 +16,10 @@ public partial class ParameterFieldViewModel : ObservableObject
     [ObservableProperty] private double _number;
     [ObservableProperty] private string? _text;
 
+    private string _originalJson = "";
+    public bool IsDirty => ToJsonValue() != _originalJson;
+    public void MarkClean() => _originalJson = ToJsonValue();
+
     public ParameterFieldViewModel(NodeSchema schema, string currentValueJson)
     {
         Path = schema.Path;
@@ -37,6 +41,8 @@ public partial class ParameterFieldViewModel : ObservableObject
             _number = n;
         else
             _text = trimmed.StartsWith('"') && trimmed.EndsWith('"') && trimmed.Length >= 2 ? trimmed[1..^1] : trimmed;
+
+        _originalJson = ToJsonValue();
     }
 
     public string ToJsonValue() => Kind == "float"

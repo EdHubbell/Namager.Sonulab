@@ -62,4 +62,20 @@ public class PresetListViewModelTests
         await vm.RenameCommand.ExecuteAsync("Aprime");
         Assert.Equal("Aprime", vm.Items[0].Name);
     }
+
+    [Fact] public async Task Writes_are_gated_when_not_allowed()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: false);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.MoveDownCommand.ExecuteAsync(null);
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Equal("A", vm.Items[0].Name);   // unchanged — writes were gated
+        Assert.Equal("B", vm.Items[1].Name);
+    }
 }

@@ -24,7 +24,9 @@ public partial class ParameterEditorViewModel : ObservableObject
             var schema = NodeSchema.FromRecord(rec);
             if (schema.Type is not ("float" or "enum" or "plist")) continue; // editable leaves only
             var value = rec.Json.TryGetProperty("value", out var v) ? v.GetRawText() : "\"\"";
-            Fields.Add(new ParameterFieldViewModel(schema, value));
+            var field = new ParameterFieldViewModel(schema, value);
+            field.PropertyChanged += (_, _) => IsDirty = true;
+            Fields.Add(field);
         }
         IsDirty = false;
     }
@@ -32,10 +34,11 @@ public partial class ParameterEditorViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveAsync()
     {
-        foreach (var f in Fields)
+        foreach (var f in Fields.Where(f => f.IsDirty))
             await _client.WriteAsync(f.Path, f.ToJsonValue());
         if (!string.IsNullOrEmpty(PresetName))
             await _client.SaveAsync(@"root\app\preset", PresetName);
+        foreach (var f in Fields) f.MarkClean();
         IsDirty = false;
     }
 }
