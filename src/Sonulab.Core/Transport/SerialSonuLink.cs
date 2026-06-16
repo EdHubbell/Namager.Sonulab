@@ -50,6 +50,9 @@ public sealed class SerialSonuLink : ISonuLink
                 sb.Append(Encoding.ASCII.GetString(buf, 0, n));
                 sawData = true;
                 lastData = sw.ElapsedMilliseconds;
+                // Device terminates each response with a NUL byte — stop as soon as we see it
+                // (deterministic and size-independent; the idle gap below is only a fallback).
+                if (Array.IndexOf(buf, (byte)0, 0, n) >= 0) break;
             }
             else
             {

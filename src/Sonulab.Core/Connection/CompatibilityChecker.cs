@@ -30,19 +30,13 @@ public sealed class CompatibilityChecker
             Arch: await client.ReadValueAsync(@"root\sys\_arch", ct) ?? "",
             License: await client.ReadValueAsync(@"root\sys\_license", ct) ?? "");
 
-        // Structural preflight (version-independent).
-        var browse = await client.BrowseRecordsAsync("root", ct);
-        var byPath = new Dictionary<string, NodeRecord>();
-        foreach (var rec in browse) byPath[rec.Path] = rec;
-        // Also accept per-node browse for fakes that seed list nodes directly.
-        foreach (var (path, _, _) in Lists)
-            if (!byPath.ContainsKey(path))
-                foreach (var rec in await client.BrowseRecordsAsync(path, ct))
-                    byPath[rec.Path] = rec;
-
+        // Structural preflight (version-independent). Browse each list node DIRECTLY — never
+        // `browse root`, which over serial is a ~30 KB / multi-second dump whose truncation would
+        // corrupt the next command's response. Each list-node browse is small and fast.
         foreach (var (path, size, itemType) in Lists)
         {
-            if (!byPath.TryGetValue(path, out var rec))
+            var rec = (await client.BrowseRecordsAsync(path, ct)).FirstOrDefault(r => r.Path == path);
+            if (rec is null)
                 return Mismatch(device, $"List node {path} not found.");
             int? GetInt(string n) => rec.Json.TryGetProperty(n, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number ? v.GetInt32() : null;
             string? GetStr(string n) => rec.Json.TryGetProperty(n, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;

@@ -39,4 +39,18 @@ public class SerialSonuLinkTests
         var link = new SerialSonuLink(new FakeSerialPort(), "COM6", 115200, Fast);
         await Assert.ThrowsAsync<InvalidOperationException>(() => link.SendAsync("read x"));
     }
+
+    [Fact] public async Task SendAsync_returns_immediately_on_nul_terminator()
+    {
+        // Response ends with NUL; with a huge idle gap, returning quickly proves we stop on NUL,
+        // not on the idle-gap fallback.
+        var port = new FakeSerialPort { Responder = _ => "root\\x:{\"value\":1}\0" };
+        var link = new SerialSonuLink(port, "COM6", 115200, new SerialLinkOptions { PollMs = 2, IdleGapMs = 10_000, MaxWaitMs = 10_000 });
+        await link.OpenAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var resp = await link.SendAsync("read x");
+        sw.Stop();
+        Assert.Contains("\"value\":1", resp);
+        Assert.True(sw.ElapsedMilliseconds < 1000, $"expected NUL-stop (<1s), took {sw.ElapsedMilliseconds}ms");
+    }
 }
