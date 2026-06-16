@@ -28,7 +28,7 @@
 
     <!-- Rename bar -->
     <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="8,4">
-      <TextBox x:Name="RenameBox" Grid.Column="0" PlaceholderText="New name…" Margin="0,0,4,0"/>
+      <TextBox x:Name="RenameBox" Grid.Column="0" Watermark="New name…" Margin="0,0,4,0"/>
       <Button Grid.Column="1" Content="Rename"
               Command="{Binding RenameCommand}"
               CommandParameter="{Binding #RenameBox.Text}"/>
