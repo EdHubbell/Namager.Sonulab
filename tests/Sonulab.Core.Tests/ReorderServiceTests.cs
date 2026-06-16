@@ -197,12 +197,13 @@ public class ReorderServiceTests
 
     sealed class CountingDevice : FakePresetDevice
     {
-        public int Saves, Selects, ParamWrites;
+        public int Saves, Selects, ParamWrites, Dreads;
         public override Task<string> SendAsync(string command, CancellationToken ct = default)
         {
             if (command.Contains("\"save\":\"save\"")) Saves++;
             else if (command.StartsWith("write root\\app\\preset:", StringComparison.Ordinal)) Selects++;
             else if (command.StartsWith("write root\\app\\", StringComparison.Ordinal)) ParamWrites++;
+            else if (command.StartsWith("dread ", StringComparison.Ordinal)) Dreads++;
             return base.SendAsync(command, ct);
         }
     }
@@ -260,5 +261,78 @@ public class ReorderServiceTests
         Assert.Equal("A", names[0]);          // source rebuilt by rollback
         Assert.Equal("", names[1]);           // destination cleared
         Assert.Equal("\"mA\"", await Amp(r, 0));   // content restored, not just the name
+    }
+
+    // ---- Lean (read-free) fast paths: the perf fix that drops the 8 KB content backup ----
+
+    [Fact] public async Task MoveStep_swap_reads_no_preset_content()
+    {
+        var d = new CountingDevice();
+        d.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        d.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });   // slot 2.. empty -> temp available
+        await d.OpenAsync(); var r = Repo(d);
+        await new ReorderService(r).MoveStepAsync(from: 0, up: false);          // swap A<->B
+        int dreads = d.Dreads, saves = d.Saves;   // snapshot BEFORE the Amp() content reads below
+        Assert.Equal(new[] { "B", "A" }, (await Names(r))[..2]);
+        Assert.Equal("\"mA\"", await Amp(r, 1));
+        Assert.Equal("\"mB\"", await Amp(r, 0));
+        Assert.Equal(0, dreads);     // lean swap pulls NO 8 KB content to the host
+        Assert.Equal(3, saves);      // exactly the 3 select+save copies
+    }
+
+    [Fact] public async Task MoveStep_relocate_reads_no_preset_content()
+    {
+        var d = new CountingDevice();
+        d.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });   // slot 1 empty
+        await d.OpenAsync(); var r = Repo(d);
+        await new ReorderService(r).MoveStepAsync(from: 0, up: false);          // relocate into the gap
+        Assert.Equal(new[] { "", "A" }, (await Names(r))[..2]);
+        Assert.Equal(0, d.Dreads);
+        Assert.Equal(1, d.Saves);
+    }
+
+    [Theory]
+    [InlineData(1)] [InlineData(2)] [InlineData(3)]
+    public async Task MoveStep_swap_rolls_back_to_original_on_save_failure(int failOnSave)
+    {
+        var d = new FailOnceOnSave(failOnSave);
+        d.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        d.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        await d.OpenAsync(); var r = Repo(d);
+        await Assert.ThrowsAnyAsync<System.Exception>(
+            () => new ReorderService(r).MoveStepAsync(from: 0, up: false));
+        Assert.True(d.Fired);
+        var names = await Names(r);
+        Assert.Equal("A", names[0]); Assert.Equal("B", names[1]);   // original layout restored
+        Assert.Equal("\"mA\"", await Amp(r, 0));
+        Assert.Equal("\"mB\"", await Amp(r, 1));
+        Assert.DoesNotContain(names, n => n.StartsWith("__sstmp_", StringComparison.Ordinal));   // no temp slots left
+    }
+
+    [Fact] public async Task MoveStep_swap_completes_despite_transient_final_rename_failure()
+    {
+        // The final rename happens AFTER the content is swapped (past the point of no return),
+        // so recovery finishes the swap rather than undoing it.
+        var d = new FailOnceOnFinalRename();
+        d.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        d.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        await d.OpenAsync(); var r = Repo(d);
+        await new ReorderService(r).MoveStepAsync(from: 0, up: false);   // no throw: swap finishes
+        Assert.True(d.Fired);
+        var names = await Names(r);
+        Assert.Equal("B", names[0]); Assert.Equal("A", names[1]);
+        Assert.Equal("\"mA\"", await Amp(r, 1));
+        Assert.Equal("\"mB\"", await Amp(r, 0));
+        Assert.DoesNotContain(names, n => n.StartsWith("__sstmp_", StringComparison.Ordinal));
+    }
+
+    [Fact] public async Task MoveStep_swap_falls_back_and_still_swaps_when_device_full()
+    {
+        var d = Dev(used: 30); await d.OpenAsync(); var r = Repo(d);   // no empty temp slot anywhere
+        await new ReorderService(r).MoveStepAsync(from: 0, up: false); // swaps via the replay fallback
+        var names = await Names(r);
+        Assert.Equal("B", names[0]); Assert.Equal("A", names[1]);
+        Assert.Equal("\"mA\"", await Amp(r, 1));
+        Assert.Equal("\"mB\"", await Amp(r, 0));
     }
 }
