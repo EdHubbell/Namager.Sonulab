@@ -40,10 +40,11 @@
     </StackPanel>
 
     <!-- Preset list -->
-    <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0">
+    <ListBox x:Name="PresetList" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
+             DragDrop.AllowDrop="True">
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:PresetItemViewModel">
-          <StackPanel Orientation="Horizontal" Spacing="8">
+          <StackPanel Orientation="Horizontal" Spacing="8" PointerPressed="OnItemPointerPressed">
             <TextBlock Text="{Binding DisplaySlot, StringFormat='{}{0:00}'}"
                        Width="28" VerticalAlignment="Center"
                        FontFamily="Consolas,Cascadia Mono,monospace"
