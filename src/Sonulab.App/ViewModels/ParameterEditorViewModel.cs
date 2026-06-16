@@ -70,6 +70,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                 }
             }
 
+            section.EnableField = section.Fields.FirstOrDefault(f => f.Path.EndsWith("\\on_off", StringComparison.Ordinal));
             if (section.Fields.Count > 0 || section.SubGroups.Count > 0)
                 Blocks.Add(section);
         }

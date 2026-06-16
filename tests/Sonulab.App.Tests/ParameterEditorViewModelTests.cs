@@ -79,4 +79,45 @@ public class ParameterEditorViewModelTests
         await vm.SaveCommand.ExecuteAsync(null);
         Assert.Equal("-6", await new SonuClient(d).ReadValueAsync(@"root\app\amp\gain"));
     }
+
+    static ParameterEditorViewModel VmFor(FakeSonuLink d) =>
+        new(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()),
+            new ParameterExposure(System.Array.Empty<string>()));
+
+    [Fact] public async Task Block_Enabled_reflects_on_off_leaf()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\on_off:{\"desc\":\"Enable\",\"value\":\"ON\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}",
+            "root\\app\\gate\\on_off:{\"desc\":\"Enable\",\"value\":\"OFF\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}",
+            "root\\app\\gate\\threshold:{\"desc\":\"Threshold\",\"value\":-60.0,\"type\":\"float\",\"min\":-100.0,\"max\":-20.0}",
+            "root\\app\\eq\\low:{\"desc\":\"Low\",\"value\":0.0,\"type\":\"float\",\"min\":-15.0,\"max\":15.0}");
+        await d.OpenAsync();
+        var vm = VmFor(d);
+        await vm.LoadCommand.ExecuteAsync(null);
+        bool? En(string h) => vm.Blocks.First(b => b.Header.Equals(h, StringComparison.OrdinalIgnoreCase)).Enabled;
+        Assert.True(En("amp"));
+        Assert.False(En("gate"));
+        Assert.Null(En("eq"));        // eq has no on_off -> no indicator
+    }
+
+    [Fact] public async Task Block_Enabled_updates_when_on_off_field_changes()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\on_off:{\"desc\":\"Enable\",\"value\":\"ON\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}");
+        await d.OpenAsync();
+        var vm = VmFor(d);
+        await vm.LoadCommand.ExecuteAsync(null);
+        var amp = vm.Blocks.First(b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase));
+        Assert.True(amp.Enabled);
+        bool raised = false;
+        amp.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(BlockSectionViewModel.Enabled)) raised = true; };
+        amp.EnableField!.Text = "OFF";
+        Assert.False(amp.Enabled);
+        Assert.True(raised);
+    }
 }

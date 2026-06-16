@@ -80,3 +80,20 @@ public sealed class BoolToOpacity : IValueConverter
     public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) =>
         throw new NotSupportedException();
 }
+
+/// <summary>bool? -> bool: true when non-null. Used to show the enable icon only when a block has an on_off toggle.</summary>
+public sealed class NotNull : IValueConverter
+{
+    public static readonly NotNull Instance = new();
+    public object? Convert(object? value, Type _, object? __, CultureInfo ___) => value is not null;
+    public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
+}
+
+/// <summary>enable-state (bool?) -> brush: true => LimeGreen (on), false/null => Gray (off).</summary>
+public sealed class EnabledToBrush : IValueConverter
+{
+    public static readonly EnabledToBrush Instance = new();
+    public object? Convert(object? value, Type _, object? __, CultureInfo ___) =>
+        value is true ? Brushes.LimeGreen : Brushes.Gray;
+    public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
+}
