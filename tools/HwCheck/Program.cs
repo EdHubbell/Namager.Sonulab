@@ -1,44 +1,64 @@
-// Plan 2 hardware validation harness — drives the REAL SystemSerialPort end-to-end.
-// Usage: dotnet run --project tools/HwCheck            (defaults to COM6)
-// Read-only: connects, identifies, checks compatibility, lists presets. No writes.
-using Sonulab.Core;
+// Plan 2/3a hardware harness — drives the REAL SystemSerialPort end-to-end.
+//   dotnet run --project tools/HwCheck                 # read-only: connect/identify/compat/list
+//   dotnet run --project tools/HwCheck -- --write-test # + guarded duplicate to an empty slot, then delete
+// Requires VoidX-Control CLOSED (it holds COM6).
 using Sonulab.Core.Connection;
-using Sonulab.Core.Protocol;
+using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
+
+var ports = args.Where(a => !a.StartsWith("--")).ToArray();
+if (ports.Length == 0) ports = new[] { "COM6" };
+bool writeTest = Array.IndexOf(args, "--write-test") >= 0;
 
 var options = new SerialLinkOptions { OpenSettleMs = 1500, ProbeAttempts = 3 };
 var connector = new SonuConnector(() => new SystemSerialPort(), options);
-var checker = new CompatibilityChecker(new[] { new TestedFirmware("stompstation1", "ESP32S3", "2.5.1") });
+var checker = new CompatibilityChecker(FirmwareCatalog.Default);
 
-var ports = args.Length > 0 ? args : new[] { "COM6" };
-Console.WriteLine($"Connecting on [{string.Join(",", ports)}] @115200 (settle {options.OpenSettleMs}ms, {options.ProbeAttempts} attempts, idleGap {options.IdleGapMs}, maxWait {options.MaxWaitMs})...");
+Console.WriteLine($"Connecting on [{string.Join(",", ports)}] @115200 ...");
+using var session = new DeviceSession(connector, checker);
+var state = await session.ConnectAsync(ports, new[] { 115200 });
+if (!state.Connected) { Console.WriteLine("RESULT: NOT CONNECTED (is VoidX closed?)."); return 1; }
 
-int rc;
-using (var session = new DeviceSession(connector, checker))
+var d = state.Device!; var c = state.Compatibility!;
+Console.WriteLine($"CONNECTED  name='{d.Name}'  ver={d.Version}  arch={d.Arch}  license={d.License}");
+Console.WriteLine($"Compatibility: {c.Status}  writesAllowed={c.WritesAllowed}  ({c.Message})");
+
+var repo = new DeviceRepository(session.Client!);
+var slots = await repo.ListPresetsAsync();
+Console.WriteLine($"Presets: {slots.Count(s => !s.IsEmpty)}/30 in use:");
+foreach (var s in slots) if (!s.IsEmpty) Console.WriteLine($"   slot {s.Index + 1,2} (idx {s.Index,2}): {s.Name}");
+
+if (!writeTest)
 {
-    var state = await session.ConnectAsync(ports, new[] { 115200 });
-    if (!state.Connected) { Console.WriteLine("RESULT: NOT CONNECTED."); return 1; }
-    var d = state.Device!; var c = state.Compatibility!;
-    Console.WriteLine($"CONNECTED  name='{d.Name}'  ver={d.Version}  arch={d.Arch}  license={d.License}");
-    Console.WriteLine($"Compatibility: {c.Status}  writesAllowed={c.WritesAllowed}  ({c.Message})");
-
-    var presets = await session.Client!.ReadListAsync(@"root\presets");
-    Console.WriteLine($"ReadListAsync(root\\presets): {presets.Count(p => !string.IsNullOrEmpty(p))}/{presets.Count} in use");
-    for (int i = 0; i < presets.Count; i++)
-        if (!string.IsNullOrEmpty(presets[i])) Console.WriteLine($"   slot {i + 1,2}: {presets[i]}");
-    rc = presets.Count == 0 ? 2 : 0;
-    session.Disconnect();
+    Console.WriteLine("RESULT: read-only PASS. (pass --write-test for the guarded duplicate test)");
+    return 0;
 }
 
-// --- Raw diagnostic: re-open directly and dump the exact bytes for `read root\presets` ---
-Console.WriteLine("\n--- raw diagnostic ---");
-var link = new SerialSonuLink(new SystemSerialPort(), ports[0], 115200, options);
-await link.OpenAsync();
-var raw = await link.SendAsync(@"read root\presets");
-Console.WriteLine($"raw length: {raw.Length}");
-Console.WriteLine("raw (NUL->|, first 400): " + raw.Replace("\0", "|").Replace("\r\n", "\\n ").Substring(0, Math.Min(400, raw.Length)));
-var recs = ResponseParser.NonMeterRecords(raw).ToList();
-Console.WriteLine($"parsed non-meter records: {recs.Count}");
-foreach (var r in recs.Take(3)) Console.WriteLine("   rec: " + r.Substring(0, Math.Min(80, r.Length)));
-link.Close();
-return rc;
+Console.WriteLine("\n--- GUARDED WRITE TEST (empty slot only; restored afterward) ---");
+if (!c.WritesAllowed) { Console.WriteLine("writes not allowed on this firmware; abort."); return 3; }
+
+int empty = slots.First(s => s.IsEmpty).Index;
+int source = slots.First(s => !s.IsEmpty).Index;
+Console.WriteLine($"Duplicating idx {source} ('{slots[source].Name}') -> empty idx {empty} as 'HW Test' (this replays ~157 params)...");
+var t0 = System.Diagnostics.Stopwatch.StartNew();
+await repo.DuplicateAsync(source, empty, "HW Test");
+t0.Stop();
+Console.WriteLine($"  duplicate took {t0.ElapsedMilliseconds} ms");
+
+var after = await repo.ListPresetsAsync();
+bool named = after[empty].Name == "HW Test";
+Console.WriteLine(named ? $"  OK: idx {empty} now 'HW Test'" : "  FAIL: name not set");
+
+var srcDoc = await repo.ReadPresetAsync(source);
+var dupDoc = await repo.ReadPresetAsync(empty);
+bool match = srcDoc.ToBytes().AsSpan().SequenceEqual(dupDoc.ToBytes());
+Console.WriteLine(match ? "  OK: duplicated content == source (byte-identical)" : "  FAIL: content differs");
+
+await repo.DeleteAsync(empty);
+var cleaned = await repo.ListPresetsAsync();
+bool clean = cleaned[empty].IsEmpty;
+Console.WriteLine(clean ? $"  OK: idx {empty} cleaned up (deleted)" : "  FAIL: slot not cleaned");
+
+session.Disconnect();
+Console.WriteLine((named && match && clean) ? "RESULT: WRITE-TEST PASS" : "RESULT: WRITE-TEST FAIL");
+return (named && match && clean) ? 0 : 4;
