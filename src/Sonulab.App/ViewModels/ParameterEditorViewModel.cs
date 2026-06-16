@@ -25,6 +25,8 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     public ObservableCollection<BlockSectionViewModel> Blocks { get; } = new();
     [ObservableProperty] private bool _isDirty;
     [ObservableProperty] private string _presetName = "";
+    [ObservableProperty] private bool _isLoading;
+    private string? _loadedName;
 
     private static readonly string[] EditableTypes = { "float", "enum", "plist" };
 
@@ -75,6 +77,22 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                 Blocks.Add(section);
         }
         IsDirty = false;
+    }
+
+    /// <summary>Activate <paramref name="presetName"/> on the device, then load its params. No-op if already loaded.</summary>
+    [RelayCommand]
+    private async Task LoadForAsync(string presetName)
+    {
+        if (string.IsNullOrEmpty(presetName) || presetName == _loadedName) return;
+        IsLoading = true;
+        try
+        {
+            await _client.WriteAsync(@"root\app\preset", "\"" + presetName + "\"");   // select/activate on device
+            await LoadAsync();                                                          // browse + rebuild blocks
+            PresetName = presetName;
+            _loadedName = presetName;
+        }
+        finally { IsLoading = false; }
     }
 
     [RelayCommand]

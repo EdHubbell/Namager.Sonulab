@@ -120,4 +120,55 @@ public class ParameterEditorViewModelTests
         Assert.False(amp.Enabled);
         Assert.True(raised);
     }
+
+    // Counts device commands by wrapping the link (FakeSonuLink.SendAsync is not virtual).
+    sealed class CountingLink : ISonuLink
+    {
+        private readonly ISonuLink _inner;
+        public int Browses, PresetWrites;
+        public CountingLink(ISonuLink inner) => _inner = inner;
+        public bool IsOpen => _inner.IsOpen;
+        public System.Threading.Tasks.Task OpenAsync(System.Threading.CancellationToken ct = default) => _inner.OpenAsync(ct);
+        public void Close() => _inner.Close();
+        public System.Threading.Tasks.Task<string> SendAsync(string command, System.Threading.CancellationToken ct = default)
+        {
+            if (command.StartsWith("browse ", StringComparison.Ordinal)) Browses++;
+            else if (command.StartsWith("write root\\app\\preset:", StringComparison.Ordinal)) PresetWrites++;
+            return _inner.SendAsync(command, ct);
+        }
+    }
+
+    static (ParameterEditorViewModel vm, CountingLink link) LoadForVm()
+    {
+        var dev = new FakeSonuLink();
+        dev.SeedBrowse(@"root\app",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}");
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var link = new CountingLink(dev);
+        var vm = new ParameterEditorViewModel(new SonuClient(link),
+            new LabelService(new Dictionary<string, string>()), new ParameterExposure(System.Array.Empty<string>()));
+        return (vm, link);
+    }
+
+    [Fact] public async Task LoadFor_activates_preset_builds_blocks_and_toggles_IsLoading()
+    {
+        var (vm, link) = LoadForVm();
+        var states = new System.Collections.Generic.List<bool>();
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ParameterEditorViewModel.IsLoading)) states.Add(vm.IsLoading); };
+        await vm.LoadForCommand.ExecuteAsync("Quad Reverb");
+        Assert.Equal("Quad Reverb", vm.PresetName);
+        Assert.NotEmpty(vm.Blocks);
+        Assert.Equal(1, link.PresetWrites);                 // activated on device
+        Assert.False(vm.IsLoading);
+        Assert.Equal(new[] { true, false }, states);        // disabled during load, re-enabled after
+    }
+
+    [Fact] public async Task LoadFor_dedups_same_preset_name()
+    {
+        var (vm, link) = LoadForVm();
+        await vm.LoadForCommand.ExecuteAsync("X");
+        await vm.LoadForCommand.ExecuteAsync("X");           // same name -> no-op
+        Assert.Equal(1, link.PresetWrites);
+        Assert.Equal(1, link.Browses);
+    }
 }
