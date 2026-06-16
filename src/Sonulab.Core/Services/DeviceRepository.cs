@@ -62,6 +62,12 @@ public sealed class DeviceRepository
         }
     }
 
+    public async Task DuplicateAsync(int sourceIndex, int destIndex, string newName, CancellationToken ct = default)
+    {
+        var doc = await ReadPresetAsync(sourceIndex, ct);
+        await WritePresetToSlotAsync(destIndex, newName, doc, verify: true, ct);
+    }
+
     private static byte[] NamePad(string name)
     {
         var buf = new byte[128];
