@@ -14,6 +14,9 @@ public sealed class ReorderService
         if (from == to) return;
 
         var slots = await _repo.ListPresetsAsync(ct);
+        if (from < 0 || from >= slots.Count) throw new ArgumentOutOfRangeException(nameof(from));
+        if (to < 0 || to >= slots.Count) throw new ArgumentOutOfRangeException(nameof(to));
+        if (slots[from].IsEmpty) throw new InvalidOperationException($"Slot {from} is empty; nothing to move.");
         var occupants = new int[slots.Count];
         for (int i = 0; i < slots.Count; i++) occupants[i] = slots[i].IsEmpty ? -1 : i;
 
