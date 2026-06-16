@@ -1,3 +1,4 @@
+using Sonulab.Core.Model;
 using Sonulab.Core.Protocol;
 using Sonulab.Core.Transport;
 
@@ -31,16 +32,14 @@ public sealed class SonuConnector
                     // First command after open is often lost to the ESP32 reset — retry.
                     var resp = await link.SendAsync(@"read root\sys\_name", ct);
                     bool ok = ResponseParser.NonMeterRecords(resp)
-                        .Any(r => r.StartsWith(@"root\sys\_name:{", StringComparison.Ordinal));
+                        .Any(r => NodeRecord.TryParse(r, out var nr) && nr.Path == @"root\sys\_name");
                     if (ok) return link;
                     if (attempt + 1 < attempts) await Task.Delay(retryDelay, ct);
                 }
                 link.Close();
             }
-            catch
-            {
-                try { link.Close(); } catch { /* port busy/denied — try next */ }
-            }
+            catch (OperationCanceledException) { try { link.Close(); } catch { } throw; }
+            catch { try { link.Close(); } catch { /* port busy/denied — try next */ } }
         }
         return null;
     }

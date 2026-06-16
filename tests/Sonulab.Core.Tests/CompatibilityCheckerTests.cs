@@ -31,9 +31,17 @@ public class CompatibilityCheckerTests
         Assert.Equal("2.5.1", r.Device.Version);
     }
 
-    [Fact] public async Task Unknown_version_blocks_writes()
+    [Fact] public async Task Newer_untested_version_flags_UntestedNewer()
     {
         var link = Seed(ver: "2.6.0"); await link.OpenAsync();
+        var r = await Checker().CheckAsync(new SonuClient(link));
+        Assert.Equal(CompatibilityStatus.UntestedNewer, r.Status);
+        Assert.False(r.WritesAllowed);
+    }
+
+    [Fact] public async Task Older_untested_version_is_Unknown()
+    {
+        var link = Seed(ver: "2.4.0"); await link.OpenAsync();
         var r = await Checker().CheckAsync(new SonuClient(link));
         Assert.Equal(CompatibilityStatus.Unknown, r.Status);
         Assert.False(r.WritesAllowed);

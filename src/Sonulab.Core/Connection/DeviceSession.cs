@@ -2,10 +2,11 @@ namespace Sonulab.Core.Connection;
 
 public sealed record SessionState(bool Connected, DeviceInfo? Device, CompatibilityResult? Compatibility);
 
-public sealed class DeviceSession
+public sealed class DeviceSession : IDisposable
 {
     private readonly SonuConnector _connector;
     private readonly CompatibilityChecker _checker;
+    private Sonulab.Core.Transport.SerialSonuLink? _link;
 
     public DeviceSession(SonuConnector connector, CompatibilityChecker checker)
     {
@@ -19,9 +20,20 @@ public sealed class DeviceSession
     {
         var link = await _connector.ConnectAsync(ports, bauds, ct);
         if (link is null) { Client = null; return new SessionState(false, null, null); }
-
-        Client = new SonuClient(link);
-        var compat = await _checker.CheckAsync(Client, ct);
-        return new SessionState(true, compat.Device, compat);
+        try
+        {
+            _link = link;
+            Client = new SonuClient(link);
+            var compat = await _checker.CheckAsync(Client, ct);
+            return new SessionState(true, compat.Device, compat);
+        }
+        catch
+        {
+            link.Close(); _link = null; Client = null;
+            throw;
+        }
     }
+
+    public void Disconnect() { _link?.Close(); _link = null; Client = null; }
+    public void Dispose() => Disconnect();
 }

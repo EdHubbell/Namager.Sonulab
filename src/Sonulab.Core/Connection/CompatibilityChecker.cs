@@ -51,13 +51,23 @@ public sealed class CompatibilityChecker
         }
 
         // Version gate.
-        bool tested = _tested.Any(t =>
-            t.License == device.License && t.Arch == device.Arch && t.Version == device.Version);
-        return tested
-            ? new CompatibilityResult(CompatibilityStatus.Tested, true,
-                $"Firmware {device.Version} is tested.", device)
-            : new CompatibilityResult(CompatibilityStatus.Unknown, false,
-                $"Firmware {device.Version} has not been tested; writes disabled.", device);
+        var matching = _tested.Where(t => t.License == device.License && t.Arch == device.Arch).ToList();
+        if (matching.Any(t => t.Version == device.Version))
+            return new CompatibilityResult(CompatibilityStatus.Tested, true,
+                $"Firmware {device.Version} is tested.", device);
+
+        if (System.Version.TryParse(device.Version, out var dv) && matching.Count > 0)
+        {
+            System.Version? maxTested = null;
+            foreach (var t in matching)
+                if (System.Version.TryParse(t.Version, out var tv) && (maxTested is null || tv > maxTested))
+                    maxTested = tv;
+            if (maxTested is not null && dv > maxTested)
+                return new CompatibilityResult(CompatibilityStatus.UntestedNewer, false,
+                    $"Firmware {device.Version} is newer than the tested {maxTested}; writes disabled.", device);
+        }
+        return new CompatibilityResult(CompatibilityStatus.Unknown, false,
+            $"Firmware {device.Version} has not been tested; writes disabled.", device);
     }
 
     private static CompatibilityResult Mismatch(DeviceInfo d, string msg) =>
