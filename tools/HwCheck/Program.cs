@@ -1,5 +1,6 @@
 // Plan 2/3a hardware harness — drives the REAL SystemSerialPort end-to-end.
 //   dotnet run --project tools/HwCheck                 # read-only: connect/identify/compat/list
+//   dotnet run --project tools/HwCheck -- --browse     # read-only dump of root\app (or --browse <path>)
 //   dotnet run --project tools/HwCheck -- --write-test # + guarded duplicate to an empty slot, then delete
 // Requires VoidX-Control CLOSED (it holds COM6).
 using Sonulab.Core.Connection;
@@ -42,6 +43,19 @@ var repo = new DeviceRepository(session.Client!);
 var slots = await repo.ListPresetsAsync();
 Console.WriteLine($"Presets: {slots.Count(s => !s.IsEmpty)}/30 in use:");
 foreach (var s in slots) if (!s.IsEmpty) Console.WriteLine($"   slot {s.Index + 1,2} (idx {s.Index,2}): {s.Name}");
+
+// --browse [path]  : read-only dump of a browse subtree (default root\app). Safe; no writes.
+int bi = Array.IndexOf(args, "--browse");
+if (bi >= 0)
+{
+    var bpath = (bi + 1 < args.Length && !args[bi + 1].StartsWith("--", StringComparison.Ordinal)) ? args[bi + 1] : @"root\app";
+    Console.WriteLine($"\n--- BROWSE {bpath} (read-only) ---");
+    var recs = await session.Client!.BrowseRecordsAsync(bpath);
+    foreach (var rec in recs) Console.WriteLine($"{rec.Path}: {rec.Json.GetRawText()}");
+    Console.WriteLine($"RESULT: BROWSE COMPLETE ({recs.Count} records)");
+    session.Disconnect();
+    return 0;
+}
 
 int ri = Array.IndexOf(args, "--restore");
 if (ri >= 0 && ri + 3 < args.Length)
