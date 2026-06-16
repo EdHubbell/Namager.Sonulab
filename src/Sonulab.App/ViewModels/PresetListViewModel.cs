@@ -31,7 +31,7 @@ public partial class PresetListViewModel : ObservableObject
     {
         var slots = await _repo.ListPresetsAsync();
         Items.Clear();
-        foreach (var s in slots) Items.Add(new PresetItemViewModel(s));
+        foreach (var s in slots) Items.Add(new PresetItemViewModel(s, slots.Count));
     }
 
     [RelayCommand] private Task RefreshAsync() => ReloadAsync();

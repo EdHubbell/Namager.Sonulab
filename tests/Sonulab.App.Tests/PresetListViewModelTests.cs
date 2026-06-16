@@ -101,4 +101,17 @@ public class PresetListViewModelTests
         await vm.MoveToCommand.ExecuteAsync((0, 1));
         Assert.Equal("A", vm.Items[0].Name);   // unchanged
     }
+
+    [Fact] public async Task Move_flags_reflect_position_and_occupancy()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.Items[0].CanMoveUp);     // first slot
+        Assert.True(vm.Items[0].CanMoveDown);
+        Assert.True(vm.Items[2].CanMoveUp);
+        Assert.True(vm.Items[2].CanMoveDown);    // slot 2 < 29, gap below
+        Assert.False(vm.Items[5].CanMoveUp);     // empty slot — no buttons
+        Assert.False(vm.Items[5].CanMoveDown);
+        Assert.False(vm.Items[29].CanMoveDown);  // last slot
+    }
 }
