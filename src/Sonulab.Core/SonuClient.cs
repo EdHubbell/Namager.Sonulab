@@ -1,4 +1,4 @@
-using System.Text;
+using System.Globalization;
 using System.Text.Json;
 using Sonulab.Core.Model;
 using Sonulab.Core.Protocol;
@@ -25,7 +25,7 @@ public sealed class SonuClient
         var raw = await SendAsync(SonuCommands.Read(path), ct);
         foreach (var rec in ResponseParser.NonMeterRecords(raw))
             if (NodeRecord.TryParse(rec, out var r) && r.Path == path)
-                return r.ValueString ?? r.ValueNumber?.ToString();
+                return r.ValueString ?? r.ValueNumber?.ToString(CultureInfo.InvariantCulture);
         return null;
     }
 

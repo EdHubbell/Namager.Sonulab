@@ -6,7 +6,7 @@ public static class ResponseParser
 {
     public static IEnumerable<string> Records(string raw) =>
         RemoveSpacesOutsideQuotes(raw).Split('\n')
-           .Select(l => l.TrimEnd('\r'))
+           .Select(l => l.TrimEnd('\r').Replace("\0", ""))
            .Where(l => l.Length > 0);
 
     private static string RemoveSpacesOutsideQuotes(string s)
@@ -31,10 +31,10 @@ public static class ResponseParser
 
     public static string? ChunkHex(string raw, int chunk)
     {
-        var rx = new Regex("\"chunk\":" + chunk + @"\b.*?""value"":""([0-9a-fA-F]*)""");
+        var pattern = "\"chunk\":" + chunk + @"\b.*?""value"":""([0-9a-fA-F]*)""";
         foreach (var rec in Records(raw))
         {
-            var m = rx.Match(rec);
+            var m = Regex.Match(rec, pattern);
             if (m.Success) return m.Groups[1].Value;
         }
         return null;

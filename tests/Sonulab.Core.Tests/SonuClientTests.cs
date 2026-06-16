@@ -46,4 +46,19 @@ public class SonuClientTests
         Assert.Equal("AMP Station",
             await client.ReadValueAsync(@"root\sys\_name"));
     }
+
+    [Fact] public async Task WriteAsync_updates_scalar()
+    {
+        var (client, link) = await Connected();
+        link.SeedScalar(@"root\app\amp\on_off", "\"ON\"");
+        await client.WriteAsync(@"root\app\amp\on_off", "\"OFF\"");
+        Assert.Equal("OFF", await client.ReadValueAsync(@"root\app\amp\on_off"));
+    }
+
+    [Fact] public async Task SaveAsync_writes_name_to_preset_node()
+    {
+        var (client, link) = await Connected();
+        await client.SaveAsync(@"root\app\preset", "Test");
+        Assert.Equal("Test", await client.ReadValueAsync(@"root\app\preset"));
+    }
 }
