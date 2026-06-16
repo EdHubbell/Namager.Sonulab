@@ -6,7 +6,9 @@
 
 **Architecture:** Avalonia 11 + CommunityToolkit.Mvvm. ViewModels depend only on `Sonulab.Core` services (`DeviceSession`, `DeviceRepository`, `ReorderService`, `BackupService`, `SonuClient`) through small interfaces, so they unit-test against the existing fakes (`FakePresetDevice`/`FakeSonuLink`) with **no hardware and no UI**. Views are thin XAML bound to the VMs and verified by running the app. All device work is async and marshaled back to the UI thread by Avalonia's binding layer; long operations (reorder/duplicate ≈ tens of seconds) surface a busy state + progress.
 
-**Tech Stack:** .NET 10, Avalonia 11, CommunityToolkit.Mvvm, xUnit. Builds on Plans 1–3b.
+**Tech Stack:** .NET 10, Avalonia 11, **FluentAvalonia** (Fluent v2 theme + `SymbolIcon` icons + `NavigationView`), CommunityToolkit.Mvvm, xUnit. Builds on Plans 1–3b.
+
+**UI style (per request):** Fluent design, icon-forward, **dashboard layout** — a `NavigationView` left rail (Presets / Amps / IRs / Settings) with a top status/connection bar and card-style content panels. Use FluentAvalonia's `SymbolIcon` (e.g. `ArrowUp`, `ArrowDown`, `Copy`, `Delete`, `Save`, `ArrowClockwise`, `Plug`) on actions. ViewModels are style-agnostic; this affects Task 1 (theme) and Task 6 (Views) only.
 
 **Scope (v1):** Presets are the focus — list, reorder, duplicate, rename, delete, edit, backup/restore. Amp/IR lists are shown **read-only** (reorder/upload deferred). `.nam` upload remains phase 2.
 
@@ -112,7 +114,16 @@ dotnet add src/Sonulab.App reference src/Sonulab.Core
 dotnet add tests/Sonulab.App.Tests reference src/Sonulab.App
 dotnet add tests/Sonulab.App.Tests reference src/Sonulab.Core
 dotnet add src/Sonulab.App package CommunityToolkit.Mvvm
+dotnet add src/Sonulab.App package FluentAvalonia
 ```
+
+- [ ] **Step 1b: Use the Fluent theme** — set `App.axaml` styles to FluentAvalonia. In `src/Sonulab.App/App.axaml`, replace the `<Application.Styles>` content with:
+```xml
+  <Application.Styles>
+    <sty:FluentAvaloniaTheme xmlns:sty="using:FluentAvalonia.Styling" />
+  </Application.Styles>
+```
+(Keep the `x:Class`/`xmlns` on the `<Application>` root.) This gives Fluent v2 styling app-wide; `SymbolIcon` becomes available via `xmlns:ui="using:FluentAvalonia.UI.Controls"`.
 
 - [ ] **Step 2: Make the App.Tests project see the Core test fakes**
 
@@ -702,38 +713,57 @@ public partial class MainWindowViewModel : ObservableObject
 ```
 > Implementation note: expose the connected `SonuClient` from `ConnectionViewModel` (add a `public SonuClient? Client => _session.Client;` property) and use it to build the `ParameterEditorViewModel`; the placeholder above must be replaced with `new ParameterEditorViewModel(_connection.Client!)`. Add the `Client` property to `ConnectionViewModel` in this task and adjust.
 
-- [ ] **Step 2: MainWindow.axaml** — a top connection bar, a preset list on the left, the editor on the right:
+- [ ] **Step 2: MainWindow.axaml** — Fluent **dashboard**: a top status/connection bar + a `NavigationView` left rail (Presets / Amps / IRs / Settings) with card-style content. The Presets page hosts the list + editor side by side.
 ```xml
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="using:Sonulab.App.ViewModels" x:Class="Sonulab.App.Views.MainWindow"
-        x:DataType="vm:MainWindowViewModel" Width="900" Height="600" Title="StompStation Manager">
+        xmlns:vm="using:Sonulab.App.ViewModels" xmlns:ui="using:FluentAvalonia.UI.Controls"
+        x:Class="Sonulab.App.Views.MainWindow" x:DataType="vm:MainWindowViewModel"
+        Width="1040" Height="680" Title="StompStation Manager">
   <DockPanel>
-    <Border DockPanel.Dock="Top" Padding="8" Background="#222">
-      <StackPanel Orientation="Horizontal" Spacing="12">
-        <Button Content="Connect" Command="{Binding Connection.ConnectCommand}"/>
-        <TextBlock Text="{Binding Connection.Status}" Foreground="White" VerticalAlignment="Center"/>
+    <!-- Top status/connection bar -->
+    <Border DockPanel.Dock="Top" Padding="12,8" Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}">
+      <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <Button Command="{Binding Connection.ConnectCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <ui:SymbolIcon Symbol="Sync"/><TextBlock Text="Connect"/>
+          </StackPanel>
+        </Button>
+        <ui:SymbolIcon Symbol="{Binding Connection.IsConnected, Converter={x:Static vm:Icons.PlugState}}"/>
+        <TextBlock Text="{Binding Connection.Status}" VerticalAlignment="Center"
+                   Theme="{StaticResource BodyStrongTextBlockStyle}"/>
       </StackPanel>
     </Border>
-    <Grid ColumnDefinitions="320,*">
-      <ContentControl Grid.Column="0" Content="{Binding Presets}"/>
-      <ContentControl Grid.Column="1" Content="{Binding Editor}"/>
-    </Grid>
+    <!-- Dashboard nav rail -->
+    <ui:NavigationView PaneDisplayMode="Left" IsSettingsVisible="True" IsBackButtonVisible="False">
+      <ui:NavigationView.MenuItems>
+        <ui:NavigationViewItem Content="Presets" IconSource="List" IsSelected="True">
+          <Grid ColumnDefinitions="360,*" Margin="12">
+            <ContentControl Grid.Column="0" Content="{Binding Presets}"/>
+            <ContentControl Grid.Column="1" Content="{Binding Editor}" Margin="12,0,0,0"/>
+          </Grid>
+        </ui:NavigationViewItem>
+        <ui:NavigationViewItem Content="Amps" IconSource="Audio"/>
+        <ui:NavigationViewItem Content="IRs" IconSource="Volume"/>
+      </ui:NavigationView.MenuItems>
+    </ui:NavigationView>
   </DockPanel>
 </Window>
 ```
+> Notes: `vm:Icons.PlugState` is a tiny `IValueConverter` returning a `Symbol` (`Accept` when connected, `Cancel` when not) — implement it alongside the `Eq` converters. The Amps/IRs nav items are placeholders showing read-only lists in v1 (wire later); Presets is the working page. FluentAvalonia `IconSource` accepts built-in symbol names; adjust to available symbols if a name differs in the installed FluentAvalonia version.
 
 - [ ] **Step 3: PresetListView.axaml** — list with move up/down/duplicate/delete + a busy overlay:
 ```xml
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:Sonulab.App.ViewModels" x:Class="Sonulab.App.Views.PresetListView"
-             x:DataType="vm:PresetListViewModel">
+             xmlns:vm="using:Sonulab.App.ViewModels" xmlns:ui="using:FluentAvalonia.UI.Controls"
+             x:Class="Sonulab.App.Views.PresetListView" x:DataType="vm:PresetListViewModel">
   <DockPanel>
+    <!-- Icon-forward Fluent command bar (xmlns:ui="using:FluentAvalonia.UI.Controls") -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="4">
-      <Button Content="↑" Command="{Binding MoveUpCommand}"/>
-      <Button Content="↓" Command="{Binding MoveDownCommand}"/>
-      <Button Content="Duplicate" Command="{Binding DuplicateCommand}"/>
-      <Button Content="Delete" Command="{Binding DeleteCommand}"/>
-      <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
+      <Button Command="{Binding MoveUpCommand}" ToolTip.Tip="Move up"><ui:SymbolIcon Symbol="ChevronUp"/></Button>
+      <Button Command="{Binding MoveDownCommand}" ToolTip.Tip="Move down"><ui:SymbolIcon Symbol="ChevronDown"/></Button>
+      <Button Command="{Binding DuplicateCommand}" ToolTip.Tip="Duplicate"><ui:SymbolIcon Symbol="Copy"/></Button>
+      <Button Command="{Binding DeleteCommand}" ToolTip.Tip="Delete"><ui:SymbolIcon Symbol="Delete"/></Button>
+      <Button Command="{Binding RefreshCommand}" ToolTip.Tip="Refresh"><ui:SymbolIcon Symbol="Refresh"/></Button>
     </StackPanel>
     <TextBlock DockPanel.Dock="Bottom" Text="{Binding BusyMessage}" IsVisible="{Binding IsBusy}" Margin="4"/>
     <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}">
