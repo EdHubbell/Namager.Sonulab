@@ -7,6 +7,7 @@ public sealed class FakeSonuLink : ISonuLink
     private readonly Dictionary<string, string> _scalars = new();          // path -> json value (e.g. "\"ON\"")
     private readonly Dictionary<string, string[]> _lists = new();          // path -> 30 names
     private readonly Dictionary<(string, int, int), string> _chunks = new(); // (path,index,chunk) -> hex
+    private readonly Dictionary<string, string> _browse = new(); // path -> full CRLF response text
 
     public bool IsOpen { get; private set; }
     public Task OpenAsync(CancellationToken ct = default) { IsOpen = true; return Task.CompletedTask; }
@@ -14,11 +15,14 @@ public sealed class FakeSonuLink : ISonuLink
 
     public void SeedScalar(string path, string jsonValue) => _scalars[path] = jsonValue;
     public void SeedList(string path, string[] names) => _lists[path] = names;
+    public void SeedBrowse(string path, params string[] records) =>
+        _browse[path] = string.Join("\r\n", records) + "\r\n";
 
     private static readonly Regex ReadRx = new(@"^read (.+)$");
     private static readonly Regex WriteRx = new(@"^write (\S+):(\{.*\})$");
     private static readonly Regex DReadRx = new(@"^dread (\S+):\{""index"":(-?\d+),""chunk"":(-?\d+)\}$");
     private static readonly Regex DWriteRx = new(@"^dwrite (\S+):\{""index"":(-?\d+),""chunk"":(-?\d+),""value"":""([0-9a-fA-F]*)""\}$");
+    private static readonly Regex BrowseRx = new(@"^browse (.+)$");
 
     public Task<string> SendAsync(string command, CancellationToken ct = default)
     {
@@ -36,6 +40,8 @@ public sealed class FakeSonuLink : ISonuLink
             var hex = _chunks.TryGetValue(key, out var h) ? h : "";
             return Task.FromResult($"{key.Item1}:{{\"index\":{key.Item2},\"chunk\":{key.Item3},\"value\":\"{hex}\"}}\r\n");
         }
+        if ((m = BrowseRx.Match(command)).Success)
+            return Task.FromResult(_browse.TryGetValue(m.Groups[1].Value, out var b) ? b : "");
         if ((m = WriteRx.Match(command)).Success)
         {
             // Minimal: capture {"value":X} into the scalar store.
