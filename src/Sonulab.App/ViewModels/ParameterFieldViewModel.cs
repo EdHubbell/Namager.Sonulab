@@ -7,7 +7,7 @@ namespace Sonulab.App.ViewModels;
 public partial class ParameterFieldViewModel : ObservableObject
 {
     public string Path { get; }
-    public string Label { get; }
+    public string Label { get; set; }
     public string Kind { get; }
     public double Min { get; }
     public double Max { get; }
