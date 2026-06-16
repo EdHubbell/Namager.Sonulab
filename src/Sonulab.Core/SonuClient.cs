@@ -39,15 +39,18 @@ public sealed class SonuClient
         return Array.Empty<string>();
     }
 
-    public async Task<IReadOnlyList<NodeSchema>> BrowseAsync(string path, CancellationToken ct = default)
+    public async Task<IReadOnlyList<NodeRecord>> BrowseRecordsAsync(string path, CancellationToken ct = default)
     {
         var raw = await SendAsync(SonuCommands.Browse(path), ct);
-        var list = new List<NodeSchema>();
+        var list = new List<NodeRecord>();
         foreach (var rec in ResponseParser.NonMeterRecords(raw))
             if (NodeRecord.TryParse(rec, out var r))
-                list.Add(NodeSchema.FromRecord(r));
+                list.Add(r);
         return list;
     }
+
+    public async Task<IReadOnlyList<NodeSchema>> BrowseAsync(string path, CancellationToken ct = default) =>
+        (await BrowseRecordsAsync(path, ct)).Select(NodeSchema.FromRecord).ToList();
 
     public Task WriteAsync(string path, string jsonValue, CancellationToken ct = default) =>
         SendAsync(SonuCommands.WriteValue(path, jsonValue), ct);
