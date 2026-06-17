@@ -97,3 +97,12 @@ public sealed class EnabledToBrush : IValueConverter
         value is true ? Brushes.LimeGreen : Brushes.Gray;
     public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
 }
+
+/// <summary>enable-state (bool?) -> tooltip text: true => "Effect on", else "Effect off".</summary>
+public sealed class EnabledToTooltip : IValueConverter
+{
+    public static readonly EnabledToTooltip Instance = new();
+    public object? Convert(object? value, Type _, object? __, CultureInfo ___) =>
+        value is true ? "Effect on" : "Effect off";
+    public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
+}

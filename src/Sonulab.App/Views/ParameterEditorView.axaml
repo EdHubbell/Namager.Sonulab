@@ -21,7 +21,7 @@
                               VerticalAlignment="Center"
                               IsVisible="{Binding Enabled, Converter={x:Static conv:NotNull.Instance}}"
                               Foreground="{Binding Enabled, Converter={x:Static conv:EnabledToBrush.Instance}}"
-                              ToolTip.Tip="Effect enabled"/>
+                              ToolTip.Tip="{Binding Enabled, Converter={x:Static conv:EnabledToTooltip.Instance}}"/>
                     <TextBlock Text="{Binding Header}" VerticalAlignment="Center"/>
                   </StackPanel>
                 </Expander.Header>
