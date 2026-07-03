@@ -3,6 +3,7 @@
 //   dotnet run --project tools/HwCheck -- --browse     # read-only dump of root\app (or --browse <path>)
 //   dotnet run --project tools/HwCheck -- --dump-amps  # read-only: pull every amp slot's converted .vxamp blob
 //   dotnet run --project tools/HwCheck -- --write-test # + guarded duplicate to an empty slot, then delete
+//   dotnet run --project tools/HwCheck -- --upload-amp <vxampPath> <slotIndex>  # guarded amp upload (backup+write+verify)
 // Requires VoidX-Control CLOSED (it holds COM6).
 using Sonulab.Core.Connection;
 using Sonulab.Core.Services;
@@ -90,6 +91,70 @@ if (Array.IndexOf(args, "--dump-amps") >= 0)
     Console.WriteLine($"RESULT: DUMP-AMPS COMPLETE ({dumped} amps -> {outDir})");
     session.Disconnect();
     return 0;
+}
+
+// --upload-amp <vxampPath> <slotIndex> : guarded amp upload.
+// Backs up the target slot first, then writes name (chunk 0), payload (chunks 1..96), terminator (chunk -1),
+// reads back and confirms byte-equality. Requires WritesAllowed.
+int uai = Array.IndexOf(args, "--upload-amp");
+if (uai >= 0)
+{
+    if (uai + 2 >= args.Length) { Console.WriteLine("Usage: --upload-amp <vxampPath> <slotIndex>"); session.Disconnect(); return 1; }
+    if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); session.Disconnect(); return 3; }
+    var vxampPath = args[uai + 1];
+    int slot = int.Parse(args[uai + 2]);
+    var client = session.Client!;
+
+    Console.WriteLine($"\n--- GUARDED AMP UPLOAD: slot {slot} <- '{vxampPath}' ---");
+
+    // 1. Back up the current slot before touching it
+    var bdir = System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups"));
+    System.IO.Directory.CreateDirectory(bdir);
+    var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+    var backupPath = System.IO.Path.Combine(bdir, $"amp-{slot}-{ts}.vxamp");
+    Console.WriteLine($"[backup] reading current amp slot {slot}...");
+    var currentBlob = await client.DReadBlobAsync(@"root\amp", slot, 96);
+    await System.IO.File.WriteAllBytesAsync(backupPath, currentBlob);
+    Console.WriteLine($"[backup] slot {slot} -> {backupPath} ({currentBlob.Length} B)");
+
+    // 2. Load the .vxamp file (must be exactly 12288 bytes)
+    var vxampBytes = await System.IO.File.ReadAllBytesAsync(vxampPath);
+    if (vxampBytes.Length != 12288)
+    {
+        Console.WriteLine($"RESULT: UPLOAD-AMP FAIL — expected 12288-byte .vxamp, got {vxampBytes.Length} B");
+        session.Disconnect();
+        return 4;
+    }
+
+    // 3. Write name chunk 0 (zero-padded ASCII, ≤31 chars derived from the file's stem)
+    var stem = System.IO.Path.GetFileNameWithoutExtension(vxampPath);
+    if (stem.Length > 31) stem = stem[..31];
+    var nameBuf = new byte[128];
+    var nameBytes = System.Text.Encoding.ASCII.GetBytes(stem);
+    Array.Copy(nameBytes, nameBuf, Math.Min(nameBytes.Length, 128));
+    Console.WriteLine($"[upload] chunk 0 (name): '{stem}'");
+    await client.DWriteChunkAsync(@"root\amp", slot, 0, nameBuf);
+
+    // 4. Write payload chunks 1..96 (128 B each from the 12288-byte file)
+    Console.WriteLine("[upload] chunks 1..96 (payload)...");
+    var chunk128 = new byte[128];
+    for (int chk = 1; chk <= 96; chk++)
+    {
+        Array.Copy(vxampBytes, (chk - 1) * 128, chunk128, 0, 128);
+        await client.DWriteChunkAsync(@"root\amp", slot, chk, chunk128);
+    }
+
+    // 5. Terminator chunk -1 (zeros) — signals end-of-write to the device
+    Console.WriteLine("[upload] chunk -1 (terminator)");
+    await client.DWriteChunkAsync(@"root\amp", slot, -1, new byte[128]);
+
+    // 6. Read back the slot and confirm payload bytes match (chunks 1..96 == the 12288-byte file)
+    Console.WriteLine("[verify] reading back slot...");
+    var readBack = await client.DReadBlobAsync(@"root\amp", slot, 96);
+    bool ok = readBack.AsSpan().SequenceEqual(vxampBytes.AsSpan());
+    Console.WriteLine(ok ? "RESULT: UPLOAD-AMP OK" : "RESULT: UPLOAD-AMP FAIL — readback mismatch");
+    session.Disconnect();
+    return ok ? 0 : 4;
 }
 
 int ri = Array.IndexOf(args, "--restore");
