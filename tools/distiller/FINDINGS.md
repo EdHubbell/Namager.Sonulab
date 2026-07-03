@@ -223,3 +223,93 @@ fitter writes):
 
 Diffing `codec.decode().["tensors"]` across 1–4 (only `nlmix` and the FIR gain
 split can change; `nlmix_header` is fixed) pins the mapping directly.
+
+## Task 5 — Wiener–Hammerstein fitter (`fit.py`)
+
+`fit_wh(model) -> dict` fits a NAM's response into the device tensor
+parameterization (exact `arch.tensor_sizes()` names/sizes). Both hard gates
+pass; full suite green (47 tests).
+
+### Sample-rate handling
+
+The small-signal IR is probed at the model's native rate and resampled to the
+device rate with `scipy.signal.resample_poly(ir, 44100, model.sample_rate)`
+whenever the rates differ (all corpus NAMs are 48 kHz). The nl/level fit
+generates its probe noise at 44.1 kHz, upsamples to the model rate for
+`.process`, and downsamples the response back (zero-phase polyphase, so
+alignment is preserved). Synthetic 44.1 kHz models skip resampling entirely.
+
+### Linear split convention (chosen + why)
+
+Two candidate splits are designed and the one whose cascade reproduces the
+target IR with lower relative L2 error is kept:
+
+- **delta split** — `pre_fir` = unit impulse, `g2_fir` = first 1024 taps of
+  the device-rate linear IR. L2-optimal for a fixed delta pre; exact gain.
+- **min-phase split** (VoidX-like) — 64-tap minimum-phase `pre_fir` from the
+  cepstrally-smoothed magnitude (32 quefrencies), `g2_fir` by regularized
+  spectral deconvolution. Mirrors the corpus shape (VoidX `pre_fir` is
+  near-delta: >96% of energy in the first 50 taps, and carries broad gain —
+  `‖pre‖` spans 1.2..67 across the corpus).
+
+In practice the **delta split wins for 13/14 real pairs** (min-phase only for
+the Quad Reverb outlier) and for all sim-model round trips. Corpus invariant
+`pre_fir[1008:] == 0` is enforced (trivially true for both splits). Cascade
+IR energy beyond 1024 taps is <= 3.6% (max, Princeton EOB) across the corpus,
+so the 1024-tap truncation is benign.
+
+### Hard-gate numbers
+
+- Shape gate: output == `dict(arch.tensor_sizes())` exactly.
+- Linear recovery (Pano-Verb, the test's amp): **1.65%** relative error
+  (gate 5%); across all 7 linear corpus amps: **0.11–1.65%**, fitted
+  `nlmix` exactly 0 for every one.
+
+### Level convention (differs from VoidX — deliberate)
+
+The cascade's output is RMS-calibrated to the source model at a **0.3-RMS
+noise drive** (gain folded into `g2_fir`); for an exactly linear model this is
+a no-op, which the recovery gate requires. VoidX instead normalizes to a
+device reference loudness: its cascades run **15–198x (median ~52x) hotter**
+than the source NAM at the same drive (rms 3.2–12.2 vs the NAMs' 0.045–0.20)
+— this is the "gross level offset" observed in Task 4. A NAM-faithful level
+is the only choice consistent with the round-trip gate; **the packing/e2e
+task should decide whether to add a corpus-loudness normalization step**
+(distilled amps will otherwise sit ~34 dB below stock corpus amps on device).
+
+### nlmix fit
+
+Grid over s in [0, 0.7] (step 0.01) against the 0.3-RMS driven response, with
+the output **RMS-gain-matched per candidate** so the metric scores waveshape,
+not level — a raw-error grid slams every real NAM to the 0.7 ceiling because
+all corpus NAMs compress heavily at drive level relative to their small-signal
+gain (the Task 4 gain-domination problem). Snaps to exactly 0 when the best
+nonzero s improves the shape error by <0.5% (clean models must stay exactly
+linear; all 7 linear sim-model round trips give exactly 0).
+
+### Quality vs VoidX (per `vx.pairs()`, 14 pairs)
+
+- log-mag corr of fitted cascade IR vs **VoidX's** cascade IR: **median
+  0.974**, min 0.710 (Quad Reverb).
+- log-mag corr of fitted cascade IR vs the **NAM's** IR: **median 0.994**,
+  min 0.957 — closer to the NAM than VoidX's own tensors are (Task 3
+  measured VoidX-vs-NAM at median 0.947).
+- Gain-matched driven error vs the NAM (0.3 drive): fit **median 0.50** vs
+  VoidX **0.995** (VoidX's tensors are near-decorrelated from the NAM at the
+  sample level — likely internal delay/phase differences — so sample-domain
+  closeness to VoidX is not a usable target; spectral closeness above is).
+- `|nlmix_fit − nlmix_VoidX|`: median 0.305, max 0.70. The corpus does not
+  determine VoidX's nlmix from any measurable level-dependence: NAMs VoidX
+  marks clean (Pano-Verb, Princeton Clean, Vibrolux) compress to 0.16–0.47 of
+  their small-signal gain at 0.1–0.3 drive, and corr(compression, vx_nlmix)
+  ≈ −0.2 at every level tried. This is the Task 4 ambiguity resurfacing;
+  the controlled captures listed there would pin it.
+
+### Concerns
+
+- Fitted `nlmix` is self-consistent (matches the model's own level-dependent
+  waveshape under the pinned Task-4 `apply_nl`) but does **not** reproduce
+  VoidX's values; per-amp drive character on device may differ from stock
+  VoidX conversions until the nonlinearity is pinned by controlled captures.
+- Output loudness follows the NAM, not VoidX's device reference (see Level
+  convention) — needs a decision at packing/e2e time.
