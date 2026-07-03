@@ -22,6 +22,23 @@
 - Run tests from the repo root with the harness dir on the path: `python -m pytest tools/vxamp-re -v`.
 - **Discovery tasks (3, 4, 6) are analysis, not pure TDD.** Their "test" asserts an invariant that must hold once the finding is correct, AND the task must append its conclusion (with evidence) to `tools/vxamp-re/FINDINGS.md`. A reviewer gates the task on the written finding, not just a green test.
 
+### POST-TASK-3 ENCODING CORRECTION (supersedes the int8 assumption in Tasks 4–7)
+
+Task 3 discovered the body is NOT int8. It is **float32-LE weights, XOR-obfuscated** by a keystream
+`k[i] = (K0[i%32] − 0x20·(i//32)) mod 256` (K0 recovered from the zero-padding island). Validated:
+one keystream de-obfuscates all 20 models into **2056** finite, zero-peaked float32 values, and the
+transform round-trips exactly. Downstream tasks MUST consume the real API in `decode_body.py`:
+- `deobfuscate(body) -> bytes`, `as_float32(body) -> np.ndarray` (2056 LE float32), `weights(body) ->
+  np.ndarray` (metadata islands zeroed), `keystream(n) -> np.ndarray`.
+- Authoritative constants: `ELEMENT_DTYPE="float32-le"`, `OBFUSCATION=("xor-keystream",32,-0x20)`,
+  `ELEMENT_COUNTS={"float32-le":2056,"int8":8224}` (use **2056 float32**). `ENCODING`/`dequant`/
+  `SCALE_DEFAULT` are DEAD legacy paths — do NOT use them.
+- The two constant islands (body offsets 4032 len 76, 8204 len 16) are **metadata floats**, not weights.
+- Element count for arch-matching is **2056 float32** (minus the metadata floats), NOT 8224 int8.
+- There is **no lossy quantization** (float32 is exact), so a byte-exact encoder is achievable IF the
+  device weights turn out to be derivable from the source `.nam`. Early evidence: source weights do
+  NOT appear in the de-obfuscated stream → likely a **re-fit** (Task 6 decides), i.e. the (c) fallback.
+
 ---
 
 ### Task 1: Corpus loader + container invariants
