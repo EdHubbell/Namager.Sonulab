@@ -49,7 +49,7 @@ def _vxamp_ampname(path: Path) -> str:
 
 
 def load_nam(path) -> dict:
-    return json.loads(Path(path).read_text())
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def nam_weights(nam: dict) -> list[tuple[str, list[float]]]:

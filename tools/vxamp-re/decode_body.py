@@ -52,9 +52,10 @@ KEYSTREAM_BASE = bytes([
 ])
 
 # The two constant islands (Task 2) are metadata, not weights: (4032,76) is float32
-# zero-padding, (8204,16) is a trailer (a length field + ASCII tag). Masked out of
-# weights() so decoded weights stay bounded/weight-like.
-_META_FLOAT_SLICES = ((4032 // 4, (4032 + 76) // 4 + 1), (8204 // 4, (8204 + 16) // 4 + 1))
+# zero-padding (floats 1008..1026), (8204,16) is a trailer (floats 2051..2054).
+# Slice ends at the island boundary — no +1 overshoot: float 1027 (g2_fir[0]) and
+# float 2055 (nlmix scalar) are real model values and must NOT be zeroed.
+_META_FLOAT_SLICES = ((4032 // 4, (4032 + 76) // 4), (8204 // 4, (8204 + 16) // 4))
 
 
 def as_int8(body: bytes) -> np.ndarray:
