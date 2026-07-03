@@ -16,6 +16,10 @@ Task 4 will wire them into the `nl` callable; the linear path ignores them.
 
 Public API
 ----------
+SAMPLE_RATE : int
+    Device sample rate (confirmed Task 3). The IR list type is ``wav_44100``;
+    empirically confirmed via probe.logmag_corr against paired NAM responses.
+
 simulate(tensors, x, nl=None) -> np.ndarray
     Device forward model. nl=None means identity (exact for nlmix==0 corpus amps).
 
@@ -31,6 +35,10 @@ from typing import Callable
 
 import numpy as np
 from scipy.signal import lfilter
+
+# Device sample rate — empirically confirmed in Task 3 via probe.logmag_corr.
+# The vxamp IR list type is "wav_44100"; corr at 44100 Hz >> 0.7 across all pairs.
+SAMPLE_RATE: int = 44100
 
 try:
     import codec
