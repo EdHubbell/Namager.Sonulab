@@ -80,6 +80,7 @@ N_TAPS = 1024          # pre_fir / g2_fir length (arch.tensor_sizes)
 PRE_ZERO_TAIL = 1008   # corpus invariant: pre_fir taps 1008..1023 are 0.0
 N_PRE_SHORT = 64       # min-phase pre length (corpus pre_fir is near-delta, ~50 taps)
 NLMIX_MAX = 0.7        # corpus nlmix range is [0, 0.67]
+NAM_DEFAULT_SAMPLE_RATE = 48000  # NAM ecosystem default; a model with sample_rate=None is assumed 48 kHz
 
 _headers_cache: dict | None = None
 
@@ -198,7 +199,9 @@ def _design_linear(ir_dev: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def _model_ref_at_device_rate(model, x_dev: np.ndarray) -> np.ndarray:
     """Run the model on device-rate input, resampling in/out if rates differ."""
     sr = getattr(model, "sample_rate", None)
-    if sr is None or int(sr) == ds.SAMPLE_RATE:
+    if sr is None:
+        sr = NAM_DEFAULT_SAMPLE_RATE  # treat omitted sample_rate as 48 kHz (NAM ecosystem default)
+    if int(sr) == ds.SAMPLE_RATE:
         return np.asarray(model.process(x_dev), dtype=np.float64)[: x_dev.size]
     x_m = resample_poly(x_dev.astype(np.float64), int(sr), ds.SAMPLE_RATE)
     y_m = np.asarray(model.process(x_m.astype(np.float32)), dtype=np.float64)
@@ -277,7 +280,9 @@ def fit_wh(model) -> dict:
     # 1) small-signal linear IR, at the device rate
     ir = probe.linear_ir_of_model(model, n=8192)
     sr = getattr(model, "sample_rate", None)
-    if sr is not None and int(sr) != ds.SAMPLE_RATE:
+    if sr is None:
+        sr = NAM_DEFAULT_SAMPLE_RATE  # treat omitted sample_rate as 48 kHz (NAM ecosystem default)
+    if int(sr) != ds.SAMPLE_RATE:
         ir = resample_poly(np.asarray(ir, dtype=np.float64),
                            ds.SAMPLE_RATE, int(sr))
 

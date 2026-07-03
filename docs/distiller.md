@@ -261,7 +261,7 @@ Discovered while correcting the fidelity metric; measured via corpus simulator o
 **Polarity inversion:** VoidX's linear cascade IR has the opposite sign to the
 source NAM's IR on **7/14** pairs — Dumble Clean, Dumble Drive, Pano-Verb,
 Roland JC-120, Twin Reverb SM57, Vibrolux, Vox AC30.  The signed driven-output
-gain is negative on 5/14 of those.
+gain is negative on 5 of those 7.
 
 **Bulk time offset:** VoidX's driven output leads the NAM by **1–87 samples
 (~0.02–2 ms)** on 13/14 pairs (best lag +2..+87 in the simulator; Vibrolux is −1).

@@ -162,7 +162,7 @@ def distill(nam_path) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# fidelity metric (gain-invariant)
+# fidelity metric (gain-, polarity- and delay-invariant)
 # ---------------------------------------------------------------------------
 
 ALIGN_MAX_LAG = 128  # +-samples (~2.9 ms) searched for bulk-delay alignment
