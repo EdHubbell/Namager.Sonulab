@@ -313,3 +313,91 @@ linear; all 7 linear sim-model round trips give exactly 0).
   VoidX conversions until the nonlinearity is pinned by controlled captures.
 - Output loudness follows the NAM, not VoidX's device reference (see Level
   convention) — needs a decision at packing/e2e time.
+
+## Task 6 — end-to-end distill CLI + dataset fidelity (`distill.py`)
+
+`distill(nam_path) -> bytes` =
+`write_vxamp(loudness_normalize(fit_wh(load_nam_model(nam_path))))` — a full,
+valid 12288-byte `.vxamp` slot (header/size-field/round-trip gates pass).
+`fidelity_vs_nam(nam_path)` returns the gain-invariant
+`{our_err, voidx_err, our_vs_voidx}` row. CLI: `python tools/distiller/distill.py
+<model.nam> [out.vxamp]` for one file; no args = the batch report below.
+All 50 tests green (`pytest tools/distiller tools/vxamp-re`).
+
+### Loudness normalization — CALIBRATED (resolves the Task 5 open decision)
+
+**Device reference loudness: `+13.53 dBFS` output RMS on a fixed 0.3-RMS
+noise drive** (the Task-5 calibration signal, seed 0, 16 000 samples).
+
+- **Method:** simulate every paired VoidX tensor set through `device_sim`
+  on that reference signal and measure output dBFS. The 14 pairs cluster:
+  median **+13.6**, std **3.3 dB**, range +10.0..+21.7 — a device target,
+  not per-amp behaviour (the source NAMs at the same drive sit ~34 dB lower,
+  −27..−14 dBFS; that is exactly the 15–198x "hotter" factor from Task 5).
+- **Cross-check — NAM `metadata.loudness` is NOT the mechanism:** corr
+  between VoidX output dBFS and the NAM's `metadata.loudness` across pairs is
+  **0.05** (and residual std after subtracting loudness is *worse*, 4.3 dB),
+  so VoidX does not normalize from that metadata field. The corpus median is
+  the best available reference; `device_reference_db()` computes it lazily
+  from the corpus (read-only, cached).
+- **Application:** `loudness_normalize()` simulates OUR fitted tensors on the
+  same reference and folds the dB-matching gain into `g2_fir` (Task-5
+  convention; `apply_nl` is homogeneous of degree 1 and precedes `g2_fir`,
+  so the scale is exact and the waveshape untouched). Every distilled corpus
+  amp lands at **exactly +13.53 dBFS** — stock-comparable level on device.
+
+### Fidelity metric (gain-invariant, so loudness never confounds it)
+
+`err = 0.5 * [(1 − logmag_corr(linear IRs)) + gain-matched NRMSE(0.3-RMS
+driven output)]` — spectral shape (small-signal impulse ≡ sweep for the
+linear path) + time-domain shape at guitar level, RMS-matched before the
+NRMSE. Both device candidates (ours, VoidX's) are scored against the same
+NAM response resampled to 44.1 kHz.
+
+### Batch result (14 pairs): our_err ≤ voidx_err on **14/14** — DoD met
+
+| amp | vx nlmix | our spec_err | vx spec_err | our nrmse | vx nrmse | **our_err** | **voidx_err** |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Bassman 5F6A - Super Clean | 0.42 | 0.0000 | 0.0254 | 0.0913 | 1.1225 | **0.0457** | 0.5740 |
+| Princeton EOB 5 M160 | 0.25 | 0.0184 | 0.0318 | 0.6237 | 1.3275 | **0.3210** | 0.6796 |
+| Blackface Twin Reverb 65 2x12 | 0.21 | 0.0034 | 0.0455 | 0.2329 | 1.3704 | **0.1182** | 0.7080 |
+| Deluxe Reverb Clean Full | 0.40 | 0.0002 | 0.0261 | 0.8476 | 1.3379 | **0.4239** | 0.6820 |
+| Dumble Steel SS Clean Full | 0.25 | 0.0227 | 0.0205 | 0.2638 | 1.4338 | **0.1433** | 0.7272 |
+| Dumble Steel SS Drive Full | 0.20 | 0.0200 | 0.0385 | 0.5090 | 1.4349 | **0.2645** | 0.7367 |
+| Pano-Verb | 0.00 | 0.0007 | 0.0254 | 0.4991 | 0.9243 | **0.2499** | 0.4749 |
+| Princeton Clean 3 SM57 | 0.00 | 0.0035 | 0.0075 | 0.5756 | 1.4489 | **0.2895** | 0.7282 |
+| Quad Reverb Randall Head SM57 | 0.30 | 0.0426 | 0.3554 | 1.3883 | 1.3094 | **0.7154** | 0.8324 |
+| Roland JC-120 Jazz Chorus | 0.67 | 0.0039 | 0.0279 | 0.7853 | 1.2943 | **0.3946** | 0.6611 |
+| Super Reverb EQ Flat SM 57 | 0.23 | 0.0011 | 0.0200 | 0.3070 | 1.3904 | **0.1541** | 0.7052 |
+| Twin Reverb SM57 | 0.29 | 0.0103 | 0.0568 | 0.4399 | 1.4748 | **0.2251** | 0.7658 |
+| Vibrolux Reverb | 0.00 | 0.0072 | 0.0301 | 0.5164 | 1.8066 | **0.2618** | 0.9184 |
+| Vox AC30 Clean | 0.01 | 0.0072 | 0.0199 | 0.5669 | 1.4069 | **0.2871** | 0.7134 |
+
+Clean/edge-of-breakup subset (vx nlmix ≤ 0.25 + the 4 clean amps): ours wins
+every row; the test amp Twin Reverb SM57 gives our 0.225 vs VoidX 0.766. Each
+metric term *independently* favours us on 13/14 (spectral: all but Dumble
+Clean 0.0227 vs 0.0205; NRMSE: all but the Quad Reverb nonlinear outlier).
+The brief's test threshold (`our_err <= voidx_err * 1.10`) needed no
+recalibration — the strict spec intent (`our_err ≤ voidx_err`) holds 14/14.
+
+### sample_rate guard
+
+A `.nam` that omits `sample_rate` is treated as **48 000 Hz** (NAM ecosystem
+default; `NAM_DEFAULT_SAMPLE_RATE`), never the device's 44.1 kHz — assuming
+device rate would skip resampling and frequency-warp the amp by ~9%
+(Task 5 review flag). Guarded in `_load_model` + covered by
+`test_missing_sample_rate_defaults_to_nam_48k`.
+
+### Concerns
+
+- VoidX's large driven NRMSE (~0.9–1.8, i.e. near-decorrelated) is partly
+  internal delay/phase differences (the Task-5 finding), which the
+  time-domain term genuinely penalizes; but the *spectral* term alone also
+  favours us 13/14, so the win is not a metric artifact.
+- The device reference is a corpus **median** with 3.3 dB spread; per-amp
+  VoidX levels vary within ±6 dB of it. If VoidX's true normalization is
+  measured differently (e.g. on-device perceptual weighting), our constant
+  RMS target could differ by a few dB — inaudible-adjacent, and trivially
+  recalibrated once controlled captures exist (Task 4 list).
+- The nlmix caveat from Task 5 stands: drive character on device may differ
+  from stock VoidX conversions until controlled captures pin the shaper.
