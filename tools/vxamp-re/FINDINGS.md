@@ -145,3 +145,82 @@ several clean models) gates a nonlinear stage between them ("G2" plausibly = gai
 - Encoder implications (Tasks 5+): building a `.vxamp` no longer means exporting WaveNet weights —
   it means *fitting/deriving* two FIRs + nlmix from the `.nam` (linear IR extraction is already
   reproducible in numpy per the validation above).
+
+## Task 6 — repack-vs-refit verdict (CONCLUDED: REFIT)
+
+**`VERDICT = "refit"`** — the device does NOT store or derive its body from the source `.nam` weights.
+VoidX-Control *distills* the source WaveNet/SlimmableContainer into an entirely different model class
+(FIR-cascade, Wiener-Hammerstein-style) and the device body is not reproducible from the `.nam`
+without re-running VoidX's internal FIR/nonlinearity fitting process.
+
+### Model-class argument
+
+| Layer | Source `.nam` | Device body |
+|-------|--------------|-------------|
+| Architecture | WaveNet (dilated conv + LeakyReLU + residual) or SlimmableContainer | FIR-cascade: `pre_fir` (1024 taps) + `g2_fir` (1024 taps) + `nlmix` scalar |
+| Weight count | 1871 (Slim sub0), 12146 (Slim sub1), or 13802 (WaveNet) | 2056 float32 (2048 filter taps + 8 metadata/scalar) |
+| Tensor shapes | No shared dimension with device tensors | Fixed 1024-tap FIR × 2, no conv layers |
+| `model_class_match` | **False** across all 14 corpus pairs | — |
+
+There is no mapping from source weight tensors to device tensors: the architectures are incompatible.
+
+### Per-pair weight-space evidence (`verdict.compare()`, all 14 corpus pairs)
+
+`exact_frac` = fraction of source weights appearing verbatim (within 1e-4) as a contiguous run in
+the de-obfuscated device float stream (`decode_body.as_float32`).
+`corr` = Pearson correlation, device weight vector vs best-size source submodel (aligned length).
+`max_abs_err` = max |device − source| on that aligned comparison.
+
+```
+Pair                               exact_frac      corr  max_abs_err   source counts
+--------------------------------  ----------  --------  -----------   ----------------
+Bassman 5F6A - Super Clean          0.005208    0.0194       8.7122   sub0=1871 sub1=12146
+Princeton EOB 5 M160                0.000145    0.0174      52.4715   root=13802
+Blackface Twin Reverb 65 2x12       0.002996    0.0846       2.6367   sub0=1871 sub1=12146
+Deluxe Reverb Clean Full            0.001355   -0.0392       8.4234   sub0=1871 sub1=12146
+Dumble Steel SS Clean Full          0.001498    0.2061       2.3754   sub0=1871 sub1=12146
+Dumble Steel SS Drive Full          0.001355    0.0539       8.1879   sub0=1871 sub1=12146
+Pano-Verb                           0.001355    0.0699       4.0216   sub0=1871 sub1=12146
+Princeton Clean 3 SM57              0.000145   -0.0439      17.2159   root=13802
+Quad Reverb Randall Head SM57       0.000145    0.0165      25.2847   root=13802
+Roland JC-120 Jazz Chorus           0.001641    0.0250       5.5003   sub0=1871 sub1=12146
+Super Reverb EQ Flat SM 57          0.001498   -0.0257       4.3444   sub0=1871 sub1=12146
+Twin Reverb SM57                    0.001355   -0.0610       3.6351   sub0=1871 sub1=12146
+Vibrolux Reverb                     0.001355   -0.1321       8.5109   sub0=1871 sub1=12146
+Vox AC30 Clean                      0.000499   -0.0903      24.1161   sub0=1871 sub1=12146
+
+Summary: exact_frac min=0.000145  max=0.005208  all < 0.01 ✓
+         corr range −0.13 … +0.21  (noise; no pair exceeds |corr| > 0.21)
+         max_abs_err range 2.4 … 52.5  (large across the board)
+```
+
+- **`exact_frac` ≤ 0.0052 for every pair** — the residual non-zero values are incidental collisions
+  in the near-zero tail (both FIR filters and NN weights have zero-peaked distributions; the
+  16-tap zero-padding run in `pre_fir[1008:1024]` can match a zero stretch in source, giving a
+  short run, but never more than ~10 values out of ≥1871 source weights, keeping the fraction well
+  below 0.01). This is **not a repack**: source weights are absent from the device body.
+- **`corr` ≈ 0** — no linear relationship (not a scaling/reordering of source weights).
+- **`max_abs_err` ≫ 0** — magnitudes differ by 2–52 across all pairs.
+
+### Spectral distillation (CITED from Task 4, not recomputed here)
+
+```
+median log-mag corr: pre_fir ⊛ g2_fir vs WaveNet IR = 0.915   (11 Slimmable pairs)
+```
+
+The two FIRs in series jointly fit the source model's linear response — confirming the device body
+is a **fitted approximation** (distillation), not a repack of the source weights.
+
+### Conclusion and path forward
+
+Byte-exact `.nam` → `.vxamp` reproduction is **NOT achievable** without reproducing VoidX's internal
+FIR/nonlinearity fitting workflow — we cannot assemble a valid `.vxamp` simply by copying or
+transforming NAM weight tensors.
+
+**Path forward = (c) sub-project 2: fit our own FIR-cascade.**
+The linear IR fitting is already validated in numpy (spectral corr 0.915 on the Task 4 cascade).
+The remaining work is:
+1. Extract the small-signal IR from the source `.nam` (WaveNet forward, already implemented).
+2. Fit `pre_fir` + `g2_fir` to that IR (e.g., least-squares Wiener filter or IFFT).
+3. Determine the `nlmix` scalar from the source's nonlinear behaviour (or default 0.0 for clean amps).
+4. Assemble using `codec.encode()` (Task 5 encoder, verified byte-exact).
