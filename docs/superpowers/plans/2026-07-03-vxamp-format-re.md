@@ -39,6 +39,31 @@ transform round-trips exactly. Downstream tasks MUST consume the real API in `de
   device weights turn out to be derivable from the source `.nam`. Early evidence: source weights do
   NOT appear in the de-obfuscated stream → likely a **re-fit** (Task 6 decides), i.e. the (c) fallback.
 
+### POST-TASK-4 ARCHITECTURE + VERDICT (reframes Tasks 5–7)
+
+Task 4 established the device model is **not a WaveNet** — it is a **Wiener–Hammerstein FIR-cascade in a
+TLV container** (`arch.py`): `pre_fir` (1024 float32 taps) ‖ chunk `"G2"` (len 0x100C: 3-float header +
+1024-tap cabinet IR) ‖ chunk `"nlmix"` (len 0x14: 4-float header + 1 mix scalar). Reconciles to 2056
+float32 / 8224 bytes; TLV closes on all 20 models; `arch.parse_chunks()`, `arch.split_body()`,
+`arch.tensor_sizes()` implement it. **The verdict is therefore REFIT by construction:** VoidX distills
+the source NAM (a neural WaveNet) into a *different, cheaper model class*, so byte-exact reproduction from
+a `.nam` is not achievable without reproducing VoidX's FIR/nonlinearity fitting. Consequences:
+- **Task 5 (codec):** decode via `arch.parse_chunks`/`split_body` + `decode_body.deobfuscate`/`as_float32`
+  into named tensors (pre_fir, g2_header, g2_ir, nlmix_header, nlmix_scalar) + the byte-exact raw bytes;
+  encode = reassemble tensors → float32-LE bytes → re-obfuscate (`keystream`) → header → pad to 12288.
+  `roundtrip_ok(blob)` must be byte-exact for all 20 (the obfuscation round-trips exactly, already shown).
+- **Task 6 (verdict):** record `VERDICT="refit"` with evidence — device is a FIR-cascade (different model
+  class), source WaveNet weights absent from the de-obfuscated stream, and `pre_fir ⊛ g2_ir` approximates
+  the source's linear response (Task 4 spectral corr ≈ 0.915) = a distillation, not a repack. There is NO
+  WaveNet-weight alignment (`align_source_to_device` does not apply); the `compare()` metric is the
+  spectral/structural evidence, not weight exact-match.
+- **Task 7 (encoder):** implement the container **writer** — `write_vxamp(pre_fir, g2_header, g2_ir,
+  nlmix_header, nlmix_scalar) -> 12288-byte slot`, validated **byte-exact by round-tripping every real
+  blob's decoded tensors** and by container-shape checks. The actual `.nam → FIR-cascade` **fitting
+  (distillation)** is **OUT OF SCOPE (sub-project 2)** — expose it as a clearly-documented
+  `NotImplementedError` stub (`nam_to_vxamp`) pointing to sub-project 2, so the byte-exact test for the
+  refit path is skipped honestly rather than faked.
+
 ---
 
 ### Task 1: Corpus loader + container invariants
