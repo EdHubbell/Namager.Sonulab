@@ -106,15 +106,20 @@ CONFIRMED structure (identical across all 20 models, regardless of source archit
   - bytes 2–7 = `00`. bytes 8–19 = ASCII `"Amp model"` + NULs. bytes 20–23 = tag `yvSD`.
   - bytes 24–31 = constant config (`21 22 ff 00 9a e7 c4 be`) — same for every model.
 - **Per-model data = bytes 32..8255** (8224 bytes).
-- **Body is fixed-point quantized, NOT float.** Decoded as **int8** the body lands exactly in
-  [−128/127, +1.000], mean ≈ 0 (textbook symmetric int8 quantization); float32/float16/bf16 all decode
-  to garbage. Source weights do **not** appear verbatim → quantization + tensor reordering (and likely
-  per-tensor scales) sit on top of a plain copy.
-- **OPEN — the difficulty-deciding question:** is VoidX a **requantize+repack** of the source weights
-  (reproducible offline from the `.nam`) or a **re-fit/distill** to a fixed arch (needs a training
-  pipeline)? Fixed 8224-byte int8 container points toward repack, but unproven. Next task: take a source
-  whose architecture already matches the device's fixed target and check whether its quantized weights
-  map into the blob body.
+- **Body is `float32-LE` weights XOR-obfuscated with a position-dependent keystream**
+  (not int8; see full format doc). Keystream: `k[i] = (K0[i%32] − 0x20·(i//32)) mod 256`,
+  K0 = 32-byte `KEYSTREAM_BASE` in `tools/vxamp-re/decode_body.py`. De-obfuscated body =
+  **2056 float32 elements**, zero-peaked and bounded (confirmed all 20 models). See
+  `tools/vxamp-re/decode_body.py` (`deobfuscate()`, `as_float32()`).
+- **Model structure: Wiener–Hammerstein FIR-cascade in a TLV container** (`pre_fir` 1024 taps |
+  chunk `"G2"` 1024-tap cab IR | chunk `"nlmix"` 1 nonlinear-mix scalar). 1024+3+1024+4+1 =
+  2056 floats = 8224 B. See `tools/vxamp-re/arch.py` (`DEVICE_ARCH`, `parse_chunks()`).
+- **RESOLVED — VERDICT = REFIT.** VoidX-Control *distills* the source NAM (WaveNet /
+  SlimmableContainer) into this fixed FIR-cascade model class. Source weights are absent from
+  the device body (`exact_frac` ≤ 0.0052 across all 14 paired models; `corr` ≈ noise; spectral
+  cascade corr 0.915 confirms the device is a fitted approximation of the source's linear
+  response). Byte-exact `.nam`→`.vxamp` is NOT achievable without reproducing VoidX's fitting.
+  Path forward: fit our own FIR-cascade (sub-project 2). Full detail: `docs/vxamp-format.md`.
 
 ## CONFIRMED via live read-only probe (2026-06-15, `docs/probe-output.txt`)
 - **Serial:** `COM6` (CH340), **115200 8N1**. Auto-probe `read root\sys\_name` succeeds.
