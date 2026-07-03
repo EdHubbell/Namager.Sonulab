@@ -319,7 +319,7 @@ linear; all 7 linear sim-model round trips give exactly 0).
 `distill(nam_path) -> bytes` =
 `write_vxamp(loudness_normalize(fit_wh(load_nam_model(nam_path))))` — a full,
 valid 12288-byte `.vxamp` slot (header/size-field/round-trip gates pass).
-`fidelity_vs_nam(nam_path)` returns the gain-invariant
+`fidelity_vs_nam(nam_path)` returns the gain/polarity/delay-invariant
 `{our_err, voidx_err, our_vs_voidx}` row. CLI: `python tools/distiller/distill.py
 <model.nam> [out.vxamp]` for one file; no args = the batch report below.
 All 50 tests green (`pytest tools/distiller tools/vxamp-re`).
@@ -346,39 +346,86 @@ noise drive** (the Task-5 calibration signal, seed 0, 16 000 samples).
   so the scale is exact and the waveshape untouched). Every distilled corpus
   amp lands at **exactly +13.53 dBFS** — stock-comparable level on device.
 
-### Fidelity metric (gain-invariant, so loudness never confounds it)
+### Fidelity metric (gain-, polarity- and delay-invariant)
 
-`err = 0.5 * [(1 − logmag_corr(linear IRs)) + gain-matched NRMSE(0.3-RMS
-driven output)]` — spectral shape (small-signal impulse ≡ sweep for the
-linear path) + time-domain shape at guitar level, RMS-matched before the
-NRMSE. Both device candidates (ours, VoidX's) are scored against the same
-NAM response resampled to 44.1 kHz.
+`err = 0.5 * [(1 − logmag_corr(linear IRs)) + aligned NRMSE(0.3-RMS driven
+output)]` — spectral shape (small-signal impulse ≡ sweep for the linear
+path) + time-domain shape at guitar level. Before the NRMSE the candidate is
+**best-lag aligned** (argmax |normalized cross-correlation| over ±128
+samples, ~±2.9 ms) and scaled by a **signed least-squares gain**
+`g = ⟨ref,y⟩/⟨y,y⟩` (may be negative), so inaudible bulk delay, level, and
+polarity inversion cost nothing. The identical procedure is applied to our
+output and to VoidX's; both are scored against the same NAM response
+resampled to 44.1 kHz.
 
-### Batch result (14 pairs): our_err ≤ voidx_err on **14/14** — DoD met
+**Metric correction (review fix).** The first version of this section used a
+positive RMS-gain match with no lag alignment. That penalized VoidX's
+polarity inversion + bulk time offset (see RE finding below) maximally —
+VoidX driven NRMSE came out 0.92–1.81, i.e. worse-than-uncorrelated on most
+amps — inflating our result to an apparent 14/14 win at ~3× margins. Those
+numbers were metric artifacts and are retracted; the table below is the
+honest comparison.
 
-| amp | vx nlmix | our spec_err | vx spec_err | our nrmse | vx nrmse | **our_err** | **voidx_err** |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Bassman 5F6A - Super Clean | 0.42 | 0.0000 | 0.0254 | 0.0913 | 1.1225 | **0.0457** | 0.5740 |
-| Princeton EOB 5 M160 | 0.25 | 0.0184 | 0.0318 | 0.6237 | 1.3275 | **0.3210** | 0.6796 |
-| Blackface Twin Reverb 65 2x12 | 0.21 | 0.0034 | 0.0455 | 0.2329 | 1.3704 | **0.1182** | 0.7080 |
-| Deluxe Reverb Clean Full | 0.40 | 0.0002 | 0.0261 | 0.8476 | 1.3379 | **0.4239** | 0.6820 |
-| Dumble Steel SS Clean Full | 0.25 | 0.0227 | 0.0205 | 0.2638 | 1.4338 | **0.1433** | 0.7272 |
-| Dumble Steel SS Drive Full | 0.20 | 0.0200 | 0.0385 | 0.5090 | 1.4349 | **0.2645** | 0.7367 |
-| Pano-Verb | 0.00 | 0.0007 | 0.0254 | 0.4991 | 0.9243 | **0.2499** | 0.4749 |
-| Princeton Clean 3 SM57 | 0.00 | 0.0035 | 0.0075 | 0.5756 | 1.4489 | **0.2895** | 0.7282 |
-| Quad Reverb Randall Head SM57 | 0.30 | 0.0426 | 0.3554 | 1.3883 | 1.3094 | **0.7154** | 0.8324 |
-| Roland JC-120 Jazz Chorus | 0.67 | 0.0039 | 0.0279 | 0.7853 | 1.2943 | **0.3946** | 0.6611 |
-| Super Reverb EQ Flat SM 57 | 0.23 | 0.0011 | 0.0200 | 0.3070 | 1.3904 | **0.1541** | 0.7052 |
-| Twin Reverb SM57 | 0.29 | 0.0103 | 0.0568 | 0.4399 | 1.4748 | **0.2251** | 0.7658 |
-| Vibrolux Reverb | 0.00 | 0.0072 | 0.0301 | 0.5164 | 1.8066 | **0.2618** | 0.9184 |
-| Vox AC30 Clean | 0.01 | 0.0072 | 0.0199 | 0.5669 | 1.4069 | **0.2871** | 0.7134 |
+### Batch result (14 pairs), corrected metric — DoD met, margins are small
 
-Clean/edge-of-breakup subset (vx nlmix ≤ 0.25 + the 4 clean amps): ours wins
-every row; the test amp Twin Reverb SM57 gives our 0.225 vs VoidX 0.766. Each
-metric term *independently* favours us on 13/14 (spectral: all but Dumble
-Clean 0.0227 vs 0.0205; NRMSE: all but the Quad Reverb nonlinear outlier).
-The brief's test threshold (`our_err <= voidx_err * 1.10`) needed no
-recalibration — the strict spec intent (`our_err ≤ voidx_err`) holds 14/14.
+| amp | vx nlmix | our spec_err | vx spec_err | our nrmse | vx nrmse | **our_err** | **voidx_err** | ratio |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Bassman 5F6A - Super Clean | 0.42 | 0.0000 | 0.0254 | 0.0912 | 0.2882 | **0.0456** | 0.1568 | 3.44 |
+| Princeton EOB 5 M160 | 0.25 | 0.0184 | 0.0318 | 0.5926 | 0.6417 | **0.3055** | 0.3368 | 1.10 |
+| Blackface Twin Reverb 65 2x12 | 0.21 | 0.0034 | 0.0455 | 0.2313 | 0.3027 | **0.1174** | 0.1741 | 1.48 |
+| Deluxe Reverb Clean Full | 0.40 | 0.0002 | 0.0261 | 0.7677 | 0.8015 | **0.3840** | 0.4138 | 1.08 |
+| Dumble Steel SS Clean Full | 0.25 | 0.0227 | 0.0205 | 0.2615 | 0.5058 | **0.1421** | 0.2632 | 1.85 |
+| Dumble Steel SS Drive Full | 0.20 | 0.0200 | 0.0385 | 0.4923 | 0.6289 | **0.2561** | 0.3337 | 1.30 |
+| Pano-Verb | 0.00 | 0.0007 | 0.0254 | 0.4834 | 0.6338 | **0.2420** | 0.3296 | 1.36 |
+| Princeton Clean 3 SM57 | 0.00 | 0.0035 | 0.0075 | 0.5513 | 0.6385 | **0.2774** | 0.3230 | 1.16 |
+| Quad Reverb Randall Head SM57 | 0.30 | 0.0426 | 0.3554 | 0.9970 | 0.7940 | **0.5198** | 0.5747 | 1.11 |
+| Roland JC-120 Jazz Chorus | 0.67 | 0.0039 | 0.0279 | 0.5540 | 0.6842 | **0.2789** | 0.3560 | 1.28 |
+| Super Reverb EQ Flat SM 57 | 0.23 | 0.0011 | 0.0200 | 0.3034 | 0.3323 | **0.1522** | 0.1762 | 1.16 |
+| Twin Reverb SM57 | 0.29 | 0.0103 | 0.0568 | 0.4291 | 0.4001 | **0.2197** | 0.2285 | 1.04 |
+| Vibrolux Reverb | 0.00 | 0.0072 | 0.0301 | 0.4989 | 0.7366 | **0.2531** | 0.3834 | 1.51 |
+| Vox AC30 Clean | 0.01 | 0.0072 | 0.0199 | 0.4822 | 0.6841 | **0.2447** | 0.3520 | 1.44 |
+
+Honest reading of the corrected numbers:
+
+- `our_err ≤ voidx_err` on 14/14 nominally, but only **10/14 are clear wins**
+  (ratio ≥ 1.16, median 1.3×); **4 are near-ties** within metric noise:
+  Twin Reverb SM57 (1.04×), Deluxe Reverb (1.08×), Princeton EOB (1.10×),
+  Quad Reverb (1.11×). The earlier "14/14 at ~3× margins" claim was wrong;
+  only Bassman shows a ~3× margin. The DoD ("our_err ≤ voidx_err on a
+  majority of the clean subset") holds comfortably on the clear wins alone.
+- The reviewer's estimate of ~11/14 (VoidX taking Deluxe/Quad/Roland) came
+  from aligning only VoidX's output while keeping our old scores. Under the
+  mandated **symmetric** treatment our scores also improve slightly (the
+  signed LS gain is the error-optimal scalar, and Roland/Quad benefit from
+  the same lag search), which is what nudges those three back to thin wins —
+  i.e. those rows are metric-sensitive, not robust wins.
+- Per term: spectral favours us 13/14 (loses Dumble Clean 0.0227 vs 0.0205)
+  but with mostly small absolute margins (~0.01–0.04 except Bassman/Quad);
+  aligned NRMSE favours us 12/14 (loses Twin Reverb 0.429 vs 0.400 and the
+  known-nonlinear Quad outlier 0.997 vs 0.794).
+- The test amp Twin Reverb SM57 is a **near-tie**: our 0.2197 vs VoidX
+  0.2285 (3.9% margin). The clean-amp test (`our_err ≤ voidx_err * 1.10`)
+  passes on these honest numbers without recalibration — but the strict `≤`
+  now holds by 4%, not 3.4×.
+
+### RE finding — VoidX inverts polarity and shifts its output in time
+
+Measured while correcting the metric (corpus-only, simulator):
+
+- **Polarity inversion:** the dominant peak of VoidX's linear cascade IR has
+  the opposite sign to the NAM's on **7/14** pairs (Dumble Clean, Dumble
+  Drive, Pano-Verb, Roland JC-120, Twin Reverb SM57, Vibrolux, Vox AC30);
+  the signed driven-output gain comes out negative on 5/14 (the same list
+  minus Roland/Vox, whose driven correlation stays weakly positive).
+- **Bulk time offset:** VoidX's driven output is offset 1–87 samples
+  (~0.02–2 ms) from the NAM's; in our simulator it *leads* the NAM on 13/14
+  (best lags +2..+87; Vibrolux −1) — consistent with its near-delta
+  min-phase `pre_fir` compacting latency the NAM embeds. Our delta-split fit
+  preserves the NAM's timing (best lag 0±1 on 13/14).
+- Both are inaudible in isolation, but they matter for **on-device A/B**:
+  blending or fast-switching a distilled amp against its stock VoidX
+  conversion will phase-cancel/comb, and any wet/dry mix through a VoidX
+  conversion flips polarity on ~half the amps.
 
 ### sample_rate guard
 
@@ -390,10 +437,15 @@ device rate would skip resampling and frequency-warp the amp by ~9%
 
 ### Concerns
 
-- VoidX's large driven NRMSE (~0.9–1.8, i.e. near-decorrelated) is partly
-  internal delay/phase differences (the Task-5 finding), which the
-  time-domain term genuinely penalizes; but the *spectral* term alone also
-  favours us 13/14, so the win is not a metric artifact.
+- The headline win is real but **thin**: 4/14 rows are near-ties (≤1.11×)
+  and the spectral margins are mostly ~0.01–0.04 absolute. A different
+  reasonable metric (e.g. perceptually weighted spectra, or scoring at
+  several drive levels) could plausibly flip the near-tie rows; claim
+  "at least matches VoidX, usually better", not "beats it across the board".
+- The ±128-sample lag search on a near-decorrelated pair (Quad Reverb, best
+  |corr| ≈ 0.08 for ours) cherry-picks the best of 257 noise correlations —
+  it slightly deflates NRMSE for *both* candidates equally, so the
+  comparison stays fair, but Quad's absolute numbers are soft.
 - The device reference is a corpus **median** with 3.3 dB spread; per-amp
   VoidX levels vary within ±6 dB of it. If VoidX's true normalization is
   measured differently (e.g. on-device perceptual weighting), our constant

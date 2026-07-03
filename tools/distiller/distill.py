@@ -30,16 +30,21 @@ reference signal and fold the dB-matching gain into `g2_fir` (the Task-5
 convention; the nonlinearity precedes g2_fir and `apply_nl` is homogeneous of
 degree 1, so this scales the output exactly without changing the waveshape).
 
-Fidelity metric (GAIN-INVARIANT, separate from loudness)
---------------------------------------------------------
-err = 0.5 * [ (1 - logmag_corr(linear IRs))              # spectral shape
-            + gain-matched NRMSE(0.3-RMS driven output) ] # time-domain shape
+Fidelity metric (GAIN-, POLARITY- and DELAY-INVARIANT, separate from loudness)
+------------------------------------------------------------------------------
+err = 0.5 * [ (1 - logmag_corr(linear IRs))          # spectral shape
+            + aligned NRMSE(0.3-RMS driven output) ]  # time-domain shape
 
 The linear term probes the small-signal response (impulse; spectrally
 equivalent to a sweep for the linear path); the driven term probes the
-nonlinear behaviour at guitar level, RMS-gain-matched before the NRMSE so
-loudness never confounds the shape comparison. our_err vs voidx_err is
-therefore a fair comparison regardless of the loudness normalization.
+nonlinear behaviour at guitar level. Before the NRMSE the candidate is
+best-lag aligned (+-128 samples, absorbing inaudible bulk delay) and scaled
+by a SIGNED least-squares gain (absorbing level and polarity inversion) —
+applied identically to our output and VoidX's, so our_err vs voidx_err is a
+fair waveshape comparison that does not penalize perceptually irrelevant
+differences. (VoidX inverts output polarity on ~half its conversions and
+bulk-delays 2-87 samples vs the NAM; the previous positive-RMS-gain,
+unaligned NRMSE penalized that maximally and inflated our win.)
 
 CLI
 ---
@@ -160,22 +165,55 @@ def distill(nam_path) -> bytes:
 # fidelity metric (gain-invariant)
 # ---------------------------------------------------------------------------
 
-def _gain_matched_nrmse(ref: np.ndarray, y: np.ndarray) -> float:
-    """Relative L2 error after scaling y to the reference RMS (shape only)."""
+ALIGN_MAX_LAG = 128  # +-samples (~2.9 ms) searched for bulk-delay alignment
+
+
+def _best_lag(ref: np.ndarray, y: np.ndarray, max_lag: int = ALIGN_MAX_LAG) -> int:
+    """Integer lag maximizing |normalized cross-correlation| of y against ref.
+
+    |.| so a polarity-inverted candidate still aligns (the sign is absorbed by
+    the signed gain in `_aligned_nrmse`).
+    """
+    best_lag, best_c = 0, -1.0
+    for lag in range(-max_lag, max_lag + 1):
+        a = ref[lag:] if lag >= 0 else ref[:lag]
+        b = y[: len(a)] if lag >= 0 else y[-lag:]
+        denom = float(np.linalg.norm(a)) * float(np.linalg.norm(b))
+        if denom < 1e-30:
+            continue
+        c = abs(float(np.dot(a, b))) / denom
+        if c > best_c:
+            best_c, best_lag = c, lag
+    return best_lag
+
+
+def _aligned_nrmse(ref: np.ndarray, y: np.ndarray) -> float:
+    """Relative L2 error after best-lag alignment + signed least-squares gain.
+
+    The signed gain `g = <ref, y>/<y, y>` (may be negative) absorbs both level
+    and polarity inversion; the +-ALIGN_MAX_LAG alignment absorbs bulk delay.
+    Both are perceptually irrelevant for an amp model, so the score measures
+    waveshape only. Applied identically to every candidate (ours and VoidX's).
+    """
     ref = np.asarray(ref, np.float64)
     y = np.asarray(y, np.float64)
-    ref_rms = float(np.sqrt(np.mean(ref * ref)))
-    y_rms = float(np.sqrt(np.mean(y * y)))
-    if ref_rms < 1e-12 or y_rms < 1e-12:
-        return 0.0 if ref_rms < 1e-12 and y_rms < 1e-12 else 1.0
-    a = ref_rms / y_rms
-    return float(np.linalg.norm(a * y - ref) / np.linalg.norm(ref))
+    n = min(len(ref), len(y))
+    ref, y = ref[:n], y[:n]
+    lag = _best_lag(ref, y)
+    a = ref[lag:] if lag >= 0 else ref[:lag]
+    b = y[: len(a)] if lag >= 0 else y[-lag:]
+    a_nrm = float(np.linalg.norm(a))
+    b_sq = float(np.dot(b, b))
+    if a_nrm < 1e-12 or b_sq < 1e-24:
+        return 0.0 if a_nrm < 1e-12 and b_sq < 1e-24 else 1.0
+    g = float(np.dot(a, b)) / b_sq
+    return float(np.linalg.norm(g * b - a) / a_nrm)
 
 
 def _shape_err(ref_ir, dev_ir, ref_driven, dev_driven) -> float:
-    """0.5*[(1 - log-mag spectral corr of IRs) + gain-matched driven NRMSE]."""
+    """0.5*[(1 - log-mag spectral corr of IRs) + aligned driven NRMSE]."""
     spec = 1.0 - probe.logmag_corr(ref_ir, dev_ir)
-    nrmse = _gain_matched_nrmse(ref_driven, dev_driven)
+    nrmse = _aligned_nrmse(ref_driven, dev_driven)
     return 0.5 * (spec + nrmse)
 
 
@@ -196,7 +234,7 @@ def _voidx_tensors_for(nam_path: Path) -> dict | None:
 
 
 def fidelity_vs_nam(nam_path) -> dict:
-    """Gain-invariant fidelity of our distilled tensors (and VoidX's) vs the NAM.
+    """Gain/polarity/delay-invariant fidelity of our tensors (and VoidX's) vs the NAM.
 
     Returns {"our_err", "voidx_err", "our_vs_voidx"}; the VoidX entries are
     None for models without a paired corpus `.vxamp`.
