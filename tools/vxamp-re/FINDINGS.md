@@ -93,3 +93,55 @@ float32-under-keystream model above.)
 - The paired NAM source weight counts (13802 WaveNet; 1871+12146 SlimmableContainer) still do not
   equal 2056, so the 2056-float body is a **device-specific re-derived model** (smaller WaveNet),
   not a 1:1 copy of the NAM float weights. Reconciling 2056 floats to a device arch is Task 4.
+
+## Task 4 — device architecture + tensor layout (DISCOVERY, PROVISIONAL roles / EXACT boundaries)
+
+**Conclusion: the device does NOT store (or run) a WaveNet.** The 2056 floats are a compact
+**FIR-cascade (Wiener–Hammerstein-style) DSP model** — pre-filter → nonlinear stage → post-filter —
+that VoidX-Control *re-derives* from the source `.nam`. `DEVICE_ARCH` in `arch.py` records this with
+`"wavenet": None`; `status: PROVISIONAL` applies to the section *roles/topology*, not the boundaries.
+
+### Tensor table (`tensor_sizes()`, sums to 2056 = `ELEMENT_COUNTS["float32-le"]`)
+
+| name           | floats | body bytes    | role                                                        |
+|----------------|-------:|---------------|-------------------------------------------------------------|
+| `pre_fir`      | 1024   | [0, 4096)     | short tone-shaping FIR; taps 1008..1023 = 0.0 in all corpus |
+| `g2_header`    | 3      | [4096, 4108)  | TLV: `u32 len=0x100C, u32 0, tag "G2\0\0"`                  |
+| `g2_fir`       | 1024   | [4108, 8204)  | long post FIR (cab/speaker IR); `[0]` may be a drive scalar |
+| `nlmix_header` | 4      | [8204, 8220)  | TLV: `u32 len=0x14, u32 0, tag "nlmix\0\0\0"`               |
+| `nlmix`        | 1      | [8220, 8224)  | nonlinear-mix scalar; 0..0.67 in corpus, exactly 0 for 7    |
+
+Reconciliation: 1024 + 3 + 1024 + 4 + 1 = **2056** ✓. The body is a chained TLV container:
+`raw 4096 B` + chunk `"G2"` (len 0x100C) + chunk `"nlmix"` (len 0x14) = 4096+4108+20 = 8224 B,
+verified to land exactly on the body end for **all 20 models** (`arch.parse_chunks`). Task 2's
+"constant islands" are exactly the pre_fir zero tail + the two constant chunk headers.
+
+### Evidence the sections are FIR curves, not NN weights
+- Lag-1 autocorrelation: `g2_fir` = 0.32..0.95, `pre_fir` up to 0.85 across bodies — smooth curves.
+  Real NAM weight vectors give 0.16 (iid-like). NN-weight readings are dead.
+- `pre_fir` is near-delta: ~100 % of its energy sits in the first ~50 taps (peak at tap 0, e.g.
+  1.12, 52.3, 6.3 …) → short EQ/tone filter. `g2_fir` decays over hundreds of taps → cab/speaker IR.
+- Candidate WaveNet param counts can't hit the section sizes: the VoidX-fork formula (validated
+  exactly: c=3 → 1871, c=8 → 12146 vs the Pano-Verb submodels) has no config near 1008/1024 that
+  also explains two independent smooth sections.
+
+### Gold(ish) validation — cascade matches each pair's linear response
+A numpy re-implementation of the VoidX-fork WaveNet forward (rechannel → per layer
+[dilated conv+bias, +input-mixin, LeakyReLU, residual 1×1] with Σz → head conv k=16 → ×head_scale;
+submodel self-consistency corr(IR_sub0, IR_sub1)=0.966) gives each source model's small-signal
+impulse response. Log-magnitude spectra (60 Hz–12 kHz) vs the body sections, 11 Slimmable pairs:
+
+```
+median corr: g2_fir alone 0.845 | pre_fir alone 0.734 | pre_fir ⊛ g2_fir 0.915  ← cascade wins
+```
+Only outlier: Roland JC-120 (0.35) — a chorus amp (time-varying), expected to fit poorly.
+So the two FIRs are in **series** and jointly carry the model's linear response; `nlmix` (=0 for
+several clean models) gates a nonlinear stage between them ("G2" plausibly = gain/stage-2 params).
+
+### Provisional / what a controlled capture would settle (Task 3E / sub-project 2)
+- The runtime topology (where the nonlinearity sits, its shape, what exactly `G2`'s scalar-vs-tap
+  first payload float is). Convert one `.nam` twice with a single knob changed, or capture a
+  known-IR model, and diff `split_body()` outputs.
+- Encoder implications (Tasks 5+): building a `.vxamp` no longer means exporting WaveNet weights —
+  it means *fitting/deriving* two FIRs + nlmix from the `.nam` (linear IR extraction is already
+  reproducible in numpy per the validation above).
