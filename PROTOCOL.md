@@ -116,7 +116,7 @@ CONFIRMED structure (identical across all 20 models, regardless of source archit
   2056 floats = 8224 B. See `tools/vxamp-re/arch.py` (`DEVICE_ARCH`, `parse_chunks()`).
 - **RESOLVED — VERDICT = REFIT.** VoidX-Control *distills* the source NAM (WaveNet /
   SlimmableContainer) into this fixed FIR-cascade model class. Source weights are absent from
-  the device body (`exact_frac` ≤ 0.0052 across all 14 paired models; `corr` ≈ noise; spectral
+  the device body (`exact_frac` ≤ 0.0053 across all 14 paired models; `corr` ≈ noise; spectral
   cascade corr 0.915 confirms the device is a fitted approximation of the source's linear
   response). Byte-exact `.nam`→`.vxamp` is NOT achievable without reproducing VoidX's fitting.
   Path forward: fit our own FIR-cascade (sub-project 2). Full detail: `docs/vxamp-format.md`.

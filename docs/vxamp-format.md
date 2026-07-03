@@ -2,7 +2,7 @@
 
 Reverse-engineered from a corpus of 20 live `root\amp` slots dumped via
 `HwCheck --dump-amps` on 2026-07-03, paired against their source `.nam` files
-in `NAMFiles/`. Tasks 1–7 in `tools/vxamp-re/FINDINGS.md` are the authoritative
+in `NAMFiles/`. Tasks 1–6 in `tools/vxamp-re/FINDINGS.md` are the authoritative
 evidence record; this document is the consolidated reference.
 
 ---
@@ -213,7 +213,7 @@ Twin Reverb SM57                    0.001355   -0.0610       3.64
 Vibrolux Reverb                     0.001355   -0.1321       8.51
 Vox AC30 Clean                      0.000499   -0.0903      24.12
 
-Summary: exact_frac max = 0.0052, all < 0.01
+Summary: exact_frac max = 0.005208, all < 0.01
          corr range −0.13 … +0.21  (noise; no pair |corr| > 0.21)
          max_abs_err range 2.4 … 52.5  (large across the board)
 ```
