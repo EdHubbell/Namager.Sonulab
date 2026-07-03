@@ -119,3 +119,107 @@ expected — not a rate or prober bug.
 ### Verdict
 
 `SAMPLE_RATE = 44100` — **confirmed**. Set in `device_sim.SAMPLE_RATE`.
+
+## Task 4 — device nonlinearity (`nonlinearity.py`)
+
+**Status: pinned as a drive-normalized soft-clip mix; exact form/scaling
+underdetermined by the corpus (see Concerns).** The device model is
+`y = g2_fir ⊛ nl(pre_fir ⊛ x)`; this task pins `nl`.
+
+### Pinned form
+
+```
+r      = rms(u)                          # u = pre_fir ⊛ x (mid signal)
+nl(u)  = (1 - s)·u + s · r · tanh(u/r)    # s = nlmix scalar
+```
+
+`apply_nl(x, header, scalar)` implements this; `device_sim.simulate(..., nl=None)`
+now calls it with the slot's own `nlmix_header`/`nlmix`. `scalar == 0` returns
+`x` **bit-for-bit** (the 7 clean corpus models stay exactly linear); pass
+`nl=lambda z: z` for the explicit linear path.
+
+### Evidence
+
+**1. `nlmix_header` is fixed metadata, not parameters.** The four `nlmix_header`
+floats are byte-identical for all 20 corpus models:
+`14 00 00 00 00 00 00 00 6e 6c 6d 69 78 00 00 00` = the TLV chunk header
+`u32 len=0x14, u32 reserved=0, tag "nlmix\0\0\0"`. They carry **no** per-amp
+drive/bias/asymmetry — the nonlinearity is a **one-parameter family in the
+`nlmix` scalar** (0..0.67; exactly 0 for 7 clean amps). This corrects the
+sub-project-1 provisional note ("4 header floats set drive/bias/asymmetry").
+
+**2. VoidX distiller names it "squareMix".** Static RE of the VoidX-Control
+fitter `native_add.dll` (read-only, not run): the nonlinear-fit region
+(`.text` 0x4e77d..0x54e1e) emits debug exports `DBG_G1Export` / `DBG_G2Export`
+(the two FIRs), `DBG_linearDiff` (NAM minus linear cascade = the nonlinear
+residual), `DBG_squareMix` / `DBG_SquareMixExport` (the nonlinear basis),
+`DBG_levelsDistortionPwr` and `DBG_frequenciesOutputLevels` (a per-level,
+per-frequency harmonic-distortion sweep: constants 60 Hz start, 44100 Hz,
+8192-pt bins). So VoidX fits `nlmix` from measured harmonic distortion and
+calls the nonlinear term "square" (even-harmonic).
+
+**3. Single-tone harmonics of the driven NAMs** (220 Hz, 48 kHz) show a
+saturating stage growing both even (H2) and odd (H3) harmonics with level; H2
+is the dominant term for ~half the amps (Twin 0.114, Princeton 0.075, Quad
+0.054, Deluxe 0.050, Dumble-Clean 0.047), consistent with the asymmetric
+"square" character. A soft-clip mix reproduces this qualitative growth.
+
+**4. Fidelity gate (pytest metric, `x = 0.3·randn`, `‖sim − NAM‖`):** the
+pinned nl beats linear-only for **all 11 driven amps**:
+
+| amp | nlmix | e_lin | e_nl |
+|---|---:|---:|---:|
+| Bassman 5F6A Super Clean | 0.416 | 344.7 | 288.8 |
+| Princeton EOB 5 M160 | 0.254 | 1176.0 | 1064.5 |
+| Blackface Twin Reverb | 0.210 | 366.6 | 336.6 |
+| Deluxe Reverb Clean | 0.396 | 434.9 | 368.4 |
+| Dumble Steel SS Clean | 0.252 | 305.8 | 276.0 |
+| Dumble Steel SS Drive | 0.200 | 670.8 | 617.8 |
+| Quad Reverb Randall SM57 | 0.304 | 631.6 | 557.9 |
+| Roland JC-120 (chorus outlier) | 0.670 | 501.2 | 370.1 |
+| Super Reverb EQ Flat | 0.229 | 391.6 | 356.3 |
+| Twin Reverb SM57 | 0.289 | 389.1 | 345.4 |
+| Vox AC30 Clean | 0.013 | 814.9 | 810.8 |
+
+### Concerns (why the exact form is not fully pinned)
+
+- **Raw-error win is largely gain-driven.** The `e_lin` values (300–1200 on
+  8k-sample buffers) are dominated by a gross **level/rate mismatch**: the
+  paired NAMs are native 48 kHz while the FIR cascade is 44.1 kHz, and the
+  VoidX cascade carries an overall output-level offset vs the NAM. After
+  removing a best-fit scalar gain, the nl's improvement drops to ~0% — i.e.
+  the corpus, compared this way, mainly rewards **peak compression** and cannot
+  discriminate the true waveshaper *shape*. The nl is therefore **directionally
+  correct** (a saturating mix that compresses and adds harmonics) but its exact
+  identity is not validated at the sample level.
+- **Even ("square") vs odd (soft-clip) ambiguity.** The DLL names it "square"
+  (even), yet the odd soft-clip mix is what robustly passes the raw-error gate
+  (pure even/`u²` forms *fail* it). The true device shape is likely an
+  **asymmetric** soft-clip (even + odd); a symmetric `tanh` under-captures the
+  even part. Not resolvable from the corpus given (1).
+- **Drive scaling is a modeling choice.** With `nlmix_header` fixed and pre_fir
+  gains spanning ~50× across amps, a *fixed* waveshaper on the mid signal
+  behaves wildly differently per amp, so the input is **RMS-normalized** here.
+  This makes `apply_nl` mildly signal-adaptive (buffer-RMS) rather than a pure
+  memoryless waveshaper — a pragmatic stand-in for the device's true (unknown)
+  drive normalization.
+
+### To pin the exact form — controlled captures (do NOT run VoidX in-task)
+
+Have the user convert these synthetic `.nam` models through VoidX and capture
+the resulting `.vxamp` (and, if reachable, the `DBG_*.txt` debug exports the
+fitter writes):
+1. **Pure linear amp** (identity / single-tap IR `.nam`): confirms `nlmix == 0`
+   and that a flat response yields the identity path.
+2. **Symmetric soft-clip drive sweep** — one `.nam` per drive
+   (e.g. `y = tanh(g·x)/g` for `g ∈ {1,2,4,8,16}`): maps `nlmix` (and the fitted
+   `pre_fir`/`g2_fir` gain split) vs known drive → reveals the drive scaling and
+   whether the shape is `tanh`.
+3. **Asymmetric clipper** (e.g. diode-style `y = x + a·x²` and a hard one-sided
+   clip): tests even-vs-odd — does VoidX raise `nlmix` for even-harmonic content,
+   and does the device store an asymmetry term anywhere.
+4. **Same linear IR at two levels** to separate the fixed drive normalization
+   from the waveshaper.
+
+Diffing `codec.decode().["tensors"]` across 1–4 (only `nlmix` and the FIR gain
+split can change; `nlmix_header` is fixed) pins the mapping directly.

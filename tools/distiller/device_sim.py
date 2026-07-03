@@ -11,8 +11,10 @@ Tensor keys (arch.tensor_sizes / arch.split_body):
     nlmix_header   4 float32               — TLV metadata (NOT used in DSP path)
     nlmix          1 float32 scalar        — nonlinear-mix amount (0 = linear)
 
-The header tensors (g2_header, nlmix_header) and the nlmix scalar are metadata.
-Task 4 will wire them into the `nl` callable; the linear path ignores them.
+The header tensors (g2_header, nlmix_header) are TLV metadata. The nlmix scalar
+gates the nonlinear stage: Task 4 wired `simulate`'s default `nl=None` into
+`nonlinearity.apply_nl(mid, nlmix_header, nlmix)`. Pass `nl=lambda z: z` for the
+pure-linear path (still exactly recovered when nlmix == 0).
 
 Public API
 ----------
@@ -21,7 +23,8 @@ SAMPLE_RATE : int
     empirically confirmed via probe.logmag_corr against paired NAM responses.
 
 simulate(tensors, x, nl=None) -> np.ndarray
-    Device forward model. nl=None means identity (exact for nlmix==0 corpus amps).
+    Device forward model. nl=None uses the pinned Task-4 nonlinearity
+    (nonlinearity.apply_nl); exact identity when nlmix==0.
 
 linear_ir(tensors) -> np.ndarray
     Cascade impulse response pre_fir ⊛ g2_fir (length 2047 = 1024+1024-1).
@@ -73,8 +76,11 @@ def simulate(
         Input audio, 1-D float array.
     nl:
         Nonlinearity callable applied between the two FIR stages. If ``None``
-        (default) the identity is used — this is exact for corpus amps whose
-        ``nlmix`` scalar is 0. Task 4 will supply a saturating nonlinearity.
+        (default) the pinned firmware nonlinearity
+        ``nonlinearity.apply_nl(mid, tensors["nlmix_header"], tensors["nlmix"])``
+        is used (Task 4). It reduces to exact identity for corpus amps whose
+        ``nlmix`` scalar is 0. Pass an explicit ``nl=lambda z: z`` for the
+        pure-linear path.
 
     Returns
     -------
@@ -86,8 +92,12 @@ def simulate(
     # Stage 1: pre_fir tone-shaping FIR
     mid = _apply_fir(tensors["pre_fir"], x)
 
-    # Stage 2: nonlinearity (identity when nl is None)
-    if nl is not None:
+    # Stage 2: nonlinearity. None -> the pinned Task-4 apply_nl driven by the
+    # slot's own nlmix header/scalar (identity when nlmix == 0).
+    if nl is None:
+        import nonlinearity as _nl
+        mid = _nl.apply_nl(mid, tensors["nlmix_header"], tensors["nlmix"]).astype(np.float32)
+    else:
         mid = nl(mid).astype(np.float32)
 
     # Stage 3: g2_fir cab / speaker IR
