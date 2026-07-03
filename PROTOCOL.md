@@ -94,6 +94,28 @@ Preset upload uses `dwrite root\presets` with the name in `chunk:-1`.
 before upload.** A CLI that uploads raw `.nam` files must either reproduce this conversion or
 capture/borrow it. Rename + renumber (name chunk + `index`) do **not** need the conversion.
 
+### `vxamp` container format — reverse-engineering (2026-07-03, `--dump-amps` of 20 live models)
+Dumped every occupied `root\amp` slot (read-only `dread`, chunks 1..96) and paired each blob to its
+source `.nam` in `NAMFiles/`. Tool: `tools/HwCheck --dump-amps` → `NAMFiles/VxampDump/*.vxamp`.
+CONFIRMED structure (identical across all 20 models, regardless of source architecture):
+- **Fixed output size.** Every model — `SlimmableContainer` (2 WaveNet submodels) *and* plain
+  `WaveNet` (13802 weights) — converts to the **same 8256-byte payload**, zero-padded into the
+  12288-byte slot. => the device runs **one fixed internal architecture**; VoidX maps any NAM into it.
+- **Constant 32-byte header** (bytes 0..31 identical across all models):
+  - bytes 0–1 = `40 20` = little-endian **0x2040 = 8256** = payload size.
+  - bytes 2–7 = `00`. bytes 8–19 = ASCII `"Amp model"` + NULs. bytes 20–23 = tag `yvSD`.
+  - bytes 24–31 = constant config (`21 22 ff 00 9a e7 c4 be`) — same for every model.
+- **Per-model data = bytes 32..8255** (8224 bytes).
+- **Body is fixed-point quantized, NOT float.** Decoded as **int8** the body lands exactly in
+  [−128/127, +1.000], mean ≈ 0 (textbook symmetric int8 quantization); float32/float16/bf16 all decode
+  to garbage. Source weights do **not** appear verbatim → quantization + tensor reordering (and likely
+  per-tensor scales) sit on top of a plain copy.
+- **OPEN — the difficulty-deciding question:** is VoidX a **requantize+repack** of the source weights
+  (reproducible offline from the `.nam`) or a **re-fit/distill** to a fixed arch (needs a training
+  pipeline)? Fixed 8224-byte int8 container points toward repack, but unproven. Next task: take a source
+  whose architecture already matches the device's fixed target and check whether its quantized weights
+  map into the blob body.
+
 ## CONFIRMED via live read-only probe (2026-06-15, `docs/probe-output.txt`)
 - **Serial:** `COM6` (CH340), **115200 8N1**. Auto-probe `read root\sys\_name` succeeds.
 - **Device:** ESP32-S3, firmware `root\sys\_ver` = 2.5.1, `root\sys\_license` = "stompstation1".

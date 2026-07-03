@@ -1,0 +1,23 @@
+Original Filename: NEW VERSION _ Fender DRRI _ Clean _ SM57 + Royer R-121 (No Room) _ Full Rig
+From: https://www.tone3000.com/tones/deluxe-reverb-65-reissue-clean-51649
+Capture: FULL
+Description: 
+Get the full capture pack for this amp here : 
+https://gindabestari.com/
+
+Fender Deluxe Reverb '65 Reissue. Clean Sound. Mic'd with Shure SM57 + Royer Ribbon R-121 + Universal Audio OX for Mono Room Sound (Neumann U67 Modeling in OX)
+
+3 Models Available to Download. Closed Mics with Room, Closed Mics without Room and Room Sound only, so you can blend it in post.
+
+Models :
+- Fender DRRI | Clean | SM57 + Royer R-121 + Room | Full Rig
+- Fender DRRI | Clean | SM57 + Royer R-121 (No Room) | Full Rig
+- Fender DRRI | Clean | Room Only | Full Rig
+- Fender DRRI | Clean | DI Capture No Cab
+
+NEW VERSION Update :
+- The Noise Floor is Lower Than The Previous Version
+- Higher Epochs Than The Previous Version
+- Better Transient Response
+- I Turned Down the Room Level on Microphones Blend (57+121+Room)
+- I Added DI Capture (No Cab)

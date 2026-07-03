@@ -1,0 +1,17 @@
+Original Filename: FNDR PANO Clean2 BAL 6V6 CAB
+From: https://www.tone3000.com/tones/fender-pano-verb-53179
+Capture: FULL
+Description:
+Full capture set available from FEB 06 here: https://www.amalgamcaptures.com/product-page/fndr-pano-namdi
+
+AMP SETTINGS:
+D0 V5 T4.5 M4 B1 6V6
+
+CAB:
+Fender Pano-Verb 1X15 Jensen C15
+
+MICS:
+R121, M160, U87
+
+DESCRIPTION:
+Beautiful Fender Blackface clean and edge of breakup tones up to gutsy raw American Drive tones. Will go to next level with a fuzz in front.

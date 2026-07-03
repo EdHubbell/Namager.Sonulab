@@ -1,0 +1,9 @@
+Original Filename: Fender Bassman 5F6A - Super Clean
+From: https://www.tone3000.com/tones/fender-bassman-5f6a-series-26082
+Capture: FULL
+Description:
+Emulated Fender Bassman F56A + 4 x 10" Jensen P10R cabinet + SM57 Mic; This is a full emulated model generated using my custom rig simulator.
+
+I would recommend using my v2 sounds of the Bassman amplifier head, as the modeling is significantly more advanced.
+
+https://www.tone3000.com/tones/fender-bassman-5f6a-series-amp-only-v2-26378

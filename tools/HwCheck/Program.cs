@@ -1,6 +1,7 @@
 // Plan 2/3a hardware harness — drives the REAL SystemSerialPort end-to-end.
 //   dotnet run --project tools/HwCheck                 # read-only: connect/identify/compat/list
 //   dotnet run --project tools/HwCheck -- --browse     # read-only dump of root\app (or --browse <path>)
+//   dotnet run --project tools/HwCheck -- --dump-amps  # read-only: pull every amp slot's converted .vxamp blob
 //   dotnet run --project tools/HwCheck -- --write-test # + guarded duplicate to an empty slot, then delete
 // Requires VoidX-Control CLOSED (it holds COM6).
 using Sonulab.Core.Connection;
@@ -53,6 +54,40 @@ if (bi >= 0)
     var recs = await session.Client!.BrowseRecordsAsync(bpath);
     foreach (var rec in recs) Console.WriteLine($"{rec.Path}: {rec.Json.GetRawText()}");
     Console.WriteLine($"RESULT: BROWSE COMPLETE ({recs.Count} records)");
+    session.Disconnect();
+    return 0;
+}
+
+// --dump-amps : read-only. Pull every occupied amp slot's CONVERTED blob (root\amp payload,
+// chunks 1..96 = 12288 B) to NAMFiles/VxampDump/. Pairs with the source .nam corpus so we can
+// reverse-engineer VoidX's .nam -> vxamp conversion. No writes.
+if (Array.IndexOf(args, "--dump-amps") >= 0)
+{
+    const string AmpList = @"root\amp";
+    const int AmpChunks = 96;                    // 12288 / 128
+    var client = session.Client!;
+    var ampNames = await client.ReadListAsync(AmpList);
+    var outDir = System.IO.Path.GetFullPath(System.IO.Path.Combine("NAMFiles", "VxampDump"));
+    System.IO.Directory.CreateDirectory(outDir);
+    Console.WriteLine($"\n--- DUMP AMPS (read-only) -> {outDir} ---");
+    var invalid = System.IO.Path.GetInvalidFileNameChars();
+    int dumped = 0;
+    for (int idx = 0; idx < ampNames.Count; idx++)
+    {
+        var name = ampNames[idx];
+        if (string.IsNullOrEmpty(name)) continue;
+        var blob = await client.DReadBlobAsync(AmpList, idx, AmpChunks);
+        // Real payload length = the fixed 12288-byte slot minus trailing zero padding. This is the
+        // single most useful RE diagnostic: it tells us how big the converted model actually is.
+        int payload = blob.Length; while (payload > 0 && blob[payload - 1] == 0) payload--;
+        var safe = new string(name.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
+        var path = System.IO.Path.Combine(outDir, $"{idx:D2} - {safe}.vxamp");
+        await System.IO.File.WriteAllBytesAsync(path, blob);
+        var head = Convert.ToHexString(blob, 0, Math.Min(32, blob.Length));
+        Console.WriteLine($"  slot {idx + 1,2} (idx {idx,2}): '{name}'  blob={blob.Length}B payload={payload}B  head={head}");
+        dumped++;
+    }
+    Console.WriteLine($"RESULT: DUMP-AMPS COMPLETE ({dumped} amps -> {outDir})");
     session.Disconnect();
     return 0;
 }
