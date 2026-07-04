@@ -7,7 +7,7 @@ namespace Sonulab.App.ViewModels;
 public sealed partial class BlockSectionViewModel : ObservableObject
 {
     public string Header { get; }
-    [ObservableProperty] private bool _isExpanded = true;
+    [ObservableProperty] private bool _isExpanded;   // collapsed by default (editor-polish spec)
     public ObservableCollection<ParameterFieldViewModel> Fields { get; } = new();
     public ObservableCollection<SubGroupViewModel> SubGroups { get; } = new();
     public BlockSectionViewModel(string header) => Header = header;

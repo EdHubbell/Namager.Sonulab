@@ -209,4 +209,40 @@ public class ParameterEditorViewModelTests
         var field = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\amp"));
         Assert.Empty(field.Options);                                 // renders as today
     }
+
+    // ---- collapsed-by-default + per-session expansion state (editor-polish Task 3) ----
+
+    [Fact] public async Task Blocks_start_collapsed()
+    {
+        var (vm, _) = LoadForVm();
+        await vm.LoadForCommand.ExecuteAsync("P1");
+        Assert.All(vm.Blocks, b => Assert.False(b.IsExpanded));
+    }
+
+    [Fact] public async Task Expansion_survives_preset_switch_per_block()
+    {
+        var dev = new FakeSonuLink();
+        dev.SeedBrowse(@"root\app",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}",
+            "root\\app\\delay\\fdbk:{\"desc\":\"Feedback\",\"value\":30.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0}");
+        await dev.OpenAsync();
+        var vm = VmFor(dev);
+        await vm.LoadForCommand.ExecuteAsync("P1");
+        vm.Blocks.First(b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase)).IsExpanded = true;
+
+        await vm.LoadForCommand.ExecuteAsync("P2");          // rebuilds all sections
+        Assert.True(vm.Blocks.First(b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase)).IsExpanded);
+        Assert.False(vm.Blocks.First(b => b.Header.Equals("delay", StringComparison.OrdinalIgnoreCase)).IsExpanded);
+    }
+
+    [Fact] public async Task Collapsing_again_is_also_remembered()
+    {
+        var (vm, _) = LoadForVm();
+        await vm.LoadForCommand.ExecuteAsync("P1");
+        var block = vm.Blocks[0];
+        block.IsExpanded = true;
+        block.IsExpanded = false;
+        await vm.LoadForCommand.ExecuteAsync("P2");
+        Assert.False(vm.Blocks[0].IsExpanded);
+    }
 }

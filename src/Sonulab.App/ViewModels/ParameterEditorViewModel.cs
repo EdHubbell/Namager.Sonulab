@@ -28,6 +28,10 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     [ObservableProperty] private bool _isLoading;
     private string? _loadedName;
 
+    // Per-session expansion memory, keyed by block header; reapplied on every rebuild
+    // (preset switch). Intentionally NOT persisted to disk (spec decision).
+    private readonly Dictionary<string, bool> _expansion = new(StringComparer.Ordinal);
+
     private static readonly string[] EditableTypes = { "float", "enum", "plist" };
 
     [RelayCommand]
@@ -92,7 +96,15 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
             section.EnableField = section.Fields.FirstOrDefault(f => f.Path.EndsWith("\\on_off", StringComparison.Ordinal));
             if (section.Fields.Count > 0 || section.SubGroups.Count > 0)
+            {
+                section.IsExpanded = _expansion.TryGetValue(section.Header, out var exp) && exp;
+                section.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(BlockSectionViewModel.IsExpanded) && s is BlockSectionViewModel b)
+                        _expansion[b.Header] = b.IsExpanded;
+                };
                 Blocks.Add(section);
+            }
         }
         IsDirty = false;
     }
