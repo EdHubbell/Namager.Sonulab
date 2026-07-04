@@ -367,4 +367,6 @@ generates the golden fixtures the C# port is parity-tested against
 (`tests/Sonulab.Distill.Tests/ParityTests.cs`; tolerances in
 `docs/superpowers/plans/2026-07-03-native-distiller.md`). If you change the fit here,
 regenerate goldens (`python tools/distiller/make_cs_fixtures.py --corpus`) and port the
-change to C#.
+change to C#. Note: the corpus parity test is the only numeric coverage of the
+SlimmableContainer (fork) path — run it on the corpus machine before trusting fork-parser
+changes.

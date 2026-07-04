@@ -76,7 +76,8 @@ public static class Distiller
         Task.Run(() =>
         {
             var blob = Distill(namPath, progress, ct);
-            File.WriteAllBytes(outPath, blob);
+            try { File.WriteAllBytes(outPath, blob); }
+            catch (Exception e) { throw new DistillException($"Failed to write '{outPath}': {e.Message}", e); }
             progress?.Report(new(DistillStage.Done, "Done."));
         }, ct);
 }
