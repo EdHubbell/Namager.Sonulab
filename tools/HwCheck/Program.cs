@@ -4,6 +4,8 @@
 //   dotnet run --project tools/HwCheck -- --dump-amps  # read-only: pull every amp slot's converted .vxamp blob
 //   dotnet run --project tools/HwCheck -- --write-test # + guarded duplicate to an empty slot, then delete
 //   dotnet run --project tools/HwCheck -- --list-amps  # read-only amp slot name table
+//   dotnet run --project tools/HwCheck -- --dump-irs   # read-only: pull every IR slot's 4096-byte blob
+//   dotnet run --project tools/HwCheck -- --list-irs   # read-only IR slot name table
 //   dotnet run --project tools/HwCheck -- --upload-amp <vxampPath> <slotIndex> [--name <n>]  # guarded amp upload (backup+write+verify)
 //   dotnet run --project tools/HwCheck -- --delete-amp <slotIndex>              # guarded amp delete (backup+clear name)
 // Requires VoidX-Control CLOSED (it holds COM6).
@@ -102,6 +104,47 @@ if (Array.IndexOf(args, "--list-amps") >= 0)
     foreach (var s in ampSlots)
         Console.WriteLine($"  slot {s.Index + 1,2} (idx {s.Index,2}): {(s.IsEmpty ? "(empty)" : $"'{s.Name}'")}");
     Console.WriteLine("RESULT: LIST-AMPS COMPLETE");
+    session.Disconnect();
+    return 0;
+}
+
+// --dump-irs : read-only. Pull every occupied IR slot's blob (root\ir payload,
+// 32 chunks x 128 B = 4096 B) to NAMFiles/IrDump/. No writes.
+if (Array.IndexOf(args, "--dump-irs") >= 0)
+{
+    var irSvc = new IrService(session.Client!, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
+    var irSlots = await irSvc.ListIrsAsync();
+    var irOutDir = System.IO.Path.GetFullPath(System.IO.Path.Combine("NAMFiles", "IrDump"));
+    System.IO.Directory.CreateDirectory(irOutDir);
+    Console.WriteLine($"\n--- DUMP IRS (read-only) -> {irOutDir} ---");
+    var irInvalid = System.IO.Path.GetInvalidFileNameChars();
+    int irDumped = 0;
+    foreach (var s in irSlots)
+    {
+        if (s.IsEmpty) continue;
+        var blob = await irSvc.ReadIrAsync(s.Index);
+        int payload = blob.Length; while (payload > 0 && blob[payload - 1] == 0) payload--;
+        var safe = new string(s.Name.Select(ch => irInvalid.Contains(ch) ? '_' : ch).ToArray());
+        var path = System.IO.Path.Combine(irOutDir, $"{s.Index:D2} - {safe}.irblob");
+        await System.IO.File.WriteAllBytesAsync(path, blob);
+        var head = Convert.ToHexString(blob, 0, Math.Min(32, blob.Length));
+        Console.WriteLine($"  slot {s.Index + 1,2} (idx {s.Index,2}): '{s.Name}'  blob={blob.Length}B payload={payload}B  head={head}");
+        irDumped++;
+    }
+    Console.WriteLine($"RESULT: DUMP-IRS COMPLETE ({irDumped} irs -> {irOutDir})");
+    session.Disconnect();
+    return 0;
+}
+
+// --list-irs : read-only, prints the IR slot name table (fast; no blob reads).
+if (Array.IndexOf(args, "--list-irs") >= 0)
+{
+    var irSvc = new IrService(session.Client!, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
+    var irSlots = await irSvc.ListIrsAsync();
+    Console.WriteLine($"\n--- IR SLOTS ({irSlots.Count}) ---");
+    foreach (var s in irSlots)
+        Console.WriteLine($"  slot {s.Index + 1,2} (idx {s.Index,2}): {(s.IsEmpty ? "(empty)" : $"'{s.Name}'")}");
+    Console.WriteLine("RESULT: LIST-IRS COMPLETE");
     session.Disconnect();
     return 0;
 }
