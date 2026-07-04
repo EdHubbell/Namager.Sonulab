@@ -15,3 +15,6 @@ obj/
 .vs/
 __pycache__/
 *.pyc
+
+# Local distilled test outputs at repo root (corpus blobs in NAMFiles/ stay tracked)
+/*.vxamp
