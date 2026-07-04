@@ -171,4 +171,42 @@ public class ParameterEditorViewModelTests
         Assert.Equal(1, link.PresetWrites);
         Assert.Equal(1, link.Browses);
     }
+
+    // ---- ref-populated dropdowns (editor-polish Task 2) ----
+
+    static FakeSonuLink RefDev(params string[] ampNames)
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\amp:{\"desc\":\"Amp model\",\"value\":\"Lead\",\"type\":\"plist\",\"ref\":\"root\\\\amp\"}",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}");
+        if (ampNames.Length > 0) d.SeedList(@"root\amp", ampNames);
+        d.OpenAsync().GetAwaiter().GetResult();
+        return d;
+    }
+
+    [Fact] public async Task Ref_field_gets_options_from_device_list()
+    {
+        var vm = VmFor(RefDev("Clean", "Lead", "", "", "Rhythm"));   // empties are slot padding
+        await vm.LoadCommand.ExecuteAsync(null);
+        var field = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\amp"));
+        Assert.Equal(new[] { "Clean", "Lead", "Rhythm" }, field.Options);   // non-empty names only
+        Assert.Equal("plist", field.Kind);
+    }
+
+    [Fact] public async Task Ref_field_with_deleted_current_value_still_shows_it()
+    {
+        var vm = VmFor(RefDev("Clean", "Rhythm"));                   // "Lead" not on the device
+        await vm.LoadCommand.ExecuteAsync(null);
+        var field = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\amp"));
+        Assert.Equal(new[] { "Lead", "Clean", "Rhythm" }, field.Options);
+    }
+
+    [Fact] public async Task Missing_ref_list_degrades_without_failing_the_load()
+    {
+        var vm = VmFor(RefDev());                                    // no root\amp seeded at all
+        await vm.LoadCommand.ExecuteAsync(null);                     // must not throw
+        var field = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\amp"));
+        Assert.Empty(field.Options);                                 // renders as today
+    }
 }

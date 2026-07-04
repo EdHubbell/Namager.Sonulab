@@ -36,6 +36,22 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         Blocks.Clear();
         var records = await _client.BrowseRecordsAsync(@"root\app");
 
+        // Prefetch each distinct ref'd device list once per load (amp/IR pickers). A failed or
+        // empty read degrades that field to today's rendering — the load itself never fails.
+        var refOptions = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var rec in records)
+        {
+            var schema = NodeSchema.FromRecord(rec);
+            if (schema.Ref is not { Length: > 0 } r || refOptions.ContainsKey(r)) continue;
+            if (!EditableTypes.Contains(schema.Type) && schema.Type != "item") continue;
+            try
+            {
+                var names = await _client.ReadListAsync(r);
+                refOptions[r] = names.Where(n => !string.IsNullOrEmpty(n)).ToArray();
+            }
+            catch { refOptions[r] = Array.Empty<string>(); }
+        }
+
         foreach (var block in Blocks_InScope)
         {
             var prefix = @"root\app\" + block;
@@ -51,7 +67,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
                 var seg = rec.Path.Split('\\');                          // [root, app, block, (folder?), leaf]
                 var value = rec.Json.TryGetProperty("value", out var v) ? v.GetRawText() : "\"\"";
-                var labeled = new ParameterFieldViewModel(schema, value);
+                var labeled = new ParameterFieldViewModel(schema, value,
+                    schema.Ref is { Length: > 0 } fr && refOptions.TryGetValue(fr, out var opts) && opts.Count > 0
+                        ? opts : null);
                 labeled.Label = _labels.Label(rec.Path, schema.Desc.Length > 0 ? schema.Desc : null);
                 labeled.PropertyChanged += (_, _) => IsDirty = true;
 
