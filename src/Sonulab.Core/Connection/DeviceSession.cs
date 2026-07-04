@@ -4,6 +4,7 @@ public sealed record SessionState(bool Connected, DeviceInfo? Device, Compatibil
 
 public sealed class DeviceSession : IDisposable
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private readonly SonuConnector _connector;
     private readonly CompatibilityChecker _checker;
     private Sonulab.Core.Transport.SerialSonuLink? _link;
@@ -24,7 +25,9 @@ public sealed class DeviceSession : IDisposable
         {
             _link = link;
             Client = new SonuClient(link);
+            var swCompat = System.Diagnostics.Stopwatch.StartNew();
             var compat = await _checker.CheckAsync(Client, ct);
+            Log.Info("PERF connect compat={0}ms", swCompat.ElapsedMilliseconds);
             return new SessionState(true, compat.Device, compat);
         }
         catch

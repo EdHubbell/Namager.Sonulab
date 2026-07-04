@@ -7,6 +7,8 @@ namespace Sonulab.App.ViewModels;
 
 public partial class MainWindowViewModel : ObservableObject
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
+
     [ObservableProperty] private ConnectionViewModel _connection;
     [ObservableProperty] private PresetListViewModel? _presets;
     [ObservableProperty] private ParameterEditorViewModel? _editor;
@@ -39,17 +41,30 @@ public partial class MainWindowViewModel : ObservableObject
             };
             Presets = presets;
             Editor = editor;
-            _ = presets.RefreshCommand.ExecuteAsync(null);
 
             var ampService = new AmpService(
                 _connection.Client!, System.IO.Path.Combine("docs", "backups"));
             var amps = new AmpListViewModel(ampService, _connection.WritesAllowed);
             Amps = amps;
-            _ = amps.RefreshCommand.ExecuteAsync(null);
 
             var irService = new IrService(_connection.Client!, System.IO.Path.Combine("docs", "backups"));
-            Irs = new IrListViewModel(irService, _connection.WritesAllowed);
-            _ = Irs.RefreshCommand.ExecuteAsync(null);
+            var irs = new IrListViewModel(irService, _connection.WritesAllowed);
+            Irs = irs;
+
+            _ = LoadInitialAsync(presets, amps, irs);
         };
+
+        async Task LoadInitialAsync(PresetListViewModel presets, AmpListViewModel amps, IrListViewModel irs)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await presets.RefreshCommand.ExecuteAsync(null);
+            Log.Info("PERF connect presets-list={0}ms", sw.ElapsedMilliseconds);
+            sw.Restart();
+            await amps.RefreshCommand.ExecuteAsync(null);
+            Log.Info("PERF connect amps-list={0}ms", sw.ElapsedMilliseconds);
+            sw.Restart();
+            await irs.RefreshCommand.ExecuteAsync(null);
+            Log.Info("PERF connect irs-list={0}ms", sw.ElapsedMilliseconds);
+        }
     }
 }

@@ -6,6 +6,7 @@ namespace Sonulab.Core.Connection;
 
 public sealed class SonuConnector
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private readonly Func<ISerialPortStream> _portFactory;
     private readonly SerialLinkOptions? _options;
 
@@ -26,14 +27,22 @@ public sealed class SonuConnector
             int retryDelay = _options?.ProbeRetryDelayMs ?? 300;
             try
             {
+                var swOpen = System.Diagnostics.Stopwatch.StartNew();
                 await link.OpenAsync(ct);
+                swOpen.Stop();
+                var swProbe = System.Diagnostics.Stopwatch.StartNew();
                 for (int attempt = 0; attempt < attempts; attempt++)
                 {
                     // First command after open is often lost to the ESP32 reset — retry.
                     var resp = await link.SendAsync(@"read root\sys\_name", ct);
                     bool ok = ResponseParser.NonMeterRecords(resp)
                         .Any(r => NodeRecord.TryParse(r, out var nr) && nr.Path == @"root\sys\_name");
-                    if (ok) return link;
+                    if (ok)
+                    {
+                        Log.Info("PERF connect open+settle={0}ms probes={1}ms attempts={2} port={3}",
+                            swOpen.ElapsedMilliseconds, swProbe.ElapsedMilliseconds, attempt + 1, port);
+                        return link;
+                    }
                     if (attempt + 1 < attempts) await Task.Delay(retryDelay, ct);
                 }
                 link.Close();
