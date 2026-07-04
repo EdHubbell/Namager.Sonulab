@@ -10,12 +10,12 @@ public class NamModelTests
     [Fact]
     public void Synthetic_receptive_field_matches_golden()
     {
-        // dilations [1,2,4,8], K=3, head K=1: rf = 2*(1+2+4+8) + 0 = 30
+        // dilations [1,2,4,511], K=3, head K=1: rf = 2*(1+2+4+511) + 0 = 1036
         var model = NamParser.Load(Fixture("synthetic.nam"));
         var golden = JsonDocument.Parse(File.ReadAllText(Fixture("golden_process.json")));
         Assert.Equal(golden.RootElement.GetProperty("receptive_field").GetInt32(),
                      model.ReceptiveField);
-        Assert.Equal(30, model.ReceptiveField);
+        Assert.Equal(1036, model.ReceptiveField);
         Assert.Equal(48000, model.SampleRate);
     }
 
