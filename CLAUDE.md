@@ -6,19 +6,19 @@ ESP32-S3, fw 2.5.1) over USB serial — list / select / edit / rename / delete /
 captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 
 ## Build / test / run
-- Build: `dotnet build`  · Test: `dotnet test` (all should pass; ~223 tests)
+- Build: `dotnet build`  · Test: `dotnet test` (all should pass; 268 tests)
 - Run the app: `dotnet run --project src/Sonulab.App`  (needs VoidX-Control CLOSED — see gotchas)
-- Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot>]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin.
+- Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot>]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin.
 
 ## Architecture
 - **`src/Sonulab.Core`** (no UI, fully unit-tested): `Protocol/` (SonuCommands, ResponseParser),
   `Model/` (NodeRecord, NodeSchema, PresetDocument=.pst, PresetSlot), `Transport/` (ISonuLink →
   SerialSonuLink / FakeSonuLink; SerialPortStream), `Connection/` (SonuConnector, CompatibilityChecker,
-  DeviceSession, FirmwareCatalog), `Services/` (DeviceRepository, ReorderService, BackupService, SlotPlanner).
+  DeviceSession, FirmwareCatalog), `Services/` (DeviceRepository, ReorderService, BackupService, SlotPlanner, SlotBlobService, AmpService, IrService).
 - **`src/Sonulab.Distill`** (no UI, unit-tested): native C# port of the .nam→.vxamp
   distiller (WaveNet runner, WH fitter, vxamp codec). Python `tools/distiller/` is the
   reference oracle; parity goldens via `tools/distiller/make_cs_fixtures.py`.
-- **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, ParameterEditor + Block/SubGroup,
+- **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml`.
 - **`tests/`** Sonulab.Core.Tests + Sonulab.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
@@ -48,7 +48,6 @@ superpowers **brainstorming → spec (`docs/superpowers/specs/`) → writing-pla
 task) → merge to `main` (fast-forward) → push. Read `docs/HARDWARE-VALIDATION-*.md` for on-device checks.
 
 ## Not done
-**IR management** (`root\ir`, 32 chunks — likely the same name-at-`chunk:-1` commit pattern, untested)
-is the natural next tab. Amp reorder / backup-all UI deferred from 2b v1. (See
+Amp reorder / backup-all UI deferred from 2b v1. (See
 `docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-plan-dragreorder.md` for
-pending manual checks.)
+pending manual checks.) Performance sub-project next (pointer to the preset-dwrite OPEN QUESTION in PROTOCOL.md).

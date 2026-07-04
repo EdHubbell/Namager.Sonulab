@@ -111,6 +111,10 @@ Preset upload uses `dwrite root\presets` with the name in `chunk:-1`.
 NOTE: `dread` serves only payload chunks `1..N` — `chunk:0` and `chunk:-1` return nothing
 (for presets too), and `dread` of an empty slot returns nothing.
 
+**CONFIRMED (ir-tab gate 2, 2026-07-04, fw 2.5.1 serial): `root\ir` uses the SAME sequence —
+chunk:0 name → chunks 1..32 payload → name again at chunk:-1 (commit; zeros = delete), per-chunk
+next-expected ACKs. Blob format: see docs/ir-format.md (pinned from wav/dump pairs).**
+
 ### IMPORTANT caveat — `.nam` is converted, not raw
 `chunk:1` began `40 20 00 00 00 00 00 00 ... "Amp model"` — a **binary header**, not raw NAM JSON
 (which starts with `{`). So **VoidX converts a `.nam` file into a device-specific binary format
