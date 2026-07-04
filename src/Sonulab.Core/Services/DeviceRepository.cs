@@ -1,4 +1,5 @@
 using Sonulab.Core.Model;
+using Sonulab.Core.Protocol;
 
 namespace Sonulab.Core.Services;
 
@@ -22,7 +23,7 @@ public sealed class DeviceRepository
     }
 
     public Task SelectPresetAsync(string name, CancellationToken ct = default) =>
-        _client.WriteAsync(PresetNode, "\"" + name + "\"", ct);
+        _client.WriteAsync(PresetNode, JsonString.Quote(name), ct);
 
     public Task SaveCurrentAsAsync(string name, CancellationToken ct = default) =>
         _client.SaveAsync(PresetNode, name, ct);

@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Sonulab.App.Services;
 using Sonulab.Core;
 using Sonulab.Core.Model;
+using Sonulab.Core.Protocol;
 
 namespace Sonulab.App.ViewModels;
 
@@ -28,8 +29,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     [ObservableProperty] private bool _isLoading;
     private string? _loadedName;
 
-    // Per-session expansion memory, keyed by block header; reapplied on every rebuild
-    // (preset switch). Intentionally NOT persisted to disk (spec decision).
+    // Per-session expansion memory, keyed by block path (root\app\<block>) so it survives
+    // header relabeling; reapplied on every rebuild (preset switch). Intentionally NOT
+    // persisted to disk (spec decision).
     private readonly Dictionary<string, bool> _expansion = new(StringComparer.Ordinal);
 
     private static readonly string[] EditableTypes = { "float", "enum", "plist" };
@@ -47,7 +49,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         {
             var schema = NodeSchema.FromRecord(rec);
             if (schema.Ref is not { Length: > 0 } r || refOptions.ContainsKey(r)) continue;
-            if (!EditableTypes.Contains(schema.Type) && schema.Type != "item") continue;
+            if (!EditableTypes.Contains(schema.Type)) continue;
             try
             {
                 var names = await _client.ReadListAsync(r);
@@ -97,11 +99,12 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             section.EnableField = section.Fields.FirstOrDefault(f => f.Path.EndsWith("\\on_off", StringComparison.Ordinal));
             if (section.Fields.Count > 0 || section.SubGroups.Count > 0)
             {
-                section.IsExpanded = _expansion.TryGetValue(section.Header, out var exp) && exp;
+                section.IsExpanded = _expansion.TryGetValue(prefix, out var exp) && exp;
+                var key = prefix;
                 section.PropertyChanged += (s, e) =>
                 {
                     if (e.PropertyName == nameof(BlockSectionViewModel.IsExpanded) && s is BlockSectionViewModel b)
-                        _expansion[b.Header] = b.IsExpanded;
+                        _expansion[key] = b.IsExpanded;
                 };
                 Blocks.Add(section);
             }
@@ -117,7 +120,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         IsLoading = true;
         try
         {
-            await _client.WriteAsync(@"root\app\preset", "\"" + presetName + "\"");   // select/activate on device
+            await _client.WriteAsync(@"root\app\preset", JsonString.Quote(presetName));   // select/activate on device
             await LoadAsync();                                                          // browse + rebuild blocks
             PresetName = presetName;
             _loadedName = presetName;

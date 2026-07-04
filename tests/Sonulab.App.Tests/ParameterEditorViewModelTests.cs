@@ -245,4 +245,53 @@ public class ParameterEditorViewModelTests
         await vm.LoadForCommand.ExecuteAsync("P2");
         Assert.False(vm.Blocks[0].IsExpanded);
     }
+
+    // ---- ride-alongs (ir-tab Task 9) ----
+
+    // Counts list reads so we can prove an item-typed ref costs NO device round-trip.
+    sealed class ListReadCountingLink(Sonulab.Core.Transport.ISonuLink inner) : Sonulab.Core.Transport.ISonuLink
+    {
+        public int ListReads;
+        public bool IsOpen => inner.IsOpen;
+        public System.Threading.Tasks.Task OpenAsync(System.Threading.CancellationToken ct = default) => inner.OpenAsync(ct);
+        public void Close() => inner.Close();
+        public System.Threading.Tasks.Task<string> SendAsync(string command, System.Threading.CancellationToken ct = default)
+        {
+            if (command == @"read root\amp") ListReads++;
+            return inner.SendAsync(command, ct);
+        }
+    }
+
+    [Fact] public async Task Item_typed_ref_is_not_prefetched()
+    {
+        // Prefetch filter must agree with the field-build loop (which excludes "item"):
+        // an item-typed ref must trigger NO read of its ref list.
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}",
+            "root\\app\\delay\\folder:{\"desc\":\"F\",\"value\":\"\",\"type\":\"item\",\"ref\":\"root\\\\amp\"}");
+        d.SeedList(@"root\amp", new[] { "ShouldNotBeRead" });
+        await d.OpenAsync();
+        var link = new ListReadCountingLink(d);
+        var vm = new ParameterEditorViewModel(new SonuClient(link),
+            new LabelService(new Dictionary<string, string>()), new ParameterExposure(System.Array.Empty<string>()));
+        await vm.LoadCommand.ExecuteAsync(null);
+        Assert.Equal(0, link.ListReads);          // fails before the fix (prefetch included "item")
+    }
+
+    [Fact] public async Task Expansion_state_keyed_by_block_path_survives_header_relabel()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}");
+        await d.OpenAsync();
+        // two label maps that render DIFFERENT headers for the same block path
+        var vm1 = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string> { [@"root\app\amp"] = "Amplifier" }),
+            new ParameterExposure(System.Array.Empty<string>()));
+        await vm1.LoadForCommand.ExecuteAsync("P1");
+        vm1.Blocks[0].IsExpanded = true;
+        await vm1.LoadForCommand.ExecuteAsync("P2");
+        Assert.True(vm1.Blocks[0].IsExpanded);     // path-keyed state survives regardless of header text
+    }
 }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Sonulab.Core.Model;
+using Sonulab.Core.Protocol;
 
 namespace Sonulab.App.ViewModels;
 
@@ -65,5 +66,5 @@ public partial class ParameterFieldViewModel : ObservableObject
 
     public string ToJsonValue() => Kind == "float"
         ? Number.ToString(CultureInfo.InvariantCulture)
-        : "\"" + (Text ?? "") + "\"";
+        : JsonString.Quote(Text);
 }
