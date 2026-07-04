@@ -37,5 +37,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sonulab.Core\Sonulab.Core.csproj" />
+    <ProjectReference Include="..\Sonulab.Distill\Sonulab.Distill.csproj" />
   </ItemGroup>
 </Project>
