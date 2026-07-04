@@ -1,23 +1,31 @@
-# Amps Tab — upload amps from the app (sub-project 2b)
+# Amps Tab — native distill + upload from the app (sub-project 2b)
 
-**Date:** 2026-07-03
+**Date:** 2026-07-03 (revised same day: native C# distiller replaces the Python subprocess)
 **Status:** Approved
 **Context:** `docs/APP-AMPS-TAB-HANDOFF.md`, `PROTOCOL.md`, `docs/distiller.md`, `docs/vxamp-format.md`
 
 ## Goal
 
 From the app's Amps tab, a user can pick a `.nam`, watch it distill and upload to an empty amp slot
-(guarded, verified), see it appear in the amp list, and select it on the pedal — no CLI, no VoidX.
-Rename and delete work. The Core amp service is unit-tested; the full suite stays green.
+(guarded, verified), see it appear in the amp list, and select it on the pedal — no CLI, no VoidX,
+**no Python at runtime**: the `.nam → .vxamp` distillation runs natively in .NET. Rename and delete
+work. Core amp service and the distiller port are unit-tested; the full suite stays green.
 
 ## v1 scope (decided in brainstorming)
 
-**In:** list the 30 amp slots; upload from `.nam` (distill → upload); upload from `.vxamp`
-(restore / already-distilled); inline rename; delete.
-**Out (deferred):** reorder, backup-all, copy-between-slots UI, IR tab, background upload queue.
+**In:** list the 30 amp slots; upload from `.nam` (native distill → upload); upload from `.vxamp`
+(restore / already-distilled); inline rename; delete. Native C# port of the distiller, parity-tested
+against the Python reference.
+**Out (deferred):** reorder, backup-all, copy-between-slots UI, IR tab, background upload queue,
+high-gain nonlinearity work.
 
 Decisions:
-- **Distiller invocation:** `python` then `py` on PATH; clear error if missing. No settings UI, no bundling.
+- **Distiller:** ported to native C# (`Sonulab.Distill`). The app never shells out to Python.
+- **Python distiller stays in-repo** (`tools/distiller/`) as the reference oracle: it is the
+  ear-validated implementation, generates the golden outputs the port is parity-tested against,
+  and remains available for future distiller work. The app does not invoke it.
+- **Two phases, one spec:** Phase 1 = distiller port + parity validation; Phase 2 = Amps tab.
+  Two implementation plans; Phase 1 lands first.
 - **Slot targeting:** empty slots only. To replace an amp: delete, then upload.
 - **Naming:** pre-filled from the source file stem, editable before upload, capped at 31 chars (device limit).
 - **Distilled artifacts:** kept in a managed library `NAMFiles/Distilled/<amp name>.vxamp` (not temp).
@@ -25,18 +33,59 @@ Decisions:
 
 ## Architecture
 
-Two new Core services (no UI dependencies, fully unit-tested), one new app tab mirroring the
-Presets tab, and a HwCheck refactor so the amp write sequence has exactly one implementation.
+Phase 1 adds a native distiller library; Phase 2 adds a Core amp service, the Amps tab, and a
+HwCheck refactor so the amp write sequence has exactly one implementation.
 
 ```
-.nam ──DistillerService──▶ NAMFiles/Distilled/<name>.vxamp ──┐
-.vxamp (picked directly) ────────────────────────────────────┤
-                                                             ▼
-                              AmpService.UploadAmpAsync(slot, bytes, name, progress)
-                              backup → chunked ACK-verified write → commit → read-back verify
-                                                             ▼
-                                                    pedal root\amp slot
+.nam ──Sonulab.Distill (native C#)──▶ NAMFiles/Distilled/<name>.vxamp ──┐
+.vxamp (picked directly) ───────────────────────────────────────────────┤
+                                                                        ▼
+                                 AmpService.UploadAmpAsync(slot, bytes, name, progress)
+                                 backup → chunked ACK-verified write → commit → read-back verify
+                                                                        ▼
+                                                               pedal root\amp slot
 ```
+
+## Phase 1 — native distiller: `src/Sonulab.Distill`
+
+New class library (no UI, no device I/O) + `tests/Sonulab.Distill.Tests`. Kept out of
+`Sonulab.Core` because DSP and device protocol are different domains; the app references both.
+Module-for-module port of `tools/distiller/`:
+
+| Python | C# | Notes |
+|---|---|---|
+| `nam_runner.py` | `NamModel` / `NamRunner` | `.nam` JSON parse + WaveNet inference (pure-numpy source → plain loops) |
+| `probe.py` | `ProbeSignal` | deterministic probe signal generation |
+| `device_sim.py` | `DeviceSim` | Wiener–Hammerstein FIR-cascade simulator |
+| `fit.py` | `FirFitter` + `Resampler` | cepstral min-phase, Wiener deconvolution, 48k→44.1k polyphase resample |
+| `nonlinearity.py` | `Nonlinearity` | tanh waveshaper |
+| `distill.py` | `Distiller` (orchestrator) + `VxampEncoder` | public API: `DistillAsync(namPath, outPath, IProgress<DistillProgress>?, ct)` |
+
+Numerics and porting rules:
+- **float64 throughout** (numpy's default), narrowing to float32 only at final weight encode.
+- **FFT via Math.NET Numerics** (MIT-licensed, math-only NuGet; referenced by `Sonulab.Distill`
+  only). No hand-rolled FFT.
+- **`resample_poly` reimplemented** as upfirdn with scipy's exact Kaiser window design formulas
+  (`kaiser_beta`/`kaiser_atten` equivalents) so outputs track the reference.
+- **`device_reference_db` baked as a constant.** Python computes it at runtime from the paired
+  corpus (median VoidX output loudness). The port uses a documented constant generated once by the
+  Python oracle — the C# distiller needs no corpus at runtime. Provenance (script + date) recorded
+  in a code comment.
+- Cancellation checked between DSP blocks; progress reported per stage (load NAM → probe →
+  NAM inference → fit → nonlinearity → normalize → encode).
+
+**Parity validation (the core risk control).** The Python distiller is ear-validated; the port must
+not regress it. Golden tests:
+- For each corpus `.nam` (tests skip if the gitignored corpus is absent, like hardware tests) and
+  for a small committed synthetic `.nam` fixture:
+  (a) C# weights match Python's golden `.vxamp` within tight numeric tolerance (FFT rounding means
+  bit-exactness is not guaranteed; the tolerance is asserted, not hand-waved), and
+  (b) the C# result scores within epsilon of Python's own fidelity metric (signed-gain, best-lag
+  aligned NRMSE vs the NAM response).
+- Final gate (manual, deferred to a bench session): one C#-distilled amp uploaded and ear-checked
+  on hardware against its Python-distilled twin.
+
+## Phase 2 — Core amp service, Amps tab, HwCheck refactor
 
 ### `Sonulab.Core/Services/AmpService.cs`
 
@@ -69,25 +118,13 @@ types may diverge).
 - `RenameAmpAsync(slot, name)` — padded name at `chunk:-1`, same as preset rename.
   **Untested on amp hardware** — goes on the manual hardware-validation checklist.
 
-### `Sonulab.Core/Services/DistillerService.cs`
-
-- Locates Python by trying `python`, then `py`, on PATH. Locates the script by searching upward
-  from `AppContext.BaseDirectory` for `tools/distiller/distill.py` (the app is a dev tool run from
-  the repo). Both overridable via constructor for tests.
-- `DistillAsync(namPath, outVxampPath, ct)` → runs
-  `python tools/distiller/distill.py "<nam>" "<out>"`, captures stdout/stderr. Success = exit code 0
-  **and** a 12288-byte output file. Failure throws `DistillerException` carrying the stderr tail.
-  Cancellation kills the subprocess.
-- Subprocess execution behind a small `IProcessRunner` interface so the service is unit-testable
-  without Python installed.
-
 ### HwCheck refactor
 
 `--upload-amp`, `--delete-amp`, `--list-amps`, `--dump-amps` re-implemented on top of `AmpService`.
-CLI output/behavior stays equivalent (it is the hardware-validation harness). Only correct
+CLI output/behavior stays equivalent (it is the hardware-validation harness). The only correct
 implementation of the write sequence lives in Core.
 
-## App UI (`Sonulab.App`)
+### App UI (`Sonulab.App`)
 
 Mirrors the Presets tab: `AmpListViewModel` + `AmpItemViewModel` (ViewModels/), `AmpListView.axaml(.cs)`
 (Views/). `MainWindowViewModel` gains an `Amps` property constructed alongside `Presets` with the same
@@ -100,15 +137,16 @@ rename (edit-in-place pattern from presets, 31-char cap in the field) and delete
 
 **Upload flow** (both entry points converge):
 1. Toolbar button → OS file picker (Avalonia `StorageProvider` from the view's `TopLevel`; first
-   use in the app; `.nam` / `.vxamp` filters). No new dependencies.
+   use in the app; `.nam` / `.vxamp` filters). No new app-side dependencies.
 2. Inline upload panel appears at the bottom of the tab (no modal windows): source file name,
    editable **Name** (pre-filled from file stem, truncated to 31), **Slot** dropdown of empty slots
    only (pre-selected to the first empty), **Start**, **Cancel**.
-3. Start: `.nam` → distill to `NAMFiles/Distilled/<name>.vxamp`, then upload; `.vxamp` → upload
-   directly. Progress bar + stage text: `Distilling… (~30 s)` → `Writing chunk n/98` →
-   `Verifying…` → `Done — '<name>' in slot N`. List refreshes; the new row is selected.
-4. **Cancel** enabled during distill only (kills the subprocess; nothing written to the device);
-   disabled once device writes begin.
+3. Start: `.nam` → native distill to `NAMFiles/Distilled/<name>.vxamp`, then upload; `.vxamp` →
+   upload directly. Progress bar + stage text: `Distilling — <stage>…` (per-stage from
+   `DistillProgress`) → `Writing chunk n/98` → `Verifying…` → `Done — '<name>' in slot N`.
+   List refreshes; the new row is selected.
+4. **Cancel** enabled during distill (in-process cancellation between DSP blocks; nothing written
+   to the device); disabled once device writes begin.
 5. Panel and all write actions disabled when writes aren't allowed or while any operation runs
    (existing `IsBusy` pattern).
 
@@ -116,8 +154,8 @@ rename (edit-in-place pattern from presets, 31-char cap in the field) and delete
 
 | Failure | Behavior |
 |---|---|
-| Python not found | Panel message: "Python not found on PATH — install Python 3 with numpy/scipy." |
-| Distill non-zero exit / bad output | Panel shows the stderr tail from `DistillerException`. |
+| `.nam` unreadable / unsupported architecture | Validation/`DistillException` message in the panel before any device write. |
+| Distill failure (numeric, encode) | `DistillException` message shown in the panel; nothing written to the device. |
 | `.vxamp` wrong size | Validation message before any write. |
 | No empty slots | Upload buttons show a message; panel won't open. |
 | Name collides with an existing amp | Validation message before any write (names should stay unique). |
@@ -129,6 +167,10 @@ rename (edit-in-place pattern from presets, 31-char cap in the field) and delete
 
 ## Testing
 
+- **Distiller unit tests** (`Sonulab.Distill.Tests`): per-module tests mirroring the Python test
+  suite (`test_nam_runner`, `test_fit`, `test_nonlinearity`, `test_probe`, `test_device_sim`,
+  `test_distill`), plus the **parity golden tests** described in Phase 1 (corpus-based tests skip
+  when the corpus is absent; the synthetic fixture test always runs).
 - **Fake device:** extend `FakePresetDevice`/`FakeSonuLink` with a faithful `root\amp` node —
   name table, per-chunk ACK with next-expected semantics, `chunk:-1` commit (name) / delete (zeros)
   behavior, dread of stored blobs, timeout behavior for empty-slot dreads.
@@ -136,18 +178,17 @@ rename (edit-in-place pattern from presets, 31-char cap in the field) and delete
   validation failures (size, name); ACK-mismatch abort leaves slot uncommitted; verify-fail clears
   the slot; empty-slot upload skips the backup dread; occupied-slot upload writes a backup file;
   delete (backs up, clears, no-op on empty); rename.
-- **`DistillerService` tests** (fake `IProcessRunner`): python missing → clear error; non-zero
-  exit → stderr in exception; output wrong size → error; success path; cancellation kills process.
 - **`AmpListViewModel` tests:** panel state transitions (pick → configure → progress → done/error),
   empty-slot dropdown contents, name pre-fill/truncation, writes-gating.
 - **Suite:** all existing tests (146) plus the new ones stay green: `dotnet build` && `dotnet test`.
-- **Manual hardware checks** (deferred to a bench session, documented in a
-  `docs/HARDWARE-VALIDATION-amps-tab.md` checklist): real `.nam` end-to-end upload from the app,
-  amp rename on hardware (`chunk:-1` rename is untested for amps), delete, verify audible result.
+- **Manual hardware checks** (deferred to a bench session, documented in
+  `docs/HARDWARE-VALIDATION-amps-tab.md`): C#-distilled amp ear-checked against its
+  Python-distilled twin; real `.nam` end-to-end upload from the app; amp rename on hardware
+  (`chunk:-1` rename is untested for amps); delete.
 
 ## Definition of done
 
-From the app's Amps tab: pick a `.nam`, watch it distill + upload to an empty slot (guarded,
-verified), see it in the amp list, select it on the pedal — no CLI, no VoidX. Rename/delete work.
-`AmpService`/`DistillerService` unit-tested; HwCheck shares the Core implementation; app builds and
-runs; full suite green.
+From the app's Amps tab: pick a `.nam`, watch it distill natively (no Python) + upload to an empty
+slot (guarded, verified), see it in the amp list, select it on the pedal — no CLI, no VoidX.
+Rename/delete work. `Sonulab.Distill` passes parity against the Python oracle; `AmpService` is
+unit-tested; HwCheck shares the Core implementation; app builds and runs; full suite green.
