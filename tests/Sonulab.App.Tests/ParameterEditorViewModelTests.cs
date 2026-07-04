@@ -281,17 +281,24 @@ public class ParameterEditorViewModelTests
 
     [Fact] public async Task Expansion_state_keyed_by_block_path_survives_header_relabel()
     {
-        var d = new FakeSonuLink();
-        d.SeedBrowse(@"root\app",
-            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}");
-        await d.OpenAsync();
-        // two label maps that render DIFFERENT headers for the same block path
-        var vm1 = new ParameterEditorViewModel(new SonuClient(d),
-            new LabelService(new Dictionary<string, string> { [@"root\app\amp"] = "Amplifier" }),
-            new ParameterExposure(System.Array.Empty<string>()));
-        await vm1.LoadForCommand.ExecuteAsync("P1");
-        vm1.Blocks[0].IsExpanded = true;
-        await vm1.LoadForCommand.ExecuteAsync("P2");
-        Assert.True(vm1.Blocks[0].IsExpanded);     // path-keyed state survives regardless of header text
+        var d = Dev(); await d.OpenAsync();
+        // amp and delay are mapped to the SAME header text. Under header-keying, both blocks
+        // would share one dictionary entry and expanding one would (wrongly) expand both on
+        // reload; path-keying keeps them independent.
+        var labels = new LabelService(new Dictionary<string, string>
+        {
+            [@"root\app\amp"] = "Same",
+            [@"root\app\delay"] = "Same",
+        });
+        var vm = new ParameterEditorViewModel(new SonuClient(d), labels, new ParameterExposure(System.Array.Empty<string>()));
+        await vm.LoadCommand.ExecuteAsync(null);
+        var amp = vm.Blocks.First(b => b.Header == "Same" && b.Fields.Any(f => f.Path.EndsWith(@"\gain")));
+        var delay = vm.Blocks.First(b => b.Header == "Same" && b.Fields.Any(f => f.Path.EndsWith(@"\fdbk")));
+        amp.IsExpanded = true;
+        await vm.LoadCommand.ExecuteAsync(null);   // rebuild: reapplies expansion state keyed by block path
+        var ampAfter = vm.Blocks.First(b => b.Fields.Any(f => f.Path.EndsWith(@"\gain")));
+        var delayAfter = vm.Blocks.First(b => b.Fields.Any(f => f.Path.EndsWith(@"\fdbk")));
+        Assert.True(ampAfter.IsExpanded);
+        Assert.False(delayAfter.IsExpanded);       // would also be true if state were header-keyed
     }
 }

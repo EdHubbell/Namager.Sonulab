@@ -69,8 +69,8 @@ public sealed class SlotBlobService
     }
 
     /// <summary>Dread the slot and save it under the backup dir. Callers must ensure the
-    /// slot is OCCUPIED first — dreading an empty slot is Chunks timeouts and is the prime
-    /// suspect for killing a following commit (see HwCheck upload notes).</summary>
+    /// slot is OCCUPIED first — dreading an empty slot is one timeout per chunk and is the
+    /// prime suspect for killing a following commit (see HwCheck upload notes).</summary>
     private async Task<byte[]> BackupSlotAsync(int index, string suffix, CancellationToken ct)
     {
         Directory.CreateDirectory(_backupDir);
@@ -118,7 +118,7 @@ public sealed class SlotBlobService
         int totalChunks = _kind.Chunks + 2;                        // name + payload + commit
 
         // 1. Backup — ONLY if the name table says the slot is occupied. Skipping the dread on
-        // empty slots is not an optimization: a Chunks-chunk dread right before the write burst is
+        // empty slots is not an optimization: a full-slot dread right before the write burst is
         // the prime suspect for the commit being silently discarded (HwCheck finding).
         var names = await _client.ReadListAsync(_kind.ListPath, ct);
         if (slot >= 0 && slot < names.Count && !string.IsNullOrEmpty(names[slot]))

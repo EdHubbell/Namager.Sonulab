@@ -35,8 +35,11 @@ public static class WavToIr
             {
                 uint id = r.ReadUInt32();
                 int size = r.ReadInt32();
+                if (size < 0 || fs.Position + size > fs.Length)
+                    throw new InvalidDataException($"Corrupt WAV: chunk size {size} exceeds file bounds.");
                 if (id == 0x20746D66u)                                                                     // "fmt "
                 {
+                    if (size < 16) throw new InvalidDataException("Corrupt WAV: fmt chunk too small.");
                     long next = fs.Position + size + (size & 1);
                     format = r.ReadInt16(); channels = r.ReadInt16(); sampleRate = r.ReadInt32();
                     r.ReadInt32(); r.ReadInt16(); bits = r.ReadInt16();

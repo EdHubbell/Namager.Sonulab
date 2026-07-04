@@ -6,7 +6,12 @@ using Xunit;
 public class IrListViewModelTests : IDisposable
 {
     private readonly string _backupDir = Path.Combine(Path.GetTempPath(), $"ir-vm-{Guid.NewGuid():N}");
-    public void Dispose() { if (Directory.Exists(_backupDir)) Directory.Delete(_backupDir, true); }
+    private readonly List<string> _tempFiles = new();
+    public void Dispose()
+    {
+        if (Directory.Exists(_backupDir)) Directory.Delete(_backupDir, true);
+        foreach (var f in _tempFiles) { try { File.Delete(f); } catch { } }
+    }
 
     private (IrListViewModel vm, FakeIrDevice dev, List<string> converted) Make(bool writes = true, int seed = 2)
     {
@@ -19,10 +24,11 @@ public class IrListViewModelTests : IDisposable
         return (vm, dev, converted);
     }
 
-    private static string TempFile(string name, int bytes = 4096)
+    private string TempFile(string name, int bytes = 4096)
     {
         var p = Path.Combine(Path.GetTempPath(), name);
         File.WriteAllBytes(p, Enumerable.Repeat((byte)0xEE, bytes).ToArray());
+        _tempFiles.Add(p);
         return p;
     }
 

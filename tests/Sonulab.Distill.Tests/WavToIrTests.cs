@@ -159,6 +159,37 @@ public class WavToIrTests
         finally { File.Delete(wav); }
     }
 
+    [Fact]
+    public void Negative_chunk_size_throws_instead_of_hanging()
+    {
+        var bad = Path.Combine(Path.GetTempPath(), $"neg-{Guid.NewGuid():N}.wav");
+        using (var w = new BinaryWriter(new FileStream(bad, FileMode.Create)))
+        {
+            w.Write("RIFF"u8); w.Write(100); w.Write("WAVE"u8);
+            w.Write("JUNK"u8); w.Write(-8);                      // negative size: old code loops forever
+            w.Write(new byte[64]);
+        }
+        try
+        {
+            var t = Task.Run(() => Assert.Throws<InvalidDataException>(() => WavToIr.Convert(bad)));
+            Assert.True(t.Wait(TimeSpan.FromSeconds(10)), "conversion hung on corrupt WAV");
+        }
+        finally { File.Delete(bad); }
+    }
+
+    [Fact]
+    public void Tiny_fmt_chunk_throws()
+    {
+        var bad = Path.Combine(Path.GetTempPath(), $"fmt-{Guid.NewGuid():N}.wav");
+        using (var w = new BinaryWriter(new FileStream(bad, FileMode.Create)))
+        {
+            w.Write("RIFF"u8); w.Write(20); w.Write("WAVE"u8);
+            w.Write("fmt "u8); w.Write(4); w.Write(1); // 4-byte fmt: too small
+        }
+        try { Assert.Throws<InvalidDataException>(() => WavToIr.Convert(bad)); }
+        finally { File.Delete(bad); }
+    }
+
     private static double Pearson(double[] a, double[] b)
     {
         double ma = a.Average(), mb = b.Average(), cov = 0, va = 0, vb = 0;

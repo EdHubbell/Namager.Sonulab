@@ -17,6 +17,14 @@ public class SonuCommandsTests
         Assert.Equal(@"write root\app\preset:{""value"":""Test"",""save"":""save""}",
             SonuCommands.Save(@"root\app\preset", "Test"));
 
+    [Fact]
+    public void Save_escapes_quotes_in_name()
+    {
+        var cmd = Sonulab.Core.Protocol.SonuCommands.Save(@"root\app\preset", "Say \"hi\"");
+        Assert.Contains("\"value\":\"Say \\\"hi\\\"\"", cmd);
+        Assert.Contains("\"save\":\"save\"", cmd);
+    }
+
     [Fact] public void DRead_builds_command() =>
         Assert.Equal(@"dread root\presets:{""index"":4,""chunk"":1}", SonuCommands.DRead(@"root\presets", 4, 1));
 
