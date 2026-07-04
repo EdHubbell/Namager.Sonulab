@@ -8,6 +8,7 @@
 //   dotnet run --project tools/HwCheck -- --delete-amp <slotIndex>              # guarded amp delete (backup+clear name)
 // Requires VoidX-Control CLOSED (it holds COM6).
 using Sonulab.Core.Connection;
+using Sonulab.Core.Model;
 using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
 
@@ -66,28 +67,25 @@ if (bi >= 0)
 // reverse-engineer VoidX's .nam -> vxamp conversion. No writes.
 if (Array.IndexOf(args, "--dump-amps") >= 0)
 {
-    const string AmpList = @"root\amp";
-    const int AmpChunks = 96;                    // 12288 / 128
-    var client = session.Client!;
-    var ampNames = await client.ReadListAsync(AmpList);
+    var ampSvc = new AmpService(session.Client!, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
+    var ampSlots = await ampSvc.ListAmpsAsync();
     var outDir = System.IO.Path.GetFullPath(System.IO.Path.Combine("NAMFiles", "VxampDump"));
     System.IO.Directory.CreateDirectory(outDir);
     Console.WriteLine($"\n--- DUMP AMPS (read-only) -> {outDir} ---");
     var invalid = System.IO.Path.GetInvalidFileNameChars();
     int dumped = 0;
-    for (int idx = 0; idx < ampNames.Count; idx++)
+    foreach (var s in ampSlots)
     {
-        var name = ampNames[idx];
-        if (string.IsNullOrEmpty(name)) continue;
-        var blob = await client.DReadBlobAsync(AmpList, idx, AmpChunks);
+        if (s.IsEmpty) continue;
+        var blob = await ampSvc.ReadAmpAsync(s.Index);
         // Real payload length = the fixed 12288-byte slot minus trailing zero padding. This is the
         // single most useful RE diagnostic: it tells us how big the converted model actually is.
         int payload = blob.Length; while (payload > 0 && blob[payload - 1] == 0) payload--;
-        var safe = new string(name.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
-        var path = System.IO.Path.Combine(outDir, $"{idx:D2} - {safe}.vxamp");
+        var safe = new string(s.Name.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
+        var path = System.IO.Path.Combine(outDir, $"{s.Index:D2} - {safe}.vxamp");
         await System.IO.File.WriteAllBytesAsync(path, blob);
         var head = Convert.ToHexString(blob, 0, Math.Min(32, blob.Length));
-        Console.WriteLine($"  slot {idx + 1,2} (idx {idx,2}): '{name}'  blob={blob.Length}B payload={payload}B  head={head}");
+        Console.WriteLine($"  slot {s.Index + 1,2} (idx {s.Index,2}): '{s.Name}'  blob={blob.Length}B payload={payload}B  head={head}");
         dumped++;
     }
     Console.WriteLine($"RESULT: DUMP-AMPS COMPLETE ({dumped} amps -> {outDir})");
@@ -98,10 +96,11 @@ if (Array.IndexOf(args, "--dump-amps") >= 0)
 // --list-amps : read-only, prints the amp slot name table (fast; no blob reads).
 if (Array.IndexOf(args, "--list-amps") >= 0)
 {
-    var ampNames = await session.Client!.ReadListAsync(@"root\amp");
-    Console.WriteLine($"\n--- AMP SLOTS ({ampNames.Count}) ---");
-    for (int idx = 0; idx < ampNames.Count; idx++)
-        Console.WriteLine($"  slot {idx + 1,2} (idx {idx,2}): {(string.IsNullOrEmpty(ampNames[idx]) ? "(empty)" : $"'{ampNames[idx]}'")}");
+    var ampSvc = new AmpService(session.Client!, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
+    var ampSlots = await ampSvc.ListAmpsAsync();
+    Console.WriteLine($"\n--- AMP SLOTS ({ampSlots.Count}) ---");
+    foreach (var s in ampSlots)
+        Console.WriteLine($"  slot {s.Index + 1,2} (idx {s.Index,2}): {(s.IsEmpty ? "(empty)" : $"'{s.Name}'")}");
     Console.WriteLine("RESULT: LIST-AMPS COMPLETE");
     session.Disconnect();
     return 0;
@@ -145,25 +144,16 @@ if (dai >= 0)
     if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); session.Disconnect(); return 3; }
     int dslot = int.Parse(args[dai + 1]);
     var dclient = session.Client!;
-    var dnames = await dclient.ReadListAsync(@"root\amp");
-    if (dslot < 0 || dslot >= dnames.Count || string.IsNullOrEmpty(dnames[dslot]))
-    {
-        Console.WriteLine($"RESULT: DELETE-AMP NO-OP — slot {dslot} is already empty.");
-        session.Disconnect();
-        return 0;
-    }
-    var ddir = System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups"));
-    System.IO.Directory.CreateDirectory(ddir);
-    var dpath = System.IO.Path.Combine(ddir, $"amp-{dslot}-{DateTime.Now:yyyyMMdd-HHmmss}-deleted.vxamp");
-    Console.WriteLine($"[backup] slot {dslot} ('{dnames[dslot]}') -> {dpath}");
-    var dblob = await dclient.DReadBlobAsync(@"root\amp", dslot, 96);
-    await System.IO.File.WriteAllBytesAsync(dpath, dblob);
-    Console.WriteLine($"[backup] {dblob.Length} B saved; deleting name-table entry...");
-    await dclient.DWriteChunkAsync(@"root\amp", dslot, -1, new byte[128]);
+    var ampSvc = new AmpService(dclient, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
+    var namesBefore = await ampSvc.ListAmpsAsync();
+    if (namesBefore[dslot].IsEmpty)
+    { Console.WriteLine($"RESULT: DELETE-AMP NO-OP — slot {dslot} is already empty."); session.Disconnect(); return 0; }
+    Console.WriteLine($"[delete] slot {dslot} ('{namesBefore[dslot].Name}') — backing up to docs/backups, then clearing...");
+    await ampSvc.DeleteAmpAsync(dslot);
     await Task.Delay(500);
-    var dafter = await dclient.ReadListAsync(@"root\amp");
-    bool gone = dslot < dafter.Count && string.IsNullOrEmpty(dafter[dslot]);
-    Console.WriteLine(gone ? $"RESULT: DELETE-AMP OK (slot {dslot} now empty)" : $"RESULT: DELETE-AMP FAIL (slot {dslot} still '{dafter[dslot]}')");
+    var afterDelete = await ampSvc.ListAmpsAsync();
+    bool gone = afterDelete[dslot].IsEmpty;
+    Console.WriteLine(gone ? $"RESULT: DELETE-AMP OK (slot {dslot} now empty)" : $"RESULT: DELETE-AMP FAIL (slot {dslot} still '{afterDelete[dslot].Name}')");
     session.Disconnect();
     return gone ? 0 : 4;
 }
@@ -189,30 +179,8 @@ if (uai >= 0)
 
     Console.WriteLine($"\n--- GUARDED AMP UPLOAD: slot {slot} <- '{vxampPath}'  (pace={paceMs}ms/chunk, settle={settleMs}ms) ---");
 
-    // 1. Back up the current slot before touching it — but ONLY if it is occupied. Skipping the
-    // backup for empty slots is not just an optimization: a 96-chunk dread of the target slot on
-    // the same connection right before the dwrite burst is the main suspect for the commit being
-    // silently discarded (VoidX's working upload flow has no preceding dread).
-    var bdir = System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups"));
-    System.IO.Directory.CreateDirectory(bdir);
-    var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-    var preNames = await client.ReadListAsync(@"root\amp");
-    bool slotOccupied = slot >= 0 && slot < preNames.Count && !string.IsNullOrEmpty(preNames[slot]);
-    var currentBlob = Array.Empty<byte>();
-    if (slotOccupied)
-    {
-        var backupPath = System.IO.Path.Combine(bdir, $"amp-{slot}-{ts}.vxamp");
-        Console.WriteLine($"[backup] reading current amp slot {slot} ('{preNames[slot]}')...");
-        currentBlob = await client.DReadBlobAsync(@"root\amp", slot, 96);
-        await System.IO.File.WriteAllBytesAsync(backupPath, currentBlob);
-        Console.WriteLine($"[backup] slot {slot} -> {backupPath} ({currentBlob.Length} B)");
-    }
-    else
-    {
-        Console.WriteLine($"[backup] slot {slot} is empty per the amp name table — no backup needed (and no pre-write dread).");
-    }
-
-    // 2. Load the .vxamp file (must be exactly 12288 bytes)
+    // Load the .vxamp file (must be exactly 12288 bytes) — a friendly early exit before we even
+    // touch the device; AmpService.UploadAmpAsync also validates this itself.
     var vxampBytes = await System.IO.File.ReadAllBytesAsync(vxampPath);
     if (vxampBytes.Length != 12288)
     {
@@ -221,97 +189,32 @@ if (uai >= 0)
         return 4;
     }
 
-    // 3. The name: --name <name> overrides; default = the file's stem. ≤31 chars, zero-padded to 128 B.
+    // The name: --name <name> overrides; default = the file's stem. ≤31 chars (AmpService validates/truncates).
     var stem = System.IO.Path.GetFileNameWithoutExtension(vxampPath);
     int ni = Array.IndexOf(args, "--name"); if (ni >= 0 && ni + 1 < args.Length) stem = args[ni + 1];
     if (stem.Length > 31) stem = stem[..31];
-    var nameBuf = new byte[128];
-    var nameBytes = System.Text.Encoding.ASCII.GetBytes(stem);
-    Array.Copy(nameBytes, nameBuf, Math.Min(nameBytes.Length, 128));
 
-    // The device ACKs every accepted chunk with `dwrite root\amp:{"index":N,"chunk":<nextExpected>}`
-    // (SendAsync's NUL-stop naturally waits for it). Verify each ACK and abort on any mismatch.
-    var swChunk = new System.Diagnostics.Stopwatch();
-    async Task<bool> WriteChunkAcked(int chk, byte[] data, int expectNext)
+    var svc = new AmpService(client, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")), paceMs, settleMs);
+    var swAll = System.Diagnostics.Stopwatch.StartNew();
+    try
     {
-        swChunk.Restart();
-        var raw = await client.DWriteChunkAsync(@"root\amp", slot, chk, data);
-        var m = System.Text.RegularExpressions.Regex.Match(raw, "\"chunk\":(-?\\d+)}");
-        bool ok = m.Success && int.Parse(m.Groups[1].Value) == expectNext;
-        if (!ok || chk % 16 == 0 || chk >= 96 || chk <= 0)
-            Console.WriteLine($"[chunk {chk,3}] {swChunk.ElapsedMilliseconds,4}ms  ack={(m.Success ? m.Groups[1].Value : "NONE")} (expected {expectNext}){(ok ? "" : "  <-- MISMATCH, aborting")}");
-        if (paceMs > 0) await Task.Delay(paceMs);
-        return ok;
+        await svc.UploadAmpAsync(slot, vxampBytes, stem, new Progress<AmpUploadProgress>(p =>
+        {
+            if (p.Stage == AmpUploadStage.BackingUp) Console.WriteLine("[backup] occupied slot — backing up first");
+            else if (p.Stage == AmpUploadStage.Writing && (p.ChunksDone % 16 == 0 || p.ChunksDone >= 97))
+                Console.WriteLine($"[chunk] {p.ChunksDone}/{p.ChunksTotal}");
+            else if (p.Stage == AmpUploadStage.Verifying) Console.WriteLine("[verify] reading back slot...");
+        }));
+        Console.WriteLine($"RESULT: UPLOAD-AMP OK ({swAll.ElapsedMilliseconds} ms)");
+        session.Disconnect();
+        return 0;
     }
-
-    // 4. The upload sequence (verified live 2026-07-03, fw 2.5.1, serial): chunk 0 = name,
-    // chunks 1..96 = payload, then chunk -1 = NAME AGAIN — the name-table write that COMMITS the
-    // staged content. NOTE: the VoidX capture sent all-zeros at chunk -1; on this firmware over
-    // serial that verifiably DELETES the slot's name-table entry and the staged content is
-    // discarded (that was the whole bug). chunk -1 must carry the padded name.
-    Console.WriteLine($"[upload] chunk 0 (name '{stem}') + chunks 1..96 (payload) + chunk -1 (name = commit)");
-    bool acked = await WriteChunkAcked(0, nameBuf, 1);
-    var chunk128 = new byte[128];
-    for (int chk = 1; acked && chk <= 96; chk++)
+    catch (AmpServiceException aex)
     {
-        Array.Copy(vxampBytes, (chk - 1) * 128, chunk128, 0, 128);
-        acked = await WriteChunkAcked(chk, chunk128, chk < 96 ? chk + 1 : -1);
-    }
-    if (acked) acked = await WriteChunkAcked(-1, nameBuf, -1);
-    if (!acked)
-    {
-        Console.WriteLine("RESULT: UPLOAD-AMP FAIL — device ACK missing/mismatched (see last [chunk] line)");
+        Console.WriteLine($"RESULT: UPLOAD-AMP FAIL — {aex.Message}");
         session.Disconnect();
         return 4;
     }
-
-    // 6. Let the device settle (flash commit) before reading back
-    if (settleMs > 0) { Console.WriteLine($"[verify] settling {settleMs}ms before readback..."); await Task.Delay(settleMs); }
-    Console.WriteLine("[verify] reading back slot...");
-    var readBack = await client.DReadBlobAsync(@"root\amp", slot, 96);
-    bool ok = readBack.AsSpan().SequenceEqual(vxampBytes.AsSpan());
-    if (!ok)
-    {
-        // --- DIAGNOSTICS: characterize the failure mode (length-safe: readback may be short) ---
-        try
-        {
-            int n = Math.Min(readBack.Length, vxampBytes.Length);
-            int matchBytes = 0, firstDiff = -1, matchChunks = 0;
-            bool readAllZero = readBack.Length > 0;
-            for (int i = 0; i < readBack.Length; i++) if (readBack[i] != 0) { readAllZero = false; break; }
-            for (int i = 0; i < n; i++)
-            {
-                if (readBack[i] == vxampBytes[i]) matchBytes++;
-                else if (firstDiff < 0) firstDiff = i;
-            }
-            int fullChunks = readBack.Length / 128;
-            for (int chk = 0; chk < 96 && (chk + 1) * 128 <= readBack.Length; chk++)
-            {
-                bool cok = true;
-                for (int j = 0; j < 128; j++) if (readBack[chk * 128 + j] != vxampBytes[chk * 128 + j]) { cok = false; break; }
-                if (cok) matchChunks++;
-            }
-            bool equalsBackup = readBack.Length == currentBlob.Length && readBack.AsSpan().SequenceEqual(currentBlob.AsSpan());
-            Console.WriteLine($"[diag] readback length = {readBack.Length} B (expected 12288)   |   backup read = {currentBlob.Length} B");
-            Console.WriteLine($"[diag] {matchBytes}/{n} compared bytes and {matchChunks}/{Math.Min(96, fullChunks)} full chunks match intended payload");
-            Console.WriteLine($"[diag] readback all-zero? {readAllZero}   |   equals pre-write backup (write had NO effect)? {equalsBackup}");
-            Console.WriteLine($"[diag] first differing byte (within compared range): offset {firstDiff}" + (firstDiff >= 0 ? $" (chunk {firstDiff / 128 + 1}); intended=0x{vxampBytes[firstDiff]:X2} readback=0x{readBack[firstDiff]:X2}" : ""));
-            try
-            {
-                var names = await client.ReadListAsync(@"root\amp");
-                string slotName = slot >= 0 && slot < names.Count ? names[slot] : "(out of range)";
-                Console.WriteLine($"[diag] amp slot {slot} name after write: '{slotName}'  (attempted name: '{stem}')");
-            }
-            catch (Exception nex) { Console.WriteLine($"[diag] amp name-list read failed: {nex.Message}"); }
-            var rbPath = System.IO.Path.Combine(bdir, $"amp-{slot}-{ts}-readback.bin");
-            await System.IO.File.WriteAllBytesAsync(rbPath, readBack);
-            Console.WriteLine($"[diag] readback saved -> {rbPath} ({readBack.Length} B)");
-        }
-        catch (Exception dex) { Console.WriteLine($"[diag] diagnostics error: {dex.Message}"); }
-    }
-    Console.WriteLine(ok ? "RESULT: UPLOAD-AMP OK" : "RESULT: UPLOAD-AMP FAIL — readback mismatch");
-    session.Disconnect();
-    return ok ? 0 : 4;
 }
 
 int ri = Array.IndexOf(args, "--restore");
