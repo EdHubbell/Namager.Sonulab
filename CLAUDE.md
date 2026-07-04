@@ -48,6 +48,6 @@ superpowers **brainstorming → spec (`docs/superpowers/specs/`) → writing-pla
 task) → merge to `main` (fast-forward) → push. Read `docs/HARDWARE-VALIDATION-*.md` for on-device checks.
 
 ## Not done
-Amp reorder / backup-all UI deferred from 2b v1. (See
+Amp/IR reorder and backup-all UI deferred from their v1 tabs. (See
 `docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-plan-dragreorder.md` for
 pending manual checks.) Performance sub-project next (pointer to the preset-dwrite OPEN QUESTION in PROTOCOL.md).
