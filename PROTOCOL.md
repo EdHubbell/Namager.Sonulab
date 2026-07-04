@@ -67,6 +67,11 @@ Empty slot = empty name; download-all skips empties. CONFIRMED via SonulabCaptur
 - **Backup/Restore**: backup = `dread` all non-empty slots -> `.pst`. Restore = load params + save
   (per above), NOT `dwrite`.
 - Rename (`dwrite … chunk:-1` name) and delete (chunk:-1 zeros) DO work (name table is dwrite-able).
+- OPEN QUESTION (2026-07-03, after the amp-upload fix): the amp fix showed content persists only
+  when the FULL sequence ends with the name at `chunk:-1` (chunk 0 name → content → chunk -1 name
+  = commit). The 2026-06-15 preset-content test may simply not have used that exact sequence —
+  preset content via `dwrite` chunk 0..64 + name-at-`-1` is worth ONE guarded re-test before
+  assuming presets are save-from-live only.
 
 ### Observed examples
 ```
@@ -79,14 +84,32 @@ write root\app\preset:{"value":"","save":"save"}                   (commit/save 
 ```
 
 ## File upload (`dwrite`) — e.g. a `.nam` amp model
-Target a **slot** via `index`. Chunks:
+**VERIFIED WORKING over serial 2026-07-03 (fw 2.5.1, `tools/HwCheck --upload-amp`).**
+Target a **slot** via `index`. Chunks, in order:
 - `chunk:0`  = item **name**, ASCII, zero-padded to 128 bytes (256 hex chars).
 - `chunk:1..N` = file payload, **hex-encoded**, **128 bytes (256 hex chars) per chunk**,
-  zero-padded out to the slot's fixed capacity (observed N up to 96 → ~12 KB region).
-- `chunk:-1` = **terminator / commit** (value all zeros) sent LAST.
+  zero-padded out to the slot's fixed capacity (N = 96 for `root\amp` → 12288 B).
+- `chunk:-1` = the **NAME AGAIN** (same 128-byte padded value as chunk 0), sent LAST. This is the
+  name-table write that **commits** the staged content.
+
+**CRITICAL: `chunk:-1` must carry the name, NOT zeros.** `chunk:-1` writes the slot's name-table
+entry (same semantics as preset rename/delete): all-zeros there **deletes the slot's name-table
+entry and the staged content is discarded** — the transfer looks fully successful (every chunk
+ACKed, terminator ACKed) but nothing persists. The original capture (`SonulabCapture1.pcapng`,
+BLE) shows VoidX sending all-zeros at `chunk:-1`; the one `root\amp` list pushed right after shows
+the uploaded name absent and the target slot empty — that captured upload apparently never
+persisted either (VoidX bug, or its post-upload UI re-verifies and reports "Failed to upload").
+
+**Per-chunk ACK (flow control):** the device replies to each accepted `dwrite` with
+`dwrite <path>:{"index":N,"chunk":<nextExpected>}` (~45–200 ms; slower on chunk 96/-1, flash
+commit). After chunk 96 the ACK says `"chunk":-1` — the device literally requests the final name
+chunk. Wait for each ACK before sending the next chunk (a serial reader that stops at the
+response's NUL terminator gets this for free); verify `nextExpected` to fail fast.
 
 Observed amp upload: `dwrite root\amp:{"index":15,"chunk":0..96 then -1, ...}` (98 writes).
 Preset upload uses `dwrite root\presets` with the name in `chunk:-1`.
+NOTE: `dread` serves only payload chunks `1..N` — `chunk:0` and `chunk:-1` return nothing
+(for presets too), and `dread` of an empty slot returns nothing.
 
 ### IMPORTANT caveat — `.nam` is converted, not raw
 `chunk:1` began `40 20 00 00 00 00 00 00 ... "Amp model"` — a **binary header**, not raw NAM JSON

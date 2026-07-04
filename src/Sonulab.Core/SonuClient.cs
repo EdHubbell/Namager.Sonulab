@@ -71,11 +71,16 @@ public sealed class SonuClient
     public Task SaveAsync(string presetNodePath, string name, CancellationToken ct = default) =>
         SendAsync(SonuCommands.Save(presetNodePath, name), ct);
 
-    public Task DWriteChunkAsync(string path, int index, int chunk, byte[] data128, CancellationToken ct = default)
+    /// <summary>Writes one 128-byte blob chunk. Returns the raw response window so callers can
+    /// inspect the device's per-chunk ACK record (<c>dwrite &lt;path&gt;:{"index":N,"chunk":&lt;next&gt;}</c>).</summary>
+    public Task<string> DWriteChunkAsync(string path, int index, int chunk, byte[] data128, CancellationToken ct = default)
     {
         var hex = Convert.ToHexStringLower(data128);
         return SendAsync(SonuCommands.DWrite(path, index, chunk, hex), ct);
     }
+
+    /// <summary>Sends a raw protocol command and returns the raw response window (diagnostics).</summary>
+    public Task<string> SendRawAsync(string command, CancellationToken ct = default) => SendAsync(command, ct);
 
     public async Task<byte[]> DReadBlobAsync(string path, int index, int chunkCount, CancellationToken ct = default)
     {
