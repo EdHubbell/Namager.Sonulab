@@ -357,3 +357,14 @@ A future UI tab in the app (`src/Sonulab.App`) should expose:
 - Browsing / downloading the current slot content.
 
 This is out of scope for sub-project 2 (CLI-only, distiller validated on corpus).
+
+## C# port (Sonulab.Distill)
+
+The distiller is ported to .NET in `src/Sonulab.Distill` (sub-project 2b Phase 1) so the
+app distills natively — no Python at runtime. This Python implementation remains the
+REFERENCE ORACLE: it is the ear-validated original, and `tools/distiller/make_cs_fixtures.py`
+generates the golden fixtures the C# port is parity-tested against
+(`tests/Sonulab.Distill.Tests/ParityTests.cs`; tolerances in
+`docs/superpowers/plans/2026-07-03-native-distiller.md`). If you change the fit here,
+regenerate goldens (`python tools/distiller/make_cs_fixtures.py --corpus`) and port the
+change to C#.

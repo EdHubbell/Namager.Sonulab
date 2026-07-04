@@ -15,6 +15,9 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   `Model/` (NodeRecord, NodeSchema, PresetDocument=.pst, PresetSlot), `Transport/` (ISonuLink →
   SerialSonuLink / FakeSonuLink; SerialPortStream), `Connection/` (SonuConnector, CompatibilityChecker,
   DeviceSession, FirmwareCatalog), `Services/` (DeviceRepository, ReorderService, BackupService, SlotPlanner).
+- **`src/Sonulab.Distill`** (no UI, unit-tested): native C# port of the .nam→.vxamp
+  distiller (WaveNet runner, WH fitter, vxamp codec). Python `tools/distiller/` is the
+  reference oracle; parity goldens via `tools/distiller/make_cs_fixtures.py`.
 - **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml`.
