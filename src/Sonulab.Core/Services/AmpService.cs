@@ -141,9 +141,24 @@ public sealed class AmpService
             for (int i = 0; i < n; i++) if (readBack[i] != vxampBytes[i]) { firstDiff = i; break; }
             if (firstDiff < 0) firstDiff = n;              // length mismatch
             // Never leave a corrupt amp selectable: clear the slot (zeros at chunk -1 = delete).
-            await _client.DWriteChunkAsync(AmpList, slot, -1, new byte[128], ct);
+            // Capture and verify the clear-write ACK to report honestly on success/failure.
+            string clearStatus = "The slot was cleared.";
+            try
+            {
+                var clearResponse = await _client.DWriteChunkAsync(AmpList, slot, -1, new byte[128], ct);
+                var ackMatch = System.Text.RegularExpressions.Regex.Match(clearResponse, "\"chunk\":(-?\\d+)}");
+                if (!ackMatch.Success || int.Parse(ackMatch.Groups[1].Value) != -1)
+                {
+                    clearStatus = $"ATTENTION: clearing the slot may have FAILED (no ACK) — verify slot {slot} on the device before use.";
+                }
+            }
+            catch
+            {
+                // Clear-write itself threw; don't mask the verify failure.
+                clearStatus = $"ATTENTION: clearing the slot may have FAILED (no ACK) — verify slot {slot} on the device before use.";
+            }
             throw new AmpServiceException(
-                $"Read-back verify failed for slot {slot} ('{cleanName}'): first differing byte at offset {firstDiff} (chunk {firstDiff / 128 + 1}); readback {readBack.Length} B. The slot was cleared.");
+                $"Read-back verify failed for slot {slot} ('{cleanName}'): first differing byte at offset {firstDiff} (chunk {firstDiff / 128 + 1}); readback {readBack.Length} B. {clearStatus}");
         }
         progress?.Report(new(AmpUploadStage.Done, totalChunks, totalChunks));
     }
