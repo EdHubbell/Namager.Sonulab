@@ -73,13 +73,11 @@
                             Content="{Binding Editor}" Margin="12,0,0,0"/>
           </Grid>
 
-          <!-- Amps placeholder -->
-          <TextBlock x:Name="AmpsPage"
-                     Text="Amp list — coming soon"
-                     HorizontalAlignment="Center"
-                     VerticalAlignment="Center"
-                     Opacity="0.5"
-                     IsVisible="False"/>
+          <!-- Amps page -->
+          <ContentControl x:Name="AmpsPage"
+                          Content="{Binding Amps}"
+                          Margin="12"
+                          IsVisible="False"/>
 
           <!-- IRs placeholder -->
           <TextBlock x:Name="IRsPage"

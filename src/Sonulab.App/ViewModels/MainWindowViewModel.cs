@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Sonulab.Core.Connection;
+using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
 
 namespace Sonulab.App.ViewModels;
@@ -9,6 +10,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private ConnectionViewModel _connection;
     [ObservableProperty] private PresetListViewModel? _presets;
     [ObservableProperty] private ParameterEditorViewModel? _editor;
+    [ObservableProperty] private AmpListViewModel? _amps;
 
     public MainWindowViewModel()
     {
@@ -37,6 +39,12 @@ public partial class MainWindowViewModel : ObservableObject
             Presets = presets;
             Editor = editor;
             _ = presets.RefreshCommand.ExecuteAsync(null);
+
+            var ampService = new AmpService(
+                _connection.Client!, System.IO.Path.Combine("docs", "backups"));
+            var amps = new AmpListViewModel(ampService, _connection.WritesAllowed);
+            Amps = amps;
+            _ = amps.RefreshCommand.ExecuteAsync(null);
         };
     }
 }
