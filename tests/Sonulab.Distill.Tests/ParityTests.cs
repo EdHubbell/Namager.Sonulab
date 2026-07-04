@@ -36,6 +36,12 @@ public class ParityTests
             $"{label}: our_err cs={csErr:f6} py={pyErr:f6}");
     }
 
+    // ACCEPTED RISK: this canary's pass margin (~2x under the 1e-3 gate) is set by the
+    // C#-vs-numpy float32 noise floor of the model forward, which is seed-sensitive
+    // (relL2 4.98e-4..1.05e-3 across 6 seeds — sweep data in make_cs_fixtures.py's
+    // make_synthetic_nam docstring). If this test reddens with NO change to
+    // src/Sonulab.Distill, suspect the fixture noise floor (re-run the seed sweep /
+    // regenerate the fixture) before suspecting the port.
     [Fact]
     public void Synthetic_fixture_matches_python_golden()
     {
