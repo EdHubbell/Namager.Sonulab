@@ -146,7 +146,7 @@ if (dai >= 0)
     var dclient = session.Client!;
     var ampSvc = new AmpService(dclient, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
     var namesBefore = await ampSvc.ListAmpsAsync();
-    if (namesBefore[dslot].IsEmpty)
+    if (dslot < 0 || dslot >= namesBefore.Count || namesBefore[dslot].IsEmpty)
     { Console.WriteLine($"RESULT: DELETE-AMP NO-OP — slot {dslot} is already empty."); session.Disconnect(); return 0; }
     Console.WriteLine($"[delete] slot {dslot} ('{namesBefore[dslot].Name}') — backing up to docs/backups, then clearing...");
     await ampSvc.DeleteAmpAsync(dslot);
