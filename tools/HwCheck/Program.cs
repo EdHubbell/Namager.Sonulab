@@ -8,6 +8,8 @@
 //   dotnet run --project tools/HwCheck -- --list-irs   # read-only IR slot name table
 //   dotnet run --project tools/HwCheck -- --upload-amp <vxampPath> <slotIndex> [--name <n>]  # guarded amp upload (backup+write+verify)
 //   dotnet run --project tools/HwCheck -- --delete-amp <slotIndex>              # guarded amp delete (backup+clear name)
+//   dotnet run --project tools/HwCheck -- --upload-ir <irblob> <slotIndex> [--name <n>]  # guarded IR upload (backup+write+verify)
+//   dotnet run --project tools/HwCheck -- --delete-ir <slotIndex>              # guarded IR delete (backup+clear name)
 // Requires VoidX-Control CLOSED (it holds COM6).
 using Sonulab.Core.Connection;
 using Sonulab.Core.Model;
@@ -255,6 +257,87 @@ if (uai >= 0)
     catch (AmpServiceException aex)
     {
         Console.WriteLine($"RESULT: UPLOAD-AMP FAIL — {aex.Message}");
+        session.Disconnect();
+        return 4;
+    }
+}
+
+// --delete-ir <slotIndex> : guarded IR delete. Backs up the blob, then clears the slot's
+// name-table entry (dwrite chunk -1 all-zeros — same confirmed delete semantics as amps). Requires WritesAllowed.
+int dii = Array.IndexOf(args, "--delete-ir");
+if (dii >= 0)
+{
+    if (dii + 1 >= args.Length) { Console.WriteLine("Usage: --delete-ir <slotIndex>"); session.Disconnect(); return 1; }
+    if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); session.Disconnect(); return 3; }
+    int dIrSlot = int.Parse(args[dii + 1]);
+    var dIrClient = session.Client!;
+    var irSvcD = new IrService(dIrClient, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
+    var irNamesBefore = await irSvcD.ListIrsAsync();
+    if (dIrSlot < 0 || dIrSlot >= irNamesBefore.Count || irNamesBefore[dIrSlot].IsEmpty)
+    { Console.WriteLine($"RESULT: DELETE-IR NO-OP — slot {dIrSlot} is already empty."); session.Disconnect(); return 0; }
+    Console.WriteLine($"[delete] slot {dIrSlot} ('{irNamesBefore[dIrSlot].Name}') — backing up to docs/backups, then clearing...");
+    await irSvcD.DeleteIrAsync(dIrSlot);
+    await Task.Delay(500);
+    var irAfterDelete = await irSvcD.ListIrsAsync();
+    bool irGone = irAfterDelete[dIrSlot].IsEmpty;
+    Console.WriteLine(irGone ? $"RESULT: DELETE-IR OK (slot {dIrSlot} now empty)" : $"RESULT: DELETE-IR FAIL (slot {dIrSlot} still '{irAfterDelete[dIrSlot].Name}')");
+    session.Disconnect();
+    return irGone ? 0 : 4;
+}
+
+// --upload-ir <irblobPath> <slotIndex> [--name <name>] [--pace <ms>] [--settle <ms>] : guarded IR upload.
+// Backs up an occupied target slot first, then writes name (chunk 0), payload (chunks 1..32),
+// and the NAME AGAIN at chunk -1 (the commit), reads back and confirms byte-equality. Requires WritesAllowed.
+int uii = Array.IndexOf(args, "--upload-ir");
+if (uii >= 0)
+{
+    if (uii + 2 >= args.Length) { Console.WriteLine("Usage: --upload-ir <irblobPath> <slotIndex> [--name <name>] [--pace <ms>] [--settle <ms>]"); session.Disconnect(); return 1; }
+    if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); session.Disconnect(); return 3; }
+    var irBlobPath = args[uii + 1];
+    int uIrSlot = int.Parse(args[uii + 2]);
+    var irClient = session.Client!;
+
+    // --pace <msPerChunk> (default 25) extra delay between chunks; --settle <msBeforeReadback> (default 750)
+    // pause before the verify read.
+    int irPaceMs = 25, irSettleMs = 750;
+    int irPi = Array.IndexOf(args, "--pace"); if (irPi >= 0 && irPi + 1 < args.Length) irPaceMs = int.Parse(args[irPi + 1]);
+    int irSi = Array.IndexOf(args, "--settle"); if (irSi >= 0 && irSi + 1 < args.Length) irSettleMs = int.Parse(args[irSi + 1]);
+
+    Console.WriteLine($"\n--- GUARDED IR UPLOAD: slot {uIrSlot} <- '{irBlobPath}'  (pace={irPaceMs}ms/chunk, settle={irSettleMs}ms) ---");
+
+    // Load the IR blob (must be exactly 4096 bytes) — a friendly early exit before we even
+    // touch the device; IrService.UploadIrAsync also validates this itself.
+    var irBytesBuf = await System.IO.File.ReadAllBytesAsync(irBlobPath);
+    if (irBytesBuf.Length != IrService.IrBytes)
+    {
+        Console.WriteLine($"RESULT: UPLOAD-IR FAIL — expected {IrService.IrBytes}-byte IR blob, got {irBytesBuf.Length} B");
+        session.Disconnect();
+        return 4;
+    }
+
+    // The name: --name <name> overrides; default = the file's stem. <=31 chars (IrService validates/truncates).
+    var irStem = System.IO.Path.GetFileNameWithoutExtension(irBlobPath);
+    int irNi = Array.IndexOf(args, "--name"); if (irNi >= 0 && irNi + 1 < args.Length) irStem = args[irNi + 1];
+    if (irStem.Length > 31) irStem = irStem[..31];
+
+    var irSvcU = new IrService(irClient, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")), irPaceMs, irSettleMs);
+    var irSwAll = System.Diagnostics.Stopwatch.StartNew();
+    try
+    {
+        await irSvcU.UploadIrAsync(uIrSlot, irBytesBuf, irStem, new Progress<SlotUploadProgress>(p =>
+        {
+            if (p.Stage == SlotUploadStage.BackingUp) Console.WriteLine("[backup] occupied slot — backing up first");
+            else if (p.Stage == SlotUploadStage.Writing && (p.ChunksDone % 8 == 0 || p.ChunksDone >= p.ChunksTotal))
+                Console.WriteLine($"[chunk] {p.ChunksDone}/{p.ChunksTotal}");
+            else if (p.Stage == SlotUploadStage.Verifying) Console.WriteLine("[verify] reading back slot...");
+        }));
+        Console.WriteLine($"RESULT: UPLOAD-IR OK ({irSwAll.ElapsedMilliseconds} ms)");
+        session.Disconnect();
+        return 0;
+    }
+    catch (IrServiceException irex)
+    {
+        Console.WriteLine($"RESULT: UPLOAD-IR FAIL — {irex.Message}");
         session.Disconnect();
         return 4;
     }
