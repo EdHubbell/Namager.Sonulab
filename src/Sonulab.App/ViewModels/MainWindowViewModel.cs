@@ -11,6 +11,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private PresetListViewModel? _presets;
     [ObservableProperty] private ParameterEditorViewModel? _editor;
     [ObservableProperty] private AmpListViewModel? _amps;
+    [ObservableProperty] private IrListViewModel? _irs;
 
     public MainWindowViewModel()
     {
@@ -45,6 +46,10 @@ public partial class MainWindowViewModel : ObservableObject
             var amps = new AmpListViewModel(ampService, _connection.WritesAllowed);
             Amps = amps;
             _ = amps.RefreshCommand.ExecuteAsync(null);
+
+            var irService = new IrService(_connection.Client!, System.IO.Path.Combine("docs", "backups"));
+            Irs = new IrListViewModel(irService, _connection.WritesAllowed);
+            _ = Irs.RefreshCommand.ExecuteAsync(null);
         };
     }
 }

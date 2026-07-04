@@ -79,13 +79,11 @@
                           Margin="12"
                           IsVisible="False"/>
 
-          <!-- IRs placeholder -->
-          <TextBlock x:Name="IRsPage"
-                     Text="IR list — coming soon"
-                     HorizontalAlignment="Center"
-                     VerticalAlignment="Center"
-                     Opacity="0.5"
-                     IsVisible="False"/>
+          <!-- IRs page -->
+          <ContentControl x:Name="IRsPage"
+                          Content="{Binding Irs}"
+                          Margin="12"
+                          IsVisible="False"/>
 
         </Panel>
       </SplitView.Content>
