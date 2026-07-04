@@ -36,11 +36,20 @@ public partial class AmpListViewModel : ObservableObject
     [ObservableProperty] private string _busyMessage = "";
     [ObservableProperty] private string? _errorMessage;
 
+    /// <summary>Reads allowed while nothing is running (no writes requirement).</summary>
+    public bool CanRefresh => !IsBusy && !IsUploading;
+    /// <summary>Mutating operations additionally require writesAllowed.</summary>
+    public bool CanMutate => _writes && CanRefresh;
+    partial void OnIsBusyChanged(bool value)
+    { OnPropertyChanged(nameof(CanRefresh)); OnPropertyChanged(nameof(CanMutate)); }
+    partial void OnIsUploadingChanged(bool value)
+    { OnPropertyChanged(nameof(CanRefresh)); OnPropertyChanged(nameof(CanMutate)); }
+
     /// <summary>Busy-gated write helper (mirrors PresetListViewModel.RunAsync) with an
     /// error channel: amp operations throw AmpServiceException on guarded-write failures.</summary>
     private async Task<bool> RunAsync(string message, Func<Task> work)
     {
-        if (!_writes) return false;
+        if (!_writes || IsUploading) return false;
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
         try { await work(); await ReloadAsync(); return true; }
         catch (AmpServiceException ex) { ErrorMessage = ex.Message; return false; }
@@ -54,7 +63,7 @@ public partial class AmpListViewModel : ObservableObject
         foreach (var s in slots) Items.Add(new AmpItemViewModel(s));
     }
 
-    [RelayCommand] private Task RefreshAsync() => ReloadAsync();
+    [RelayCommand] private Task RefreshAsync() => CanRefresh ? ReloadAsync() : Task.CompletedTask;
 
     [RelayCommand] private async Task DeleteAsync()
     {
@@ -89,7 +98,7 @@ public partial class AmpListViewModel : ObservableObject
     /// after the OS file picker). Empty slots only — spec decision.</summary>
     [RelayCommand] private void BeginUpload(string? path)
     {
-        if (!_writes || string.IsNullOrEmpty(path)) return;
+        if (!CanMutate || string.IsNullOrEmpty(path)) return;
         UploadBlockedMessage = null;
         EmptySlots.Clear();
         foreach (var i in Items.Where(i => i.IsEmpty).Select(i => i.Index)) EmptySlots.Add(i);
@@ -110,7 +119,7 @@ public partial class AmpListViewModel : ObservableObject
 
     [RelayCommand] private async Task StartUploadAsync()
     {
-        if (!_writes || IsUploading || SelectedEmptySlot is not int slot) return;
+        if (!_writes || IsUploading || IsBusy || SelectedEmptySlot is not int slot) return;
         var name = UploadName.Trim();
         if (name.Length == 0) { UploadError = "Enter an amp name."; return; }
         if (Items.Any(i => !i.IsEmpty && string.Equals(i.Name, name, StringComparison.Ordinal)))
@@ -151,7 +160,6 @@ public partial class AmpListViewModel : ObservableObject
             await _amps.UploadAmpAsync(slot, bytes, name, uploadProgress);
 
             UploadStatus = $"Done — '{name}' in slot {slot + 1}";
-            IsUploadPanelOpen = false;
             await ReloadAsync();
             Selected = Items.FirstOrDefault(i => i.Index == slot);
         }
@@ -159,6 +167,7 @@ public partial class AmpListViewModel : ObservableObject
         catch (Sonulab.Distill.DistillException ex) { UploadError = ex.Message; }
         catch (AmpServiceException ex) { UploadError = ex.Message; }
         catch (IOException ex) { UploadError = ex.Message; }
+        catch (UnauthorizedAccessException ex) { UploadError = ex.Message; }
         finally
         {
             IsUploading = false; CanCancelUpload = false; IsUploadIndeterminate = false;

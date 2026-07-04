@@ -52,8 +52,12 @@ public sealed class AmpService
         await _client.DWriteChunkAsync(AmpList, index, -1, new byte[128], ct);
     }
 
-    public Task RenameAmpAsync(int index, string name, CancellationToken ct = default) =>
-        _client.DWriteChunkAsync(AmpList, index, -1, NamePad(ValidateName(name)), ct);
+    public Task RenameAmpAsync(int index, string name, CancellationToken ct = default)
+    {
+        if (index is < 0 or >= SlotCount)
+            throw new AmpServiceException($"Slot must be 0..{SlotCount - 1}, got {index}.");
+        return _client.DWriteChunkAsync(AmpList, index, -1, NamePad(ValidateName(name)), ct);
+    }
 
     /// <summary>Dread the slot and save it under the backup dir. Callers must ensure the
     /// slot is OCCUPIED first — dreading an empty slot is 96 timeouts and is the prime
@@ -92,6 +96,8 @@ public sealed class AmpService
     public async Task UploadAmpAsync(int slot, byte[] vxampBytes, string name,
         IProgress<AmpUploadProgress>? progress = null, CancellationToken ct = default)
     {
+        if (slot is < 0 or >= SlotCount)
+            throw new AmpServiceException($"Slot must be 0..{SlotCount - 1}, got {slot}.");
         if (vxampBytes.Length != AmpBytes)
             throw new AmpServiceException($"Expected a {AmpBytes}-byte .vxamp, got {vxampBytes.Length} B.");
         var cleanName = ValidateName(name);

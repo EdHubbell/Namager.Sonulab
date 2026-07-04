@@ -136,6 +136,20 @@ public class AmpServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Upload_rejects_out_of_range_slot()
+    {
+        var (svc, _) = Make();
+        await Assert.ThrowsAsync<AmpServiceException>(() => svc.UploadAmpAsync(30, Blob(1), "X", null));
+    }
+
+    [Fact]
+    public async Task Rename_rejects_out_of_range_slot()
+    {
+        var (svc, _) = Make();
+        await Assert.ThrowsAsync<AmpServiceException>(() => svc.RenameAmpAsync(-1, "X"));
+    }
+
+    [Fact]
     public async Task Ack_mismatch_aborts_before_commit_leaving_slot_uncommitted()
     {
         var (svc, dev) = Make();

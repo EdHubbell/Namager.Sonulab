@@ -9,16 +9,16 @@
 
     <!-- Command bar -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="8,6,8,4">
-      <Button Command="{Binding RefreshCommand}" ToolTip.Tip="Refresh">
+      <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
         <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
       </Button>
-      <Button x:Name="UploadNamButton" ToolTip.Tip="Distill a .nam and upload it to an empty slot">
+      <Button x:Name="UploadNamButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Distill a .nam and upload it to an empty slot">
         <TextBlock Text="Upload .nam…"/>
       </Button>
-      <Button x:Name="UploadVxampButton" ToolTip.Tip="Upload an already-distilled .vxamp to an empty slot">
+      <Button x:Name="UploadVxampButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Upload an already-distilled .vxamp to an empty slot">
         <TextBlock Text="Upload .vxamp…"/>
       </Button>
-      <Button Command="{Binding DeleteCommand}" ToolTip.Tip="Delete (backs up first)">
+      <Button Command="{Binding DeleteCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete (backs up first)">
         <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
       </Button>
     </StackPanel>

@@ -143,7 +143,8 @@ public class AmpListViewModelTests : IDisposable
         Assert.EndsWith(Path.Combine(h.DistilledDir, "Plexi.vxamp"), h.DistillCalls[0].Split('|')[1]);
         Assert.Equal("Plexi", h.Dev.SlotNames[2]);          // first empty slot
         Assert.Equal(0xD1, h.Dev.SlotBlobs[2]![0]);         // distilled bytes, not source bytes
-        Assert.False(h.Vm.IsUploadPanelOpen);               // closed on success
+        Assert.True(h.Vm.IsUploadPanelOpen);                // stays open to show the Done state
+        Assert.StartsWith("Done", h.Vm.UploadStatus);
         Assert.Equal(2, h.Vm.Selected?.Index);              // new amp selected
         Assert.Null(h.Vm.UploadError);
     }
@@ -205,5 +206,31 @@ public class AmpListViewModelTests : IDisposable
         Assert.Contains("ancel", h.Vm.UploadError);          // "Cancelled."
         Assert.False(h.Vm.IsUploading);
         Assert.Null(h.Dev.SlotNames[2]);
+    }
+
+    [Fact]
+    public async Task List_ops_are_gated_while_uploading()
+    {
+        var tcs = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var h = MakeUpload(distill: async (n, o, p, ct) =>
+        {
+            tcs.SetResult();
+            await release.Task;
+            Directory.CreateDirectory(Path.GetDirectoryName(o)!);
+            File.WriteAllBytes(o, Enumerable.Repeat((byte)0xD1, 12288).ToArray());
+        });
+        await h.Vm.RefreshCommand.ExecuteAsync(null);
+        h.Vm.BeginUploadCommand.Execute(TempFile("Slow2.nam"));
+        var run = h.Vm.StartUploadCommand.ExecuteAsync(null);
+        await tcs.Task;
+        Assert.False(h.Vm.CanMutate);
+        Assert.False(h.Vm.CanRefresh);
+        h.Vm.Selected = h.Vm.Items[0];
+        await h.Vm.DeleteCommand.ExecuteAsync(null);          // must no-op
+        Assert.Equal("Amp0", h.Dev.SlotNames[0]);
+        release.SetResult();
+        await run;
+        Assert.True(h.Vm.CanMutate);
     }
 }
