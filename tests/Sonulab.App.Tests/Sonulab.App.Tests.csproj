@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <Compile Include="..\Sonulab.Core.Tests\FakePresetDevice.cs" />
+    <Compile Include="..\Sonulab.Core.Tests\FakeAmpDevice.cs" />
   </ItemGroup>
 
 </Project>
