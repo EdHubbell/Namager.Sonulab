@@ -8,7 +8,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 ## Build / test / run
 - Build: `dotnet build`  · Test: `dotnet test` (all should pass; ~193 tests)
 - Run the app: `dotnet run --project src/Sonulab.App`  (needs VoidX-Control CLOSED — see gotchas)
-- Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin.
+- Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> | --delete-amp <slot>]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin.
 
 ## Architecture
 - **`src/Sonulab.Core`** (no UI, fully unit-tested): `Protocol/` (SonuCommands, ResponseParser),
@@ -18,7 +18,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 - **`src/Sonulab.Distill`** (no UI, unit-tested): native C# port of the .nam→.vxamp
   distiller (WaveNet runner, WH fitter, vxamp codec). Python `tools/distiller/` is the
   reference oracle; parity goldens via `tools/distiller/make_cs_fixtures.py`.
-- **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, ParameterEditor + Block/SubGroup,
+- **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml`.
 - **`tests/`** Sonulab.Core.Tests + Sonulab.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
@@ -47,9 +47,8 @@ superpowers **brainstorming → spec (`docs/superpowers/specs/`) → writing-pla
 (`docs/superpowers/plans/`) → subagent-driven-development** (TDD; implement + adversarial review per
 task) → merge to `main` (fast-forward) → push. Read `docs/HARDWARE-VALIDATION-*.md` for on-device checks.
 
-## Not done (sub-project 2b phase 2)
-The **Amps tab** in Sonulab.App — the `.nam` → `.vxamp` conversion is solved (native C# in
-`src/Sonulab.Distill`, parity-tested vs the Python oracle) and the amp upload protocol works
-(HwCheck `--upload-amp`), but the app UI + Core `AmpService` that tie them together are phase 2
-(spec: `docs/superpowers/specs/2026-07-03-amps-tab-design.md`). IR list management is future.
-(See `docs/HARDWARE-VALIDATION-plan-dragreorder.md` for currently-deferred manual checks.)
+## Not done
+**IR management** (`root\ir`, 32 chunks — likely the same name-at-`chunk:-1` commit pattern, untested)
+is the natural next tab. Amp reorder / backup-all UI deferred from 2b v1. (See
+`docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-plan-dragreorder.md` for
+pending manual checks.)

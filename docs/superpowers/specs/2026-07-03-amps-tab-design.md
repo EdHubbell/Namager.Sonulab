@@ -1,7 +1,7 @@
 # Amps Tab — native distill + upload from the app (sub-project 2b)
 
 **Date:** 2026-07-03 (revised same day: native C# distiller replaces the Python subprocess)
-**Status:** Approved
+**Status:** Implemented (Phase 1: 2026-07-04, Phase 2: this change) — hardware checks pending, see docs/HARDWARE-VALIDATION-amps-tab.md
 **Context:** `docs/APP-AMPS-TAB-HANDOFF.md`, `PROTOCOL.md`, `docs/distiller.md`, `docs/vxamp-format.md`
 
 ## Goal
