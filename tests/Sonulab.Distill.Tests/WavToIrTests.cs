@@ -32,6 +32,29 @@ public class WavToIrTests
         return path;
     }
 
+    /// <summary>WAVE_FORMAT_EXTENSIBLE wrapper: fmt size 40, tag 0xFFFE, tail = cbSize(22),
+    /// validBits, channelMask, then the KSDATAFORMAT SubFormat GUID whose first 2 bytes are
+    /// the real tag (1 = PCM).</summary>
+    private static string WriteExtensibleWav16(int sampleRate, float[] mono)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"wavtoir-ext-{Guid.NewGuid():N}.wav");
+        using var fs = new FileStream(path, FileMode.Create);
+        using var w = new BinaryWriter(fs);
+        int dataLen = mono.Length * 2;
+        w.Write("RIFF"u8); w.Write(60 + dataLen); w.Write("WAVE"u8);
+        w.Write("fmt "u8); w.Write(40); w.Write(unchecked((short)0xFFFE)); w.Write((short)1);
+        w.Write(sampleRate); w.Write(sampleRate * 2); w.Write((short)2); w.Write((short)16);
+        w.Write((short)22);                       // cbSize
+        w.Write((short)16);                       // wValidBitsPerSample
+        w.Write(4);                               // dwChannelMask (mono, FRONT_CENTER)
+        w.Write((short)1);                        // SubFormat GUID bytes 0-1: PCM tag
+        w.Write((short)0); w.Write(0x00100000); w.Write(0xAA000080u); w.Write(0x719B3800u); // rest of KSDATAFORMAT_SUBTYPE_PCM
+        w.Write("data"u8); w.Write(dataLen);
+        foreach (var v in mono)
+            w.Write((short)Math.Clamp((int)Math.Round(v * 32767.0), short.MinValue, short.MaxValue));
+        return path;
+    }
+
     private static float[] Ramp(int n) =>
         Enumerable.Range(0, n).Select(i => (float)Math.Sin(i * 0.02) * 0.7f).ToArray();
 
@@ -120,6 +143,20 @@ public class WavToIrTests
         var b = IrFormat.Decode(device);
         double corr = Pearson(a, b);
         Assert.True(corr > 0.999, $"conversion vs device dump corr={corr:F5} — scaling/truncation rule is off (see docs/ir-format.md)");
+    }
+
+    [Fact]
+    public void Extensible_format_pcm16_is_read()
+    {
+        var samples = Enumerable.Range(0, 256).Select(i => (float)Math.Sin(i * 0.02) * 0.7f).ToArray();
+        var wav = WriteExtensibleWav16(44100, samples);
+        try
+        {
+            var mono = WavToIr.ReadWavMono44k1(wav);
+            Assert.Equal(256, mono.Length);
+            Assert.Equal(samples[10], mono[10], 3);
+        }
+        finally { File.Delete(wav); }
     }
 
     private static double Pearson(double[] a, double[] b)

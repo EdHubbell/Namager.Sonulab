@@ -41,7 +41,7 @@ public static class WavToIr
                     format = r.ReadInt16(); channels = r.ReadInt16(); sampleRate = r.ReadInt32();
                     r.ReadInt32(); r.ReadInt16(); bits = r.ReadInt16();
                     if (format == unchecked((short)0xFFFE) && size >= 40)                                  // WAVE_FORMAT_EXTENSIBLE
-                    { r.ReadInt16(); r.ReadInt32(); format = r.ReadInt16(); }                              // subformat GUID's first 2 bytes
+                    { r.ReadInt16(); r.ReadInt16(); r.ReadInt32(); format = r.ReadInt16(); }               // cbSize, validBits, channelMask, then SubFormat GUID's leading tag
                     fs.Position = next;
                 }
                 else if (id == 0x61746164u) { data = r.ReadBytes(size); break; }                            // "data"
