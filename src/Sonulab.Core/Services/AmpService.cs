@@ -5,6 +5,12 @@ namespace Sonulab.Core.Services;
 
 public sealed class AmpServiceException(string message) : Exception(message);
 
+public enum AmpUploadStage { BackingUp, Writing, Verifying, Done }
+
+/// <summary>Progress for the ~3s guarded upload. ChunksTotal is always 98
+/// (chunk 0 = name, 1..96 = payload, -1 = commit).</summary>
+public sealed record AmpUploadProgress(AmpUploadStage Stage, int ChunksDone, int ChunksTotal);
+
 /// <summary>Guarded amp-slot operations on root\amp. Mirrors DeviceRepository's shape.
 /// The write discipline (backup -> ACK-verified chunked write -> name-at-chunk:-1 commit ->
 /// read-back verify) is lifted from the hardware-verified tools/HwCheck path; this class is
@@ -76,5 +82,69 @@ public sealed class AmpService
         var b = Encoding.ASCII.GetBytes(name);
         Array.Copy(b, buf, Math.Min(b.Length, 128));
         return buf;
+    }
+
+    /// <summary>Guarded amp upload (the hardware-verified HwCheck sequence):
+    /// backup (occupied slots only — NEVER dread an empty slot) -> chunk 0 = name ->
+    /// chunks 1..96 = payload -> chunk -1 = the NAME AGAIN (the commit; zeros there would
+    /// delete). Every chunk's ACK is checked; abort on mismatch leaves the slot uncommitted.
+    /// Read-back verify; on mismatch the slot is CLEARED so a corrupt amp is never selectable.</summary>
+    public async Task UploadAmpAsync(int slot, byte[] vxampBytes, string name,
+        IProgress<AmpUploadProgress>? progress = null, CancellationToken ct = default)
+    {
+        if (vxampBytes.Length != AmpBytes)
+            throw new AmpServiceException($"Expected a {AmpBytes}-byte .vxamp, got {vxampBytes.Length} B.");
+        var cleanName = ValidateName(name);
+        var nameBuf = NamePad(cleanName);
+        const int totalChunks = 98;                        // name + 96 payload + commit
+
+        // 1. Backup — ONLY if the name table says the slot is occupied. Skipping the dread on
+        // empty slots is not an optimization: a 96-chunk dread right before the write burst is
+        // the prime suspect for the commit being silently discarded (HwCheck finding).
+        var names = await _client.ReadListAsync(AmpList, ct);
+        if (slot >= 0 && slot < names.Count && !string.IsNullOrEmpty(names[slot]))
+        {
+            progress?.Report(new(AmpUploadStage.BackingUp, 0, totalChunks));
+            await BackupSlotAsync(slot, "", ct);
+        }
+
+        // 2. ACK-verified write burst.
+        int done = 0;
+        async Task WriteChunkAckedAsync(int chunk, byte[] data, int expectNext)
+        {
+            var raw = await _client.DWriteChunkAsync(AmpList, slot, chunk, data, ct);
+            var m = System.Text.RegularExpressions.Regex.Match(raw, "\"chunk\":(-?\\d+)}");
+            if (!m.Success || int.Parse(m.Groups[1].Value) != expectNext)
+                throw new AmpServiceException(
+                    $"Device ACK missing/mismatched at chunk {chunk}: got '{(m.Success ? m.Groups[1].Value : "none")}', expected {expectNext}. Upload aborted before commit; slot {slot} is unchanged.");
+            progress?.Report(new(AmpUploadStage.Writing, ++done, totalChunks));
+            if (_paceMs > 0) await Task.Delay(_paceMs, ct);
+        }
+
+        await WriteChunkAckedAsync(0, nameBuf, 1);
+        var chunk128 = new byte[128];
+        for (int chk = 1; chk <= AmpChunks; chk++)
+        {
+            Array.Copy(vxampBytes, (chk - 1) * 128, chunk128, 0, 128);
+            await WriteChunkAckedAsync(chk, chunk128, chk < AmpChunks ? chk + 1 : -1);
+        }
+        await WriteChunkAckedAsync(-1, nameBuf, -1);       // the commit
+
+        // 3. Read-back verify (after a flash-settle pause).
+        progress?.Report(new(AmpUploadStage.Verifying, totalChunks, totalChunks));
+        if (_settleMs > 0) await Task.Delay(_settleMs, ct);
+        var readBack = await _client.DReadBlobAsync(AmpList, slot, AmpChunks, ct);
+        if (!readBack.AsSpan().SequenceEqual(vxampBytes))
+        {
+            int firstDiff = -1;
+            int n = Math.Min(readBack.Length, vxampBytes.Length);
+            for (int i = 0; i < n; i++) if (readBack[i] != vxampBytes[i]) { firstDiff = i; break; }
+            if (firstDiff < 0) firstDiff = n;              // length mismatch
+            // Never leave a corrupt amp selectable: clear the slot (zeros at chunk -1 = delete).
+            await _client.DWriteChunkAsync(AmpList, slot, -1, new byte[128], ct);
+            throw new AmpServiceException(
+                $"Read-back verify failed for slot {slot} ('{cleanName}'): first differing byte at offset {firstDiff} (chunk {firstDiff / 128 + 1}); readback {readBack.Length} B. The slot was cleared.");
+        }
+        progress?.Report(new(AmpUploadStage.Done, totalChunks, totalChunks));
     }
 }
