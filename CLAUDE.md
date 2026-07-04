@@ -6,7 +6,7 @@ ESP32-S3, fw 2.5.1) over USB serial — list / select / edit / rename / delete /
 captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 
 ## Build / test / run
-- Build: `dotnet build`  · Test: `dotnet test` (all should pass; ~117 tests)
+- Build: `dotnet build`  · Test: `dotnet test` (all should pass; ~193 tests)
 - Run the app: `dotnet run --project src/Sonulab.App`  (needs VoidX-Control CLOSED — see gotchas)
 - Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin.
 
@@ -47,7 +47,9 @@ superpowers **brainstorming → spec (`docs/superpowers/specs/`) → writing-pla
 (`docs/superpowers/plans/`) → subagent-driven-development** (TDD; implement + adversarial review per
 task) → merge to `main` (fast-forward) → push. Read `docs/HARDWARE-VALIDATION-*.md` for on-device checks.
 
-## Not done (phase 2)
-`.nam` model **upload** — VoidX converts `.nam` → a device binary before upload; that conversion is not
-yet reverse-engineered. Amp/IR list management is future. (See `docs/HARDWARE-VALIDATION-plan-dragreorder.md`
-for currently-deferred manual checks.)
+## Not done (sub-project 2b phase 2)
+The **Amps tab** in Sonulab.App — the `.nam` → `.vxamp` conversion is solved (native C# in
+`src/Sonulab.Distill`, parity-tested vs the Python oracle) and the amp upload protocol works
+(HwCheck `--upload-amp`), but the app UI + Core `AmpService` that tie them together are phase 2
+(spec: `docs/superpowers/specs/2026-07-03-amps-tab-design.md`). IR list management is future.
+(See `docs/HARDWARE-VALIDATION-plan-dragreorder.md` for currently-deferred manual checks.)

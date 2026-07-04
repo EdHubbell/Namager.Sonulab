@@ -48,8 +48,8 @@ public class ParityTests
     public void Synthetic_fixture_matches_python_golden()
     {
         var golden = JsonDocument.Parse(File.ReadAllText(Fixture("golden_metrics.json"))).RootElement;
-        Assert.Equal(golden.GetProperty("device_reference_db").GetDouble(),
-                     Distiller.DeviceReferenceDb);   // exact — same baked constant
+        Assert.Equal(Distiller.DeviceReferenceDb,    // exact — same baked constant
+                     golden.GetProperty("device_reference_db").GetDouble());
 
         var csBlob = Distiller.Distill(Fixture("synthetic.nam"));
         var pyBlob = File.ReadAllBytes(Fixture("synthetic.golden.vxamp"));
