@@ -9,11 +9,25 @@ public partial class MainWindowViewModel : ObservableObject
 {
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
 
+    private bool _ampsLoaded, _irsLoaded;
+
     [ObservableProperty] private ConnectionViewModel _connection;
     [ObservableProperty] private PresetListViewModel? _presets;
     [ObservableProperty] private ParameterEditorViewModel? _editor;
     [ObservableProperty] private AmpListViewModel? _amps;
     [ObservableProperty] private IrListViewModel? _irs;
+
+    /// <summary>Set by the view on every nav change; lets the Connected handler lazy-load
+    /// whichever tab the user is already looking at.</summary>
+    public int CurrentNavIndex { get; set; }
+
+    /// <summary>Lazy tab loading (perf spec §3): Amps/IRs fetch their device lists on FIRST
+    /// visit instead of at connect — removes two full list reads from the connect path.</summary>
+    public void EnsureTabLoaded(int navIndex)
+    {
+        if (navIndex == 1 && Amps is { } a && !_ampsLoaded) { _ampsLoaded = true; _ = a.RefreshCommand.ExecuteAsync(null); }
+        else if (navIndex == 2 && Irs is { } i && !_irsLoaded) { _irsLoaded = true; _ = i.RefreshCommand.ExecuteAsync(null); }
+    }
 
     public MainWindowViewModel()
     {
@@ -27,6 +41,8 @@ public partial class MainWindowViewModel : ObservableObject
         _connection = new ConnectionViewModel(session, portList);
         _connection.Connected += (_, _) =>
         {
+            _ampsLoaded = _irsLoaded = false;
+
             var presets = new PresetListViewModel(
                 _connection.Repository!,
                 _connection.Reorder!,
@@ -51,20 +67,15 @@ public partial class MainWindowViewModel : ObservableObject
             var irs = new IrListViewModel(irService, _connection.WritesAllowed);
             Irs = irs;
 
-            _ = LoadInitialAsync(presets, amps, irs);
+            _ = LoadInitialAsync(presets);
+            EnsureTabLoaded(CurrentNavIndex);
         };
 
-        async Task LoadInitialAsync(PresetListViewModel presets, AmpListViewModel amps, IrListViewModel irs)
+        async Task LoadInitialAsync(PresetListViewModel presets)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             await presets.RefreshCommand.ExecuteAsync(null);
             Log.Info("PERF connect presets-list={0}ms", sw.ElapsedMilliseconds);
-            sw.Restart();
-            await amps.RefreshCommand.ExecuteAsync(null);
-            Log.Info("PERF connect amps-list={0}ms", sw.ElapsedMilliseconds);
-            sw.Restart();
-            await irs.RefreshCommand.ExecuteAsync(null);
-            Log.Info("PERF connect irs-list={0}ms", sw.ElapsedMilliseconds);
         }
     }
 }
