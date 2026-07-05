@@ -67,11 +67,11 @@ Empty slot = empty name; download-all skips empties. CONFIRMED via SonulabCaptur
 - **Backup/Restore**: backup = `dread` all non-empty slots -> `.pst`. Restore = load params + save
   (per above), NOT `dwrite`.
 - Rename (`dwrite … chunk:-1` name) and delete (chunk:-1 zeros) DO work (name table is dwrite-able).
-- OPEN QUESTION (2026-07-03, after the amp-upload fix): the amp fix showed content persists only
-  when the FULL sequence ends with the name at `chunk:-1` (chunk 0 name → content → chunk -1 name
-  = commit). The 2026-06-15 preset-content test may simply not have used that exact sequence —
-  preset content via `dwrite` chunk 0..64 + name-at-`-1` is worth ONE guarded re-test before
-  assuming presets are save-from-live only.
+- VERDICT (2026-07-04, --preset-dwrite-probe, fw 2.5.1 serial): preset content IS dwrite-able with
+  the correct sequence (chunk:0 name → chunks 1..64 → name at chunk:-1 = commit) — the 2026-06-15
+  test failed only because it used the zeros terminator. Measured: 10251 ms for the 66-write upload
+  + verify (vs ~216 ms select+save copy, ~12 s param replay). select+save remains the reorder copy
+  engine (faster); dwrite is the byte-exact option for restore/duplicate (follow-up, not built).
 
 ### Observed examples
 ```

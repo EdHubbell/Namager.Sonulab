@@ -10,11 +10,18 @@
 //   dotnet run --project tools/HwCheck -- --delete-amp <slotIndex>              # guarded amp delete (backup+clear name)
 //   dotnet run --project tools/HwCheck -- --upload-ir <irblob> <slotIndex> [--name <n>]  # guarded IR upload (backup+write+verify)
 //   dotnet run --project tools/HwCheck -- --delete-ir <slotIndex>              # guarded IR delete (backup+clear name)
+//   dotnet run --project tools/HwCheck -- --preset-dwrite-probe [--src <idx>] [--dst <idx>]  # guarded, timed re-test of preset dwrite
 // Requires VoidX-Control CLOSED (it holds COM6).
 using Sonulab.Core.Connection;
 using Sonulab.Core.Model;
 using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
+
+static int? ArgAfter(string[] a, string flag)
+{
+    int i = Array.IndexOf(a, flag);
+    return i >= 0 && i + 1 < a.Length && int.TryParse(a[i + 1], out var v) ? v : null;
+}
 
 // Ports: `--port COMx` pins a port; otherwise auto-discover by probing every present COM port
 // (whichever answers `read root\sys\_name` is the pedal). Command flags like --restore carry their
@@ -338,6 +345,62 @@ if (uii >= 0)
     catch (IrServiceException irex)
     {
         Console.WriteLine($"RESULT: UPLOAD-IR FAIL — {irex.Message}");
+        session.Disconnect();
+        return 4;
+    }
+}
+
+// --preset-dwrite-probe [--src <idx>] [--dst <idx>] : guarded, TIMED re-test of the 2026-06-15
+// "preset content is not dwrite-able" verdict, which used the buggy all-zeros chunk:-1 terminator
+// (the amp-upload bug). Dreads an occupied preset (source untouched), dwrites it into an EMPTY
+// slot with the correct name-at-chunk:-1 commit via SlotBlobService (ACK-checked + verified),
+// then deletes the probe slot. Either outcome is a valid verdict for PROTOCOL.md.
+int pdp = Array.IndexOf(args, "--preset-dwrite-probe");
+if (pdp >= 0)
+{
+    if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); session.Disconnect(); return 3; }
+    var pClient = session.Client!;
+    var pNames = await pClient.ReadListAsync(@"root\presets");
+    int pSrc = ArgAfter(args, "--src") ?? Enumerable.Range(0, pNames.Count).First(i => !string.IsNullOrEmpty(pNames[i]));
+    int pDst = ArgAfter(args, "--dst") ?? Enumerable.Range(0, pNames.Count).First(i => string.IsNullOrEmpty(pNames[i]));
+    if (string.IsNullOrEmpty(pNames[pSrc]) || !string.IsNullOrEmpty(pNames[pDst]))
+    { Console.WriteLine($"RESULT: PRESET-DWRITE-PROBE ABORT — need occupied src (idx {pSrc}) and empty dst (idx {pDst})."); session.Disconnect(); return 1; }
+
+    Console.WriteLine($"\n--- PRESET DWRITE PROBE: '{pNames[pSrc]}' (idx {pSrc}) -> empty idx {pDst} ---");
+    var pSw = System.Diagnostics.Stopwatch.StartNew();
+    var pBlob = await pClient.DReadBlobAsync(@"root\presets", pSrc, 64);
+    Console.WriteLine($"[dread] source read: {pBlob.Length} B in {pSw.ElapsedMilliseconds}ms");
+
+    var pKind = new SlotBlobKind(@"root\presets", 64, 8192, "Preset", "preset-probe", ".bin");
+    var pSvc = new SlotBlobService(pClient, pKind,
+        System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")),
+        msg => new InvalidOperationException(msg));
+    try
+    {
+        pSw.Restart();
+        await pSvc.UploadAsync(pDst, pBlob, "__probe_dwrite", new Progress<SlotUploadProgress>(pp =>
+        {
+            if (pp.Stage == SlotUploadStage.Writing && (pp.ChunksDone % 16 == 0 || pp.ChunksDone >= pp.ChunksTotal))
+                Console.WriteLine($"[chunk] {pp.ChunksDone}/{pp.ChunksTotal}");
+        }));
+        long pUploadMs = pSw.ElapsedMilliseconds;
+        var pAfter = await pClient.ReadListAsync(@"root\presets");
+        bool pLanded = pAfter[pDst] == "__probe_dwrite";
+        Console.WriteLine($"[verify] service verified byte-equality; name landed: {pLanded}");
+        pSw.Restart();
+        await pSvc.DeleteAsync(pDst);
+        Console.WriteLine($"[cleanup] probe slot deleted in {pSw.ElapsedMilliseconds}ms");
+        Console.WriteLine(pLanded
+            ? $"RESULT: PRESET-DWRITE-PROBE WORKS — 66 acked writes + verify in {pUploadMs}ms (compare: select+save copy ~216ms, param replay ~12s)"
+            : $"RESULT: PRESET-DWRITE-PROBE FAILED — all writes ACKed but the name-table entry did not land");
+        session.Disconnect();
+        return pLanded ? 0 : 4;
+    }
+    catch (InvalidOperationException pex)
+    {
+        Console.WriteLine($"RESULT: PRESET-DWRITE-PROBE FAILED — {pex.Message}");
+        // Best-effort cleanup if a partial name landed (service clears on verify-fail already).
+        try { await pSvc.DeleteAsync(pDst); } catch { }
         session.Disconnect();
         return 4;
     }
