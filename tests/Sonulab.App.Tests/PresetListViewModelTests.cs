@@ -197,4 +197,37 @@ public class PresetListViewModelTests
         Assert.Equal("A", vm.Items[0].Name);          // unchanged (gated)
         Assert.False(item.IsEditing);                 // left edit mode
     }
+
+    // Counts content reads so we can prove the toolbar move is content-free (perf spec §5).
+    sealed class DreadCountingLink : Sonulab.Core.Transport.ISonuLink
+    {
+        private readonly Sonulab.Core.Transport.ISonuLink _inner;
+        public int Dreads;
+        public DreadCountingLink(Sonulab.Core.Transport.ISonuLink inner) => _inner = inner;
+        public bool IsOpen => _inner.IsOpen;
+        public System.Threading.Tasks.Task OpenAsync(System.Threading.CancellationToken ct = default) => _inner.OpenAsync(ct);
+        public void Close() => _inner.Close();
+        public System.Threading.Tasks.Task<string> SendAsync(string command, System.Threading.CancellationToken ct = default)
+        {
+            if (command.StartsWith("dread ", StringComparison.Ordinal)) Dreads++;
+            return _inner.SendAsync(command, ct);
+        }
+    }
+
+    [Fact] public async Task Toolbar_move_reads_no_preset_content()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        await dev.OpenAsync();
+        var link = new DreadCountingLink(dev);
+        var repo = new DeviceRepository(new SonuClient(link));
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.MoveDownCommand.ExecuteAsync(null);           // toolbar path
+        Assert.Equal("B", vm.Items[0].Name);
+        Assert.Equal("A", vm.Items[1].Name);
+        Assert.Equal(0, link.Dreads);                          // lean: zero content reads
+    }
 }

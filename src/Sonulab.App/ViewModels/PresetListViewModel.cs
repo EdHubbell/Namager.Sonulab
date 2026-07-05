@@ -41,7 +41,7 @@ public partial class PresetListViewModel : ObservableObject
         if (Selected is { Index: > 0 } s)
         {
             int dest = s.Index - 1;
-            if (await RunAsync($"Moving slot {s.DisplaySlot} up…", () => _reorder.MoveAsync(s.Index, dest)) && dest < Items.Count)
+            if (await RunAsync($"Moving slot {s.DisplaySlot} up…", () => _reorder.MoveStepAsync(s.Index, up: true)) && dest < Items.Count)
                 Selected = Items[dest];
         }
     }
@@ -51,7 +51,7 @@ public partial class PresetListViewModel : ObservableObject
         if (Selected is { } s && s.Index < Items.Count - 1)
         {
             int dest = s.Index + 1;
-            if (await RunAsync($"Moving slot {s.DisplaySlot} down…", () => _reorder.MoveAsync(s.Index, dest)) && dest < Items.Count)
+            if (await RunAsync($"Moving slot {s.DisplaySlot} down…", () => _reorder.MoveStepAsync(s.Index, up: false)) && dest < Items.Count)
                 Selected = Items[dest];
         }
     }
