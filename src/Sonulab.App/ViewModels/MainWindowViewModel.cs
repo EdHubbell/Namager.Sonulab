@@ -25,8 +25,15 @@ public partial class MainWindowViewModel : ObservableObject
     /// visit instead of at connect — removes two full list reads from the connect path.</summary>
     public void EnsureTabLoaded(int navIndex)
     {
-        if (navIndex == 1 && Amps is { } a && !_ampsLoaded) { _ampsLoaded = true; _ = a.RefreshCommand.ExecuteAsync(null); }
-        else if (navIndex == 2 && Irs is { } i && !_irsLoaded) { _irsLoaded = true; _ = i.RefreshCommand.ExecuteAsync(null); }
+        if (navIndex == 1 && Amps is { } a && !_ampsLoaded) { _ampsLoaded = true; _ = TimedRefreshAsync(a.RefreshCommand, "amps-first-visit"); }
+        else if (navIndex == 2 && Irs is { } i && !_irsLoaded) { _irsLoaded = true; _ = TimedRefreshAsync(i.RefreshCommand, "irs-first-visit"); }
+    }
+
+    private static async Task TimedRefreshAsync(CommunityToolkit.Mvvm.Input.IAsyncRelayCommand refresh, string label)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await refresh.ExecuteAsync(null);
+        Log.Info("PERF {0}={1}ms", label, sw.ElapsedMilliseconds);
     }
 
     public MainWindowViewModel()
