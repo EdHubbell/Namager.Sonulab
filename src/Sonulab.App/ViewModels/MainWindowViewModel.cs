@@ -38,7 +38,12 @@ public partial class MainWindowViewModel : ObservableObject
 
     public MainWindowViewModel()
     {
-        var options = new SerialLinkOptions { OpenSettleMs = 1500, ProbeAttempts = 3 };
+        // Adaptive settle (perf spec §4): instead of always paying a fixed 1500 ms for the
+        // ESP32's post-open reboot, wait briefly and let the probe-retry loop find the moment
+        // the device answers. Worst case ≈ 250 + 8×(300 fail-fast + 150 delay) ≈ 3.9 s (old:
+        // 1500 + 3×(300+300) ≈ 3.3 s); typical case = actual boot time + ≤450 ms overshoot.
+        var options = new SerialLinkOptions
+        { OpenSettleMs = 250, ProbeAttempts = 8, ProbeRetryDelayMs = 150 };
         var connector = new SonuConnector(() => new SystemSerialPort(), options);
         var session = new DeviceSession(connector, new CompatibilityChecker(FirmwareCatalog.Default));
 
