@@ -61,6 +61,7 @@ public partial class AmpListViewModel : ObservableObject
 
     private async Task ReloadAsync()
     {
+        _detailsCache.Clear();
         var slots = await _amps.ListAmpsAsync();
         Items.Clear();
         foreach (var s in slots) Items.Add(new AmpItemViewModel(s));
@@ -258,6 +259,8 @@ public partial class AmpListViewModel : ObservableObject
             UploadStatus = $"Done — '{name}' in slot {slot + 1}";
             await ReloadAsync();
             Selected = Items.FirstOrDefault(i => i.Index == slot);
+            DetailsLoadTask = LoadDetailsCoreAsync(Selected);
+            await DetailsLoadTask;
         }
         catch (OperationCanceledException) { UploadError = "Cancelled."; }
         catch (Sonulab.Distill.DistillException ex) { UploadError = ex.Message; }
@@ -283,4 +286,89 @@ public partial class AmpListViewModel : ObservableObject
     {
         public void Report(T value) => handler(value);
     }
+
+    // ---- details pane (selected amp metadata) ----
+    [ObservableProperty] private bool _isDetailsVisible;
+    [ObservableProperty] private bool _isDetailsLoading;
+    [ObservableProperty] private bool _showNoMetadata;
+    [ObservableProperty] private string? _detailsNotes;
+    [ObservableProperty] private string? _detailsUrl;
+    [ObservableProperty] private string? _detailsError;
+    public ObservableCollection<MetadataField> DetailsFields { get; } = new();
+
+    /// <summary>Last details load — test seam: set Selected, then await this.</summary>
+    public Task? DetailsLoadTask { get; private set; }
+
+    private readonly Dictionary<int, (string Name, byte[] Slot, AmpMetadata? Meta)> _detailsCache = new();
+    private CancellationTokenSource? _detailsCts;
+
+    partial void OnSelectedChanged(AmpItemViewModel? value)
+    {
+        // Never issue a read while another device operation may be in flight — serial
+        // commands must not interleave. The pane just stays hidden; explicit callers
+        // (post-upload, post-save) use LoadDetailsCoreAsync directly once idle.
+        if (IsBusy || IsUploading) { IsDetailsVisible = false; return; }
+        DetailsLoadTask = LoadDetailsCoreAsync(value);
+    }
+
+    private async Task LoadDetailsCoreAsync(AmpItemViewModel? item)
+    {
+        _detailsCts?.Cancel();
+        DetailsFields.Clear();
+        DetailsNotes = null; DetailsUrl = null; DetailsError = null; ShowNoMetadata = false;
+        if (item is null || item.IsEmpty) { IsDetailsVisible = false; return; }
+        IsDetailsVisible = true;
+
+        if (!_detailsCache.TryGetValue(item.Index, out var entry) || entry.Name != item.Name)
+        {
+            var cts = new CancellationTokenSource();
+            _detailsCts = cts;
+            IsDetailsLoading = true;
+            try
+            {
+                var slot = await _amps.ReadAmpAsync(item.Index, cts.Token);
+                entry = (item.Name, slot, VxampMetadata.TryRead(slot));
+                _detailsCache[item.Index] = entry;
+            }
+            catch (OperationCanceledException) { return; }   // superseded by a newer selection
+            catch (AmpServiceException ex) { DetailsError = ex.Message; return; }
+            finally { if (_detailsCts == cts) IsDetailsLoading = false; }
+            if (cts.IsCancellationRequested || Selected != item) return;
+        }
+        PopulateDetails(entry.Meta);
+    }
+
+    private void PopulateDetails(AmpMetadata? meta)
+    {
+        DetailsFields.Clear();
+        if (meta is null) { ShowNoMetadata = true; return; }
+        ShowNoMetadata = false;
+        if (meta.Source?.File is { } f) DetailsFields.Add(new("Source file", f));
+        if (meta.Source?.Size is { } sz) DetailsFields.Add(new("Source size", FormatSize(sz)));
+        if (meta.Source?.Modified is { } mo) DetailsFields.Add(new("Source date", mo));
+        if (meta.Uploaded is { } up) DetailsFields.Add(new("Uploaded", up));
+        if (meta.Nam is { } nam)
+            foreach (var kv in nam)
+                if (kv.Value is System.Text.Json.Nodes.JsonValue v)
+                    DetailsFields.Add(new($"NAM {kv.Key}", v.ToString()));
+        if (meta.Distill?.Version is { } dv) DetailsFields.Add(new("Distilled by", $"v{dv}"));
+        if (meta.Distill?.ShapeErr is { } se) DetailsFields.Add(new("Fit error", $"{se:F3} (lower is better)"));
+        DetailsNotes = meta.Notes;
+        DetailsUrl = meta.Url;
+    }
+
+    private static string FormatSize(long b) =>
+        b >= 1 << 20 ? $"{b / 1048576.0:F1} MB" : b >= 1 << 10 ? $"{b / 1024.0:F1} KB" : $"{b} B";
+
+    [RelayCommand]
+    private void OpenDetailsUrl()
+    {
+        if (DetailsUrl is { Length: > 0 } url &&
+            (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+             url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+    }
 }
+
+/// <summary>One label/value row of the amp details pane.</summary>
+public sealed record MetadataField(string Label, string Value);

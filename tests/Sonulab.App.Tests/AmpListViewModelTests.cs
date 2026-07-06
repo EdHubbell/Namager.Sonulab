@@ -112,6 +112,17 @@ public class AmpListViewModelTests : IDisposable
         return p;
     }
 
+    /// <summary>Seed a slot whose blob carries an SSMD block.</summary>
+    private static byte[] BlobWithMeta(AmpMetadata meta, byte fill = 3)
+    {
+        var blob = Enumerable.Repeat(fill, 12288).ToArray();
+        VxampMetadata.Write(blob, meta);
+        return blob;
+    }
+
+    private static int DreadCount(FakeAmpDevice dev, int index) =>
+        dev.CommandLog.Count(c => c.StartsWith($"dread root\\amp:{{\"index\":{index},"));
+
     [Fact]
     public async Task BeginUpload_prefills_name_and_empty_slots()
     {
@@ -353,5 +364,84 @@ public class AmpListViewModelTests : IDisposable
             Assert.NotNull(h.Vm.NotesBudgetWarning);
         }
         finally { File.Delete(nam); }
+    }
+
+    // ---- details pane (Task 4) ----
+
+    [Fact]
+    public async Task Selecting_an_amp_loads_its_metadata()
+    {
+        var dev = new FakeAmpDevice();
+        dev.SeedAmp(0, "Clean", BlobWithMeta(new AmpMetadata(
+            Source: new AmpSourceInfo("Clean.nam", 1000, "2026-01-01T00:00:00Z", "aa"),
+            Notes: "hi", Url: "https://x")));
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+
+        Assert.True(vm.IsDetailsVisible);
+        Assert.False(vm.ShowNoMetadata);
+        Assert.Equal("hi", vm.DetailsNotes);
+        Assert.Equal("https://x", vm.DetailsUrl);
+        Assert.Contains(vm.DetailsFields, f => f.Label == "Source file" && f.Value == "Clean.nam");
+    }
+
+    [Fact]
+    public async Task Slot_without_block_shows_no_metadata_state()
+    {
+        var (vm, _) = Make();                               // seeded blobs have no SSMD block
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.True(vm.IsDetailsVisible);
+        Assert.True(vm.ShowNoMetadata);
+        Assert.Empty(vm.DetailsFields);
+    }
+
+    [Fact]
+    public async Task Selecting_an_empty_slot_hides_the_pane()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[5];                          // empty
+        if (vm.DetailsLoadTask is not null) await vm.DetailsLoadTask;
+        Assert.False(vm.IsDetailsVisible);
+    }
+
+    [Fact]
+    public async Task Reselecting_hits_the_cache_not_the_device()
+    {
+        var (vm, dev) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.Equal(96, DreadCount(dev, 0));               // one full read
+        vm.Selected = vm.Items[1];
+        await vm.DetailsLoadTask!;
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.Equal(96, DreadCount(dev, 0));               // still one — cache hit
+    }
+
+    [Fact]
+    public async Task Rename_invalidates_the_details_cache()
+    {
+        var (vm, dev) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.Equal(96, DreadCount(dev, 0));
+
+        var item = vm.Items[0];
+        item.BeginRenameCommand.Execute(null);
+        item.EditName = "Cleaner";
+        await vm.CommitRenameCommand.ExecuteAsync(item);    // RunAsync -> ReloadAsync clears cache
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.Equal(192, DreadCount(dev, 0));              // re-read after invalidation
     }
 }

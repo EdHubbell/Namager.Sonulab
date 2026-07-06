@@ -86,6 +86,35 @@
       <TextBlock Text="{Binding BusyMessage}" FontSize="11" Opacity="0.7"/>
     </StackPanel>
 
+    <!-- Details pane (selected amp metadata) -->
+    <Border DockPanel.Dock="Bottom" Margin="8,4" Padding="10" CornerRadius="4"
+            BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+            IsVisible="{Binding IsDetailsVisible}">
+      <StackPanel Spacing="4">
+        <TextBlock Text="Reading amp metadata…" FontSize="11" Opacity="0.7"
+                   IsVisible="{Binding IsDetailsLoading}"/>
+        <TextBlock Text="No metadata — uploaded outside StompStation Manager." FontSize="11" Opacity="0.7"
+                   IsVisible="{Binding ShowNoMetadata}"/>
+        <TextBlock Text="{Binding DetailsError}" FontSize="11" Foreground="#D9534F" TextWrapping="Wrap"
+                   IsVisible="{Binding DetailsError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+        <ItemsControl ItemsSource="{Binding DetailsFields}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:MetadataField">
+              <Grid ColumnDefinitions="130,*">
+                <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="11" Opacity="0.6"/>
+                <TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="11" TextWrapping="Wrap"/>
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="{Binding DetailsNotes}" FontSize="11" TextWrapping="Wrap"
+                   IsVisible="{Binding DetailsNotes, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+        <Button Content="{Binding DetailsUrl}" Command="{Binding OpenDetailsUrlCommand}"
+                Padding="0" Background="Transparent" Foreground="#3B82D6" FontSize="11" Cursor="Hand"
+                IsVisible="{Binding DetailsUrl, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+      </StackPanel>
+    </Border>
+
     <!-- Amp list -->
     <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
              IsEnabled="{Binding !IsBusy}">
