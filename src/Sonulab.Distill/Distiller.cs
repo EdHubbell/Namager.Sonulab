@@ -1,8 +1,10 @@
 namespace Sonulab.Distill;
 
-public enum DistillStage { LoadModel, ProbeIr, FitLinear, FitNonlinearity, Normalize, Encode, Done }
+public enum DistillStage { LoadModel, ProbeIr, FitLinear, FitNonlinearity, Normalize, Fidelity, Encode, Done }
 
 public sealed record DistillProgress(DistillStage Stage, string Message);
+
+public sealed record DistillResult(byte[] Blob, double ShapeErr);
 
 public sealed class DistillException(string message, Exception? inner = null)
     : Exception(message, inner);
@@ -27,57 +29,79 @@ public static class Distiller
         return t with { G2Fir = g2 };
     }
 
+    private static (WhTensors Tensors, NamModel Model) Fit(string namPath,
+        IProgress<DistillProgress>? progress, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        progress?.Report(new(DistillStage.LoadModel, "Loading NAM model…"));
+        var model = NamParser.Load(namPath);
+        model.SampleRate ??= FirFitter.NamDefaultSampleRate;   // NAM ecosystem default
+
+        ct.ThrowIfCancellationRequested();
+        progress?.Report(new(DistillStage.ProbeIr, "Probing small-signal response…"));
+        var ir = Dsp.ToDouble(Probe.LinearIrOfModel(model, n: 8192));
+        if (model.SampleRate != DeviceSim.SampleRate)
+            ir = Resampler.ResamplePoly(ir, DeviceSim.SampleRate, model.SampleRate.Value);
+
+        ct.ThrowIfCancellationRequested();
+        progress?.Report(new(DistillStage.FitLinear, "Designing FIR cascade…"));
+        var (pre, g2) = FirFitter.DesignLinear(ir);
+
+        ct.ThrowIfCancellationRequested();
+        progress?.Report(new(DistillStage.FitNonlinearity, "Fitting nonlinearity…"));
+        var (s, gain) = FirFitter.FitNl(model, pre, g2);
+        var g2Cal = new float[g2.Length];
+        for (int i = 0; i < g2.Length; i++) g2Cal[i] = (float)(g2[i] * gain);
+        var tensors = new WhTensors(pre, VxampFormat.G2HeaderFloats(), g2Cal,
+                                    VxampFormat.NlmixHeaderFloats(), (float)s);
+
+        ct.ThrowIfCancellationRequested();
+        progress?.Report(new(DistillStage.Normalize, "Calibrating loudness…"));
+        return (LoudnessNormalize(tensors), model);
+    }
+
     public static byte[] Distill(string namPath, IProgress<DistillProgress>? progress = null,
                                  CancellationToken ct = default)
     {
         try
         {
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new(DistillStage.LoadModel, "Loading NAM model…"));
-            var model = NamParser.Load(namPath);
-            model.SampleRate ??= FirFitter.NamDefaultSampleRate;   // NAM ecosystem default
-
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new(DistillStage.ProbeIr, "Probing small-signal response…"));
-            var ir = Dsp.ToDouble(Probe.LinearIrOfModel(model, n: 8192));
-            if (model.SampleRate != DeviceSim.SampleRate)
-                ir = Resampler.ResamplePoly(ir, DeviceSim.SampleRate, model.SampleRate.Value);
-
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new(DistillStage.FitLinear, "Designing FIR cascade…"));
-            var (pre, g2) = FirFitter.DesignLinear(ir);
-
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new(DistillStage.FitNonlinearity, "Fitting nonlinearity…"));
-            var (s, gain) = FirFitter.FitNl(model, pre, g2);
-            var g2Cal = new float[g2.Length];
-            for (int i = 0; i < g2.Length; i++) g2Cal[i] = (float)(g2[i] * gain);
-            var tensors = new WhTensors(pre, VxampFormat.G2HeaderFloats(), g2Cal,
-                                        VxampFormat.NlmixHeaderFloats(), (float)s);
-
-            ct.ThrowIfCancellationRequested();
-            progress?.Report(new(DistillStage.Normalize, "Calibrating loudness…"));
-            tensors = LoudnessNormalize(tensors);
-
+            var (tensors, _) = Fit(namPath, progress, ct);
             ct.ThrowIfCancellationRequested();
             progress?.Report(new(DistillStage.Encode, "Encoding .vxamp…"));
             return VxampCodec.Encode(tensors);
         }
         catch (OperationCanceledException) { throw; }
-        catch (Exception e)
-        {
-            throw new DistillException($"Distillation failed: {e.Message}", e);
-        }
+        catch (Exception e) { throw new DistillException($"Distillation failed: {e.Message}", e); }
     }
 
-    public static Task DistillAsync(string namPath, string outPath,
-                                    IProgress<DistillProgress>? progress = null,
-                                    CancellationToken ct = default) =>
+    /// <summary>Distill + measure how faithful the fit is (Fidelity.FidelityVsNam ShapeErr,
+    /// lower is better). Slower than Distill — runs one extra device-sim pass.</summary>
+    public static DistillResult DistillWithFidelity(string namPath,
+        IProgress<DistillProgress>? progress = null, CancellationToken ct = default)
+    {
+        try
+        {
+            var (tensors, model) = Fit(namPath, progress, ct);
+            ct.ThrowIfCancellationRequested();
+            progress?.Report(new(DistillStage.Fidelity, "Measuring fidelity…"));
+            double err = Fidelity.FidelityVsNam(model, tensors);
+            ct.ThrowIfCancellationRequested();
+            progress?.Report(new(DistillStage.Encode, "Encoding .vxamp…"));
+            return new DistillResult(VxampCodec.Encode(tensors), err);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception e) { throw new DistillException($"Distillation failed: {e.Message}", e); }
+    }
+
+    public static Task<double> DistillAsync(string namPath, string outPath,
+                                            IProgress<DistillProgress>? progress = null,
+                                            CancellationToken ct = default) =>
         Task.Run(() =>
         {
-            var blob = Distill(namPath, progress, ct);
-            try { File.WriteAllBytes(outPath, blob); }
+            var r = DistillWithFidelity(namPath, progress, ct);
+            try { File.WriteAllBytes(outPath, r.Blob); }
             catch (Exception e) { throw new DistillException($"Failed to write '{outPath}': {e.Message}", e); }
             progress?.Report(new(DistillStage.Done, "Done."));
+            return r.ShapeErr;
         }, ct);
 }

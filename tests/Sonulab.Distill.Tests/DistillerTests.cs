@@ -88,6 +88,33 @@ public class DistillerTests
         }
         finally { File.Delete(bad); }
     }
+
+    [Fact]
+    public void DistillWithFidelity_reports_stage_and_a_sane_shape_err()
+    {
+        var stages = new List<DistillStage>();
+        var r = Distiller.DistillWithFidelity(Fixture("synthetic.nam"),
+            new SyncProgress(p => stages.Add(p.Stage)));
+        Assert.Equal(VxampFormat.SlotSize, r.Blob.Length);
+        Assert.InRange(r.ShapeErr, 0.0, 2.0);              // ShapeErr is bounded by construction
+        Assert.Equal(new[] { DistillStage.LoadModel, DistillStage.ProbeIr, DistillStage.FitLinear,
+                             DistillStage.FitNonlinearity, DistillStage.Normalize,
+                             DistillStage.Fidelity, DistillStage.Encode },
+                     stages);
+    }
+
+    [Fact]
+    public async Task DistillAsync_returns_the_shape_err()
+    {
+        var outPath = Path.Combine(Path.GetTempPath(), $"distill-fid-{Guid.NewGuid():N}.vxamp");
+        try
+        {
+            double err = await Distiller.DistillAsync(Fixture("synthetic.nam"), outPath);
+            Assert.InRange(err, 0.0, 2.0);
+            Assert.Equal(VxampFormat.SlotSize, new FileInfo(outPath).Length);
+        }
+        finally { File.Delete(outPath); }
+    }
 }
 
 /// <summary>Synchronous IProgress (xUnit has no sync context; Progress&lt;T&gt; would race).</summary>
