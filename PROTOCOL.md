@@ -45,7 +45,7 @@ Empty slot = empty name; download-all skips empties. CONFIRMED via SonulabCaptur
 `dread root\presets:{"index":N,"chunk":1..64}`.
 
 ## Reorder / copy / backup (composed — VoidX has NO native reorder)
-### CRITICAL FINDING (guarded write test, 2026-06-15): preset CONTENT is NOT dwrite-able
+### SUPERSEDED (see VERDICT below) — 2026-06-15 finding: preset content is NOT dwrite-able
 - Writing `dwrite root\presets:{"index":25,"chunk":1..64,...}` to slot 25 had **no effect**
   (read-back chunk 1 = all zeros); only the name (`chunk:-1`) persisted. Tried both name-first and
   content-first. => the firmware does not accept preset content via `dwrite` (that path is for
