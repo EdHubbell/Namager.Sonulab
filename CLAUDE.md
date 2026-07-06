@@ -16,7 +16,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   SerialSonuLink / FakeSonuLink; SerialPortStream), `Connection/` (SonuConnector, CompatibilityChecker,
   DeviceSession, FirmwareCatalog), `Services/` (DeviceRepository, ReorderService, BackupService, SlotPlanner, SlotBlobService, AmpService, IrService).
 - **`src/Sonulab.Distill`** (no UI, unit-tested): native C# port of the .nam→.vxamp
-  distiller (WaveNet runner, WH fitter, vxamp codec). Python `tools/distiller/` is the
+  distiller (WaveNet runner, WH fitter, vxamp codec, VxampMetadata (SSMD slot-metadata block)). Python `tools/distiller/` is the
   reference oracle; parity goldens via `tools/distiller/make_cs_fixtures.py`.
 - **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
@@ -56,3 +56,4 @@ Amp/IR reorder and backup-all UI deferred from their v1 tabs. (See
 `docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-plan-dragreorder.md` for
 pending manual checks.) Performance pass done — before/after numbers in `docs/perf-findings.md`;
 the preset-dwrite question is resolved (VERDICT in PROTOCOL.md; byte-exact restore/duplicate via dwrite is a possible follow-up, not built).
+Amp metadata hardware validation (docs/HARDWARE-VALIDATION-amp-metadata.md) pending — run before relying on SSMD blocks on-device. IR-slot metadata not designed.
