@@ -15,7 +15,7 @@
 | path | ms |
 |---|---|
 | toolbar (MoveAsync: backup + rotate) | 8718 (backup 7312ms + path 1406ms) |
-| per-row arrow (MoveStepAsync lean) | 1522 (4 runs: 1604 / 1522 / 1498 / 1507) |
+| per-row arrow (MoveStepAsync lean) | 1533 avg (4 runs: 1604 / 1522 / 1498 / 1507) |
 
 ## Connect phases (after fixes)
 
@@ -43,7 +43,7 @@ loop recovered on attempt 3.
 | path | before ms | after ms |
 |---|---|---|
 | toolbar | 8718 (MoveAsync: backup 7312 + rotate 1406) | 1676 (MoveStepAsync — lean, zero dreads) |
-| per-row arrow | 1522 (4 runs: 1604 / 1522 / 1498 / 1507) | 1453 avg (3 runs: 1506 / 1540 / 1312) (unchanged path) |
+| per-row arrow | 1533 avg (4 runs: 1604 / 1522 / 1498 / 1507) | 1453 avg (3 runs: 1506 / 1540 / 1312) (unchanged path) |
 
 No `MoveAsync` lines appeared in the after-run log — the toolbar buttons are confirmed on the
 lean content-free path. Toolbar single-step move: **8718 ms → 1676 ms (−81%)**.

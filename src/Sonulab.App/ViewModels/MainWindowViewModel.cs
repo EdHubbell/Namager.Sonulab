@@ -40,8 +40,11 @@ public partial class MainWindowViewModel : ObservableObject
     {
         // Adaptive settle (perf spec §4): instead of always paying a fixed 1500 ms for the
         // ESP32's post-open reboot, wait briefly and let the probe-retry loop find the moment
-        // the device answers. Worst case ≈ 250 + 8×(300 fail-fast + 150 delay) ≈ 3.9 s (old:
-        // 1500 + 3×(300+300) ≈ 3.3 s); typical case = actual boot time + ≤450 ms overshoot.
+        // the device answers. Worst case: 250 + 8×300 + 7×150 ≈ 3.7s (old: 1500 + 3×300 + 2×300
+        // ≈ 3.0s); typical case = actual boot time + ≤450 ms overshoot.
+        // Accepted trade-off: a silent or chatty NON-pedal port scans slower than before (worst
+        // case ~21s if a port streams data without NUL terminators); on this bench the pedal is
+        // the only serial device.
         var options = new SerialLinkOptions
         { OpenSettleMs = 250, ProbeAttempts = 8, ProbeRetryDelayMs = 150 };
         var connector = new SonuConnector(() => new SystemSerialPort(), options);

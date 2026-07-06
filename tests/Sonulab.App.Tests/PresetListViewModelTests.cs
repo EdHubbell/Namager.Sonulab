@@ -230,4 +230,14 @@ public class PresetListViewModelTests
         Assert.Equal("A", vm.Items[1].Name);
         Assert.Equal(0, link.Dreads);                          // lean: zero content reads
     }
+
+    [Fact] public async Task Toolbar_move_on_empty_selected_slot_is_a_noop()
+    {
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[5];                             // empty slot
+        await vm.MoveDownCommand.ExecuteAsync(null);           // must not throw
+        await vm.MoveUpCommand.ExecuteAsync(null);
+        Assert.True(vm.Items[5].IsEmpty);                      // nothing moved
+    }
 }

@@ -38,7 +38,7 @@ public partial class PresetListViewModel : ObservableObject
 
     [RelayCommand] private async Task MoveUpAsync()
     {
-        if (Selected is { Index: > 0 } s)
+        if (Selected is { IsEmpty: false, Index: > 0 } s)
         {
             int dest = s.Index - 1;
             if (await RunAsync($"Moving slot {s.DisplaySlot} up…", () => _reorder.MoveStepAsync(s.Index, up: true)) && dest < Items.Count)
@@ -48,7 +48,7 @@ public partial class PresetListViewModel : ObservableObject
 
     [RelayCommand] private async Task MoveDownAsync()
     {
-        if (Selected is { } s && s.Index < Items.Count - 1)
+        if (Selected is { IsEmpty: false } s && s.Index < Items.Count - 1)
         {
             int dest = s.Index + 1;
             if (await RunAsync($"Moving slot {s.DisplaySlot} down…", () => _reorder.MoveStepAsync(s.Index, up: false)) && dest < Items.Count)
