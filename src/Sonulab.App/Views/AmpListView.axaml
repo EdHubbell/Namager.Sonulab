@@ -53,6 +53,17 @@
             </ComboBox.ItemTemplate>
           </ComboBox>
         </Grid>
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" >
+          <TextBlock Grid.Row="0" Grid.Column="0" Text="Link" VerticalAlignment="Center" Margin="0,0,8,0"/>
+          <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding UploadUrl}" Watermark="https:// where the tone came from (optional)"
+                   IsEnabled="{Binding !IsUploading}" Margin="0,0,0,4"/>
+          <TextBlock Grid.Row="1" Grid.Column="0" Text="Notes" VerticalAlignment="Top" Margin="0,4,8,0"/>
+          <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding UploadNotes}" Watermark="Notes about this tone (optional)"
+                   AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="72"
+                   IsEnabled="{Binding !IsUploading}"/>
+        </Grid>
+        <TextBlock Text="{Binding NotesBudgetWarning}" FontSize="11" Foreground="#D9820F" TextWrapping="Wrap"
+                   IsVisible="{Binding NotesBudgetWarning, Converter={x:Static ObjectConverters.IsNotNull}}"/>
         <ProgressBar Height="6" Minimum="0" Maximum="1"
                      Value="{Binding UploadProgressValue}"
                      IsIndeterminate="{Binding IsUploadIndeterminate}"

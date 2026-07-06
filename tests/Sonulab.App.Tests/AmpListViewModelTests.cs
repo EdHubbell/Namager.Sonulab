@@ -1,6 +1,9 @@
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using Sonulab.App.ViewModels;
 using Sonulab.Core;
 using Sonulab.Core.Services;
+using Sonulab.Distill;
 using Xunit;
 
 public class AmpListViewModelTests : IDisposable
@@ -96,7 +99,7 @@ public class AmpListViewModelTests : IDisposable
             calls.Add($"{nam}|{outPath}");
             Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
             File.WriteAllBytes(outPath, Enumerable.Repeat((byte)0xD1, 12288).ToArray());
-            return Task.CompletedTask;
+            return Task.FromResult(0.25);
         });
         var vm = new AmpListViewModel(svc, writes, runner, distilledDir, dispatch: a => a());
         return new UploadHarness(vm, dev, calls, distilledDir);
@@ -195,6 +198,7 @@ public class AmpListViewModelTests : IDisposable
         {
             tcs.SetResult();                                 // signal: distill has started
             await Task.Delay(Timeout.Infinite, ct);          // parks until cancelled
+            return 0.0;
         });
         await h.Vm.RefreshCommand.ExecuteAsync(null);
         h.Vm.BeginUploadCommand.Execute(TempFile("Slow.nam"));
@@ -219,6 +223,7 @@ public class AmpListViewModelTests : IDisposable
             await release.Task;
             Directory.CreateDirectory(Path.GetDirectoryName(o)!);
             File.WriteAllBytes(o, Enumerable.Repeat((byte)0xD1, 12288).ToArray());
+            return 0.0;
         });
         await h.Vm.RefreshCommand.ExecuteAsync(null);
         h.Vm.BeginUploadCommand.Execute(TempFile("Slow2.nam"));
@@ -232,5 +237,121 @@ public class AmpListViewModelTests : IDisposable
         release.SetResult();
         await run;
         Assert.True(h.Vm.CanMutate);
+    }
+
+    // ---- SSMD metadata stamping (Task 3) ----
+
+    [Fact]
+    public async Task Upload_nam_stamps_ssmd_metadata()
+    {
+        var h = MakeUpload();                              // fake distiller returns ShapeErr 0.25
+        await h.Vm.RefreshCommand.ExecuteAsync(null);
+        var nam = Path.Combine(Path.GetTempPath(), $"Tweed Deluxe-{Guid.NewGuid():N}.nam");
+        File.WriteAllText(nam, """{"architecture":"WaveNet","metadata":{"name":"Tweed Deluxe","modeled_by":"ed"}}""");
+        try
+        {
+            h.Vm.BeginUploadCommand.Execute(nam);
+            h.Vm.UploadName = "Tweed";
+            h.Vm.UploadNotes = "bright, edge of breakup";
+            h.Vm.UploadUrl = "https://tonehunt.org/x";
+            await h.Vm.StartUploadCommand.ExecuteAsync(null);
+
+            Assert.Null(h.Vm.UploadError);
+            int slot = h.Vm.Items.First(i => i.Name == "Tweed").Index;
+            var meta = VxampMetadata.TryRead(h.Dev.SlotBlobs[slot]!);
+            Assert.NotNull(meta);
+            Assert.Equal(Path.GetFileName(nam), meta!.Source!.File);
+            Assert.Equal(new FileInfo(nam).Length, meta.Source.Size);
+            Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(nam))), meta.Source.Sha256);
+            Assert.NotNull(meta.Uploaded);
+            Assert.Equal("ed", (string?)meta.Nam!["modeled_by"]);
+            Assert.Equal(0.25, meta.Distill!.ShapeErr!.Value, 12);
+            Assert.NotNull(meta.Distill.Version);
+            Assert.Equal("bright, edge of breakup", meta.Notes);
+            Assert.Equal("https://tonehunt.org/x", meta.Url);
+        }
+        finally { File.Delete(nam); }
+    }
+
+    [Fact]
+    public async Task Upload_nam_persists_stamped_bytes_to_the_distilled_file()
+    {
+        var h = MakeUpload();
+        await h.Vm.RefreshCommand.ExecuteAsync(null);
+        var nam = TempFile($"Persist-{Guid.NewGuid():N}.nam");
+        try
+        {
+            h.Vm.BeginUploadCommand.Execute(nam);
+            h.Vm.UploadName = "Persist";
+            h.Vm.UploadNotes = "note";
+            await h.Vm.StartUploadCommand.ExecuteAsync(null);
+            var onDisk = File.ReadAllBytes(Path.Combine(h.DistilledDir, "Persist.vxamp"));
+            Assert.Equal("note", VxampMetadata.TryRead(onDisk)!.Notes);
+        }
+        finally { File.Delete(nam); }
+    }
+
+    [Fact]
+    public async Task Upload_vxamp_preserves_existing_block_and_overlays_user_fields()
+    {
+        var h = MakeUpload();
+        await h.Vm.RefreshCommand.ExecuteAsync(null);
+        var existing = new byte[12288];
+        VxampMetadata.Write(existing, new AmpMetadata(
+            Nam: new System.Text.Json.Nodes.JsonObject { ["name"] = "orig" },
+            Notes: "old notes", Url: "https://old"));
+        var vx = Path.Combine(Path.GetTempPath(), $"pre-{Guid.NewGuid():N}.vxamp");
+        File.WriteAllBytes(vx, existing);
+        try
+        {
+            h.Vm.BeginUploadCommand.Execute(vx);
+            Assert.Equal("old notes", h.Vm.UploadNotes);       // prefilled from the block
+            Assert.Equal("https://old", h.Vm.UploadUrl);
+            h.Vm.UploadName = "Pre";
+            h.Vm.UploadUrl = "https://new";                    // user overwrites one field
+            await h.Vm.StartUploadCommand.ExecuteAsync(null);
+            int slot = h.Vm.Items.First(i => i.Name == "Pre").Index;
+            var meta = VxampMetadata.TryRead(h.Dev.SlotBlobs[slot]!)!;
+            Assert.Equal("orig", (string?)meta.Nam!["name"]);  // passthrough kept
+            Assert.Equal("old notes", meta.Notes);
+            Assert.Equal("https://new", meta.Url);
+            Assert.Equal(Path.GetFileName(vx), meta.Source!.File);
+            Assert.NotNull(meta.Uploaded);
+        }
+        finally { File.Delete(vx); }
+    }
+
+    [Fact]
+    public async Task Upload_payload_bytes_reach_the_device_unchanged()
+    {
+        var h = MakeUpload();                              // fake distiller writes 0xD1 * 12288
+        await h.Vm.RefreshCommand.ExecuteAsync(null);
+        var nam = TempFile($"Payload-{Guid.NewGuid():N}.nam");
+        try
+        {
+            h.Vm.BeginUploadCommand.Execute(nam);
+            h.Vm.UploadName = "Payload";
+            h.Vm.UploadNotes = "anything";
+            await h.Vm.StartUploadCommand.ExecuteAsync(null);
+            int slot = h.Vm.Items.First(i => i.Name == "Payload").Index;
+            Assert.All(h.Dev.SlotBlobs[slot]![..VxampMetadata.Offset], b => Assert.Equal(0xD1, b));
+        }
+        finally { File.Delete(nam); }
+    }
+
+    [Fact]
+    public void NotesBudgetWarning_appears_when_metadata_would_truncate()
+    {
+        var h = MakeUpload();
+        h.Vm.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        var nam = TempFile($"Budget-{Guid.NewGuid():N}.nam");
+        try
+        {
+            h.Vm.BeginUploadCommand.Execute(nam);
+            Assert.Null(h.Vm.NotesBudgetWarning);
+            h.Vm.UploadNotes = new string('a', 4500);
+            Assert.NotNull(h.Vm.NotesBudgetWarning);
+        }
+        finally { File.Delete(nam); }
     }
 }

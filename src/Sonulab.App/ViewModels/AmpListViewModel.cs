@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sonulab.Core.Services;
+using Sonulab.Distill;
 
 namespace Sonulab.App.ViewModels;
 
@@ -11,8 +14,8 @@ public partial class AmpListViewModel : ObservableObject
     private readonly bool _writes;
 
     /// <summary>Distillation seam — Sonulab.Distill.Distiller.DistillAsync in the app,
-    /// a fake in tests.</summary>
-    public delegate Task DistillRunner(string namPath, string outPath,
+    /// a fake in tests. Returns the fidelity ShapeErr (lower is better).</summary>
+    public delegate Task<double> DistillRunner(string namPath, string outPath,
         IProgress<Sonulab.Distill.DistillProgress>? progress, CancellationToken ct);
 
     private readonly DistillRunner _distill;
@@ -94,6 +97,74 @@ public partial class AmpListViewModel : ObservableObject
     [ObservableProperty] private bool _isUploadIndeterminate;
     [ObservableProperty] private string? _uploadBlockedMessage;
 
+    [ObservableProperty] private string _uploadNotes = "";
+    [ObservableProperty] private string _uploadUrl = "";
+    private AmpSourceInfo? _pendingSource;                  // captured at BeginUpload
+    private JsonObject? _pendingNam;                        // .nam metadata passthrough
+    private AmpMetadata? _pendingExisting;                  // pre-existing block of a picked .vxamp
+
+    partial void OnUploadNotesChanged(string value) => OnPropertyChanged(nameof(NotesBudgetWarning));
+    partial void OnUploadUrlChanged(string value) => OnPropertyChanged(nameof(NotesBudgetWarning));
+
+    /// <summary>Live budget check: the SSMD JSON cap is 4024 B; warn (not block) when the
+    /// notes would be truncated. Uses a fixed-width ShapeErr placeholder pre-distillation.</summary>
+    public string? NotesBudgetWarning
+    {
+        get
+        {
+            int total = VxampMetadata.JsonByteCount(BuildUploadMetadata(0.1234567890123456));
+            int over = total - VxampMetadata.MaxJsonBytes;
+            return over > 0 ? $"Metadata is {over} B over budget — notes will be truncated on upload." : null;
+        }
+    }
+
+    private static string NowIso() => DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
+    private static string? NullIfEmpty(string s) => s.Trim().Length == 0 ? null : s.Trim();
+
+    private static string? DistillerVersion() =>
+        typeof(Sonulab.Distill.Distiller).Assembly.GetName().Version?.ToString(3);
+
+    /// <summary>Read the top-level "metadata" object of a .nam. Failures degrade to null —
+    /// metadata capture must never block an upload (spec §5).</summary>
+    private static JsonObject? TryReadNamMetadataFile(string namPath)
+    {
+        try
+        {
+            return JsonNode.Parse(File.ReadAllText(namPath))?["metadata"] is JsonObject o
+                ? (JsonObject)o.DeepClone() : null;
+        }
+        catch { return null; }
+    }
+
+    private static AmpSourceInfo? TryCaptureSource(string path)
+    {
+        try
+        {
+            var fi = new FileInfo(path);
+            return new AmpSourceInfo(fi.Name, fi.Length,
+                fi.LastWriteTimeUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))));
+        }
+        catch { return new AmpSourceInfo(Path.GetFileName(path)); }
+    }
+
+    /// <summary>Merge captured + user-entered metadata for the pending upload. For a .vxamp
+    /// with an existing block, its fields are kept and only user-entered fields overwrite.</summary>
+    private AmpMetadata BuildUploadMetadata(double? shapeErr)
+    {
+        bool isNam = Path.GetExtension(_uploadSourcePath).Equals(".nam", StringComparison.OrdinalIgnoreCase);
+        var baseline = _pendingExisting ?? new AmpMetadata();
+        return baseline with
+        {
+            Source = _pendingSource,
+            Uploaded = NowIso(),
+            Nam = isNam ? _pendingNam : baseline.Nam,
+            Distill = isNam ? new AmpDistillInfo(DistillerVersion(), shapeErr) : baseline.Distill,
+            Notes = NullIfEmpty(UploadNotes) ?? baseline.Notes,
+            Url = NullIfEmpty(UploadUrl) ?? baseline.Url,
+        };
+    }
+
     /// <summary>Open the upload panel for a picked .nam/.vxamp file (called by the view
     /// after the OS file picker). Empty slots only — spec decision.</summary>
     [RelayCommand] private void BeginUpload(string? path)
@@ -114,6 +185,23 @@ public partial class AmpListViewModel : ObservableObject
         UploadName = stem.Length > AmpService.NameMaxChars ? stem[..AmpService.NameMaxChars] : stem;
         SelectedEmptySlot = EmptySlots[0];
         UploadError = null; UploadStatus = ""; UploadProgressValue = 0;
+
+        _pendingSource = TryCaptureSource(path);
+        _pendingNam = null; _pendingExisting = null;
+        UploadNotes = ""; UploadUrl = "";
+        if (Path.GetExtension(path).Equals(".nam", StringComparison.OrdinalIgnoreCase))
+            _pendingNam = TryReadNamMetadataFile(path);
+        else
+        {
+            try
+            {
+                _pendingExisting = VxampMetadata.TryRead(File.ReadAllBytes(path));
+                UploadNotes = _pendingExisting?.Notes ?? "";
+                UploadUrl = _pendingExisting?.Url ?? "";
+            }
+            catch { /* unreadable file will fail loudly at StartUpload; metadata never blocks */ }
+        }
+
         IsUploadPanelOpen = true;
     }
 
@@ -130,6 +218,7 @@ public partial class AmpListViewModel : ObservableObject
         _uploadCts = new CancellationTokenSource();
         try
         {
+            double? shapeErr = null;
             string vxampPath = _uploadSourcePath;
             if (Path.GetExtension(_uploadSourcePath).Equals(".nam", StringComparison.OrdinalIgnoreCase))
             {
@@ -140,12 +229,19 @@ public partial class AmpListViewModel : ObservableObject
                 vxampPath = Path.Combine(_distilledDir, $"{name}.vxamp");
                 var distillProgress = new SyncActionProgress<Sonulab.Distill.DistillProgress>(
                     p => _dispatch(() => UploadStatus = $"Distilling — {p.Message}"));
-                await _distill(_uploadSourcePath, vxampPath, distillProgress, _uploadCts.Token);
+                shapeErr = await _distill(_uploadSourcePath, vxampPath, distillProgress, _uploadCts.Token);
             }
 
             CanCancelUpload = false;                        // device writes begin: no cancelling now
             IsUploadIndeterminate = false;
             var bytes = await File.ReadAllBytesAsync(vxampPath);
+            try
+            {
+                VxampMetadata.Write(bytes, BuildUploadMetadata(shapeErr));
+                if (!vxampPath.Equals(_uploadSourcePath, StringComparison.OrdinalIgnoreCase))
+                    await File.WriteAllBytesAsync(vxampPath, bytes);   // only rewrite our own distilled copy
+            }
+            catch { /* spec §5: metadata failure must never block the upload */ }
             var uploadProgress = new SyncActionProgress<AmpUploadProgress>(p =>
             {
                 UploadProgressValue = p.ChunksTotal > 0 ? (double)p.ChunksDone / p.ChunksTotal : 0;
