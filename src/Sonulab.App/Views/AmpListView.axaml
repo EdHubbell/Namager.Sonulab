@@ -124,6 +124,8 @@
             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding EditNotes}" AcceptsReturn="True"
                      TextWrapping="Wrap" MaxHeight="72"/>
           </Grid>
+          <TextBlock Text="{Binding EditBudgetWarning}" FontSize="11" Foreground="#D9820F" TextWrapping="Wrap"
+                     IsVisible="{Binding EditBudgetWarning, Converter={x:Static ObjectConverters.IsNotNull}}"/>
           <StackPanel Orientation="Horizontal" Spacing="8">
             <Button Content="Save to pedal" Command="{Binding SaveMetadataCommand}" IsEnabled="{Binding CanMutate}"
                     ToolTip.Tip="Re-flashes the slot (~3 s): backup, write, verify — the amp sound is untouched"/>

@@ -45,6 +45,18 @@ public class AmpListViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Write_op_drains_an_in_flight_details_read()
+    {
+        var (vm, dev) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];          // starts an in-flight details read — not awaited
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Null(vm.ErrorMessage);
+        Assert.Null(dev.SlotNames[0]);
+        Assert.True(vm.Items[0].IsEmpty);
+    }
+
+    [Fact]
     public async Task Delete_is_gated_when_writes_not_allowed()
     {
         var (vm, dev) = Make(writes: false);
@@ -521,6 +533,28 @@ public class AmpListViewModelTests : IDisposable
         vm.EditNotes = "x";
         await vm.SaveMetadataCommand.ExecuteAsync(null);
         Assert.Null(VxampMetadata.TryRead(dev.SlotBlobs[0]!));   // device untouched
+    }
+
+    [Fact]
+    public async Task Save_with_oversized_url_sets_error_not_crash()
+    {
+        var dev = new FakeAmpDevice();
+        var original = BlobWithMeta(new AmpMetadata(Notes: "old", Url: "https://old"));
+        dev.SeedAmp(0, "Clean", original);
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        vm.BeginEditMetadataCommand.Execute(null);
+        vm.EditUrl = "https://" + new string('x', 5000);   // never trimmed by the codec
+        await vm.SaveMetadataCommand.ExecuteAsync(null);
+
+        Assert.NotNull(vm.ErrorMessage);
+        var meta = VxampMetadata.TryRead(dev.SlotBlobs[0]!)!;
+        Assert.Equal("https://old", meta.Url);
+        Assert.Equal("old", meta.Notes);
     }
 
     [Fact]

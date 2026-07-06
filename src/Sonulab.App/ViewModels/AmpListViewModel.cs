@@ -53,6 +53,12 @@ public partial class AmpListViewModel : ObservableObject
     private async Task<bool> RunAsync(string message, Func<Task> work)
     {
         if (!_writes || IsUploading) return false;
+        // Drain any in-flight details read before a write burst starts: a full-slot dread
+        // overlapping a write burst can silently discard the commit (HwCheck finding) — the
+        // two must never interleave even though SonuClient serializes individual commands.
+        _detailsCts?.Cancel();
+        if (DetailsLoadTask is { } detailsLoad)
+        { try { await detailsLoad; } catch { /* cancelled/superseded read */ } }
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
         try { await work(); await ReloadAsync(); return true; }
         catch (AmpServiceException ex) { ErrorMessage = ex.Message; return false; }
@@ -213,6 +219,10 @@ public partial class AmpListViewModel : ObservableObject
             catch { /* unreadable file will fail loudly at StartUpload; metadata never blocks */ }
         }
 
+        // The warning depends on _pendingNam/_pendingSource/_pendingExisting too, which change
+        // per pick even when the Notes/Url setters above no-op (e.g. both "" -> "") and so don't
+        // raise their own change notification.
+        OnPropertyChanged(nameof(NotesBudgetWarning));
         IsUploadPanelOpen = true;
     }
 
@@ -223,6 +233,12 @@ public partial class AmpListViewModel : ObservableObject
         if (name.Length == 0) { UploadError = "Enter an amp name."; return; }
         if (Items.Any(i => !i.IsEmpty && string.Equals(i.Name, name, StringComparison.Ordinal)))
         { UploadError = $"An amp named '{name}' already exists — names must be unique."; return; }
+
+        // Drain any in-flight details read before device work begins: a full-slot dread
+        // overlapping the write burst can silently discard the commit (HwCheck finding).
+        _detailsCts?.Cancel();
+        if (DetailsLoadTask is { } detailsLoad)
+        { try { await detailsLoad; } catch { /* cancelled/superseded read */ } }
 
         UploadError = null;
         IsUploading = true;
@@ -407,6 +423,29 @@ public partial class AmpListViewModel : ObservableObject
     [ObservableProperty] private string _editNotes = "";
     [ObservableProperty] private string _editUrl = "";
 
+    partial void OnEditNotesChanged(string value) => OnPropertyChanged(nameof(EditBudgetWarning));
+    partial void OnEditUrlChanged(string value) => OnPropertyChanged(nameof(EditBudgetWarning));
+
+    /// <summary>Live budget check for the edit panel, mirroring <see cref="NotesBudgetWarning"/>:
+    /// builds the same candidate metadata SaveMetadataAsync would write and warns (not blocks)
+    /// when it would be trimmed/rejected.</summary>
+    public string? EditBudgetWarning
+    {
+        get
+        {
+            if (Selected is not { IsEmpty: false } s || !_detailsCache.TryGetValue(s.Index, out var entry))
+                return null;
+            var meta = (entry.Meta ?? new AmpMetadata()) with
+            {
+                Notes = NullIfEmpty(EditNotes),
+                Url = NullIfEmpty(EditUrl),
+            };
+            int total = VxampMetadata.JsonByteCount(meta);
+            int over = total - VxampMetadata.MaxJsonBytes;
+            return over > 0 ? $"Metadata is {over} B over budget — notes will be truncated on save." : null;
+        }
+    }
+
     [RelayCommand]
     private void BeginEditMetadata()
     {
@@ -436,7 +475,9 @@ public partial class AmpListViewModel : ObservableObject
             Notes = NullIfEmpty(EditNotes),
             Url = NullIfEmpty(EditUrl),
         };
-        VxampMetadata.Write(bytes, meta);
+        try { VxampMetadata.Write(bytes, meta); }
+        catch (ArgumentException ex) { ErrorMessage = ex.Message; return; }   // e.g. an over-budget
+                                                                              // URL, which the codec never trims
         if (await RunAsync($"Saving metadata for '{name}'…",
                 () => _amps.UploadAmpAsync(index, bytes, name)))
         {

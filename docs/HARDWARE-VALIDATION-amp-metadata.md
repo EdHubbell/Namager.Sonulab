@@ -16,7 +16,7 @@ Prereqs: VoidX-Control CLOSED; pedal on COM (auto-discovered); at least one EMPT
        Expect: upload completes, read-back verify passes (it compares all 12288 B,
        so the SSMD block already survived one flash round-trip).
 - [ ] 3. Select the new amp in the list. Expect: details pane shows source file, size,
-       date, sha256-backed fields, fit error, notes, and the link.
+       date, fit error, notes, and the link (sha256 is captured in the block but not shown in the UI).
 - [ ] 4. **Power-cycle the pedal** (unplug USB + power, replug). Reconnect the app.
 - [ ] 5. On the PEDAL, select the test amp in a preset and PLAY through it.
        Expect: loads normally, sounds like the source model, no glitching/reboot.

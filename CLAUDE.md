@@ -6,7 +6,7 @@ ESP32-S3, fw 2.5.1) over USB serial — list / select / edit / rename / delete /
 captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 
 ## Build / test / run
-- Build: `dotnet build`  · Test: `dotnet test` (all should pass; 276 tests)
+- Build: `dotnet build`  · Test: `dotnet test` (all should pass; 312 tests)
 - Run the app: `dotnet run --project src/Sonulab.App`  (needs VoidX-Control CLOSED — see gotchas)
 - Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot> | --preset-dwrite-probe]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin.
 
