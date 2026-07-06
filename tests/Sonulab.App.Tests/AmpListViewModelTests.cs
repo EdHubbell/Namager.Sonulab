@@ -460,4 +460,66 @@ public class AmpListViewModelTests : IDisposable
         await vm.DetailsLoadTask!;
         Assert.Equal(192, DreadCount(dev, 0));              // re-read after invalidation
     }
+
+    // ---- edit notes/URL on the pedal (Task 5) ----
+
+    [Fact]
+    public async Task Edit_metadata_rewrites_padding_only_and_preserves_other_fields()
+    {
+        var dev = new FakeAmpDevice();
+        var original = BlobWithMeta(new AmpMetadata(
+            Nam: new System.Text.Json.Nodes.JsonObject { ["name"] = "keepme" },
+            Uploaded: "2026-01-01T00:00:00Z", Notes: "old", Url: "https://old"), fill: 9);
+        dev.SeedAmp(0, "Clean", original);
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        vm.BeginEditMetadataCommand.Execute(null);
+        Assert.Equal("old", vm.EditNotes);                  // prefilled
+        vm.EditNotes = "new notes";
+        vm.EditUrl = "https://new";
+        await vm.SaveMetadataCommand.ExecuteAsync(null);
+
+        Assert.Null(vm.ErrorMessage);
+        var blob = dev.SlotBlobs[0]!;
+        Assert.Equal(original[..VxampMetadata.Offset], blob[..VxampMetadata.Offset]);   // DSP untouched
+        var meta = VxampMetadata.TryRead(blob)!;
+        Assert.Equal("new notes", meta.Notes);
+        Assert.Equal("https://new", meta.Url);
+        Assert.Equal("keepme", (string?)meta.Nam!["name"]); // preserved
+        Assert.Equal("2026-01-01T00:00:00Z", meta.Uploaded); // NOT re-stamped on edit
+        Assert.False(vm.IsEditingMetadata);
+        Assert.Equal("new notes", vm.DetailsNotes);          // pane refreshed
+    }
+
+    [Fact]
+    public async Task Edit_creates_a_block_on_a_voidx_era_slot()
+    {
+        var (vm, dev) = Make();                              // no SSMD blocks in seeds
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        vm.BeginEditMetadataCommand.Execute(null);
+        vm.EditNotes = "annotated later";
+        await vm.SaveMetadataCommand.ExecuteAsync(null);
+        Assert.Equal("annotated later", VxampMetadata.TryRead(dev.SlotBlobs[0]!)!.Notes);
+        // payload preserved:
+        Assert.All(dev.SlotBlobs[0]![..VxampMetadata.Offset], b => Assert.Equal(1, b));
+    }
+
+    [Fact]
+    public async Task Edit_is_gated_when_writes_not_allowed()
+    {
+        var (vm, dev) = Make(writes: false);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        vm.BeginEditMetadataCommand.Execute(null);
+        vm.EditNotes = "x";
+        await vm.SaveMetadataCommand.ExecuteAsync(null);
+        Assert.Null(VxampMetadata.TryRead(dev.SlotBlobs[0]!));   // device untouched
+    }
 }

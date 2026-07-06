@@ -396,6 +396,49 @@ public partial class AmpListViewModel : ObservableObject
             catch { /* opening a link (missing handler, OS quirk, etc.) must never crash the app */ }
         }
     }
+
+    // ---- metadata editing (notes/url only; auto-captured fields are read-only) ----
+    [ObservableProperty] private bool _isEditingMetadata;
+    [ObservableProperty] private string _editNotes = "";
+    [ObservableProperty] private string _editUrl = "";
+
+    [RelayCommand]
+    private void BeginEditMetadata()
+    {
+        if (!CanMutate || Selected is not { IsEmpty: false } s) return;
+        if (!_detailsCache.ContainsKey(s.Index)) return;    // details not loaded yet
+        EditNotes = DetailsNotes ?? "";
+        EditUrl = DetailsUrl ?? "";
+        IsEditingMetadata = true;
+    }
+
+    [RelayCommand] private void CancelEditMetadata() => IsEditingMetadata = false;
+
+    /// <summary>Rewrites only the SSMD region of the cached slot bytes, then re-flashes the
+    /// slot through the guarded upload path (~3 s: backup -> acked chunks -> verify).</summary>
+    [RelayCommand]
+    private async Task SaveMetadataAsync()
+    {
+        if (Selected is not { IsEmpty: false } s) return;
+        if (!_detailsCache.TryGetValue(s.Index, out var entry)) return;
+        int index = s.Index;
+        var name = s.Name;
+        var bytes = (byte[])entry.Slot.Clone();
+        var meta = (entry.Meta ?? new AmpMetadata()) with
+        {
+            Notes = NullIfEmpty(EditNotes),
+            Url = NullIfEmpty(EditUrl),
+        };
+        VxampMetadata.Write(bytes, meta);
+        if (await RunAsync($"Saving metadata for '{name}'…",
+                () => _amps.UploadAmpAsync(index, bytes, name)))
+        {
+            IsEditingMetadata = false;
+            Selected = Items.FirstOrDefault(i => i.Index == index);
+            DetailsLoadTask = LoadDetailsCoreAsync(Selected);
+            await DetailsLoadTask;
+        }
+    }
 }
 
 /// <summary>One label/value row of the amp details pane.</summary>
