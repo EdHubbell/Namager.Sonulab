@@ -318,6 +318,11 @@ public partial class AmpListViewModel : ObservableObject
 
     partial void OnSelectedChanged(AmpItemViewModel? value)
     {
+        // Any selection change cancels an open edit — EditNotes/EditUrl are VM-level state,
+        // not per-amp, so a leftover edit must never get stamped onto a different amp's
+        // metadata. Unconditional (before the busy guard below) so it still applies when
+        // the guard hides the pane.
+        IsEditingMetadata = false;
         // Never issue a read while another device operation may be in flight — serial
         // commands must not interleave. The pane just stays hidden; explicit callers
         // (post-upload, post-save) use LoadDetailsCoreAsync directly once idle.
@@ -419,6 +424,8 @@ public partial class AmpListViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveMetadataAsync()
     {
+        if (!IsEditingMetadata) return;    // no open edit (e.g. cancelled by a selection change
+                                            // since BeginEdit) — a stale programmatic save is a no-op
         if (Selected is not { IsEmpty: false } s) return;
         if (!_detailsCache.TryGetValue(s.Index, out var entry)) return;
         int index = s.Index;
@@ -434,9 +441,11 @@ public partial class AmpListViewModel : ObservableObject
                 () => _amps.UploadAmpAsync(index, bytes, name)))
         {
             IsEditingMetadata = false;
+            // Items were rebuilt by ReloadAsync, so this is always a fresh instance — assigning
+            // it fires OnSelectedChanged (IsBusy/IsUploading are both false by now), which starts
+            // the details read itself. Awaiting that seam avoids a second, redundant device read.
             Selected = Items.FirstOrDefault(i => i.Index == index);
-            DetailsLoadTask = LoadDetailsCoreAsync(Selected);
-            await DetailsLoadTask;
+            if (DetailsLoadTask is not null) await DetailsLoadTask;
         }
     }
 }

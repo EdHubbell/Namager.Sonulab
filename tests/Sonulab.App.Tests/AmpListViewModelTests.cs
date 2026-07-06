@@ -522,4 +522,31 @@ public class AmpListViewModelTests : IDisposable
         await vm.SaveMetadataCommand.ExecuteAsync(null);
         Assert.Null(VxampMetadata.TryRead(dev.SlotBlobs[0]!));   // device untouched
     }
+
+    [Fact]
+    public async Task Changing_selection_cancels_an_open_metadata_edit()
+    {
+        var dev = new FakeAmpDevice();
+        dev.SeedAmp(0, "AmpA", BlobWithMeta(new AmpMetadata(Notes: "A notes", Url: "https://a")));
+        dev.SeedAmp(1, "AmpB", BlobWithMeta(new AmpMetadata(Notes: "B notes", Url: "https://b")));
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        vm.BeginEditMetadataCommand.Execute(null);
+        vm.EditNotes = "for A";
+
+        vm.Selected = vm.Items[1];                          // click amp B while A's edit is open
+        await vm.DetailsLoadTask!;
+
+        Assert.False(vm.IsEditingMetadata);                 // edit was cancelled by the selection change
+
+        await vm.SaveMetadataCommand.ExecuteAsync(null);     // stale programmatic save: must no-op
+
+        var metaB = VxampMetadata.TryRead(dev.SlotBlobs[1]!)!;
+        Assert.Equal("B notes", metaB.Notes);                // B's own metadata, untouched
+        Assert.Equal("https://b", metaB.Url);
+    }
 }
