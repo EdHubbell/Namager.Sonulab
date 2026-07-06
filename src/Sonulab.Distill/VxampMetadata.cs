@@ -35,6 +35,7 @@ public static class VxampMetadata
 
     private static ReadOnlySpan<byte> Magic => "SSMD"u8;
     private static readonly string[] KnownKeys = ["source", "uploaded", "nam", "distill", "notes", "url"];
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     public static AmpMetadata? TryRead(ReadOnlySpan<byte> slot)
     {
@@ -46,7 +47,7 @@ public static class VxampMetadata
         if (n > MaxJsonBytes) return null;
         try
         {
-            return JsonNode.Parse(Encoding.UTF8.GetString(r.Slice(BlockHeaderSize, n)))
+            return JsonNode.Parse(StrictUtf8.GetString(r.Slice(BlockHeaderSize, n)))
                 is JsonObject o ? FromJson(o) : null;
         }
         catch (Exception e) when (e is JsonException or ArgumentException or FormatException or InvalidOperationException) { return null; }

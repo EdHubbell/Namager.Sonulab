@@ -151,4 +151,49 @@ public class VxampMetadataTests
         int stored = slot[VxampMetadata.Offset + 6] | (slot[VxampMetadata.Offset + 7] << 8);
         Assert.Equal(VxampMetadata.JsonByteCount(meta), stored);
     }
+
+    [Fact]
+    public void TryRead_rejects_corrupted_utf8_in_json_value()
+    {
+        // Write a valid block, then corrupt one byte inside the notes string to invalid UTF-8.
+        var slot = Slot();
+        VxampMetadata.Write(slot, Full());
+
+        // Extract the written block bytes to find the "notes" string.
+        int jsonLen = slot[VxampMetadata.Offset + 6] | (slot[VxampMetadata.Offset + 7] << 8);
+        var regionBytes = slot.AsSpan(VxampMetadata.Offset + VxampMetadata.BlockHeaderSize, jsonLen).ToArray();
+        var json = Encoding.UTF8.GetString(regionBytes);
+
+        // Find the position of the notes value in the JSON.
+        int notesStart = json.IndexOf("\"notes\":\"") + "\"notes\":\"".Length;
+
+        // The byte offset in the region where the notes value starts.
+        int notesByteStart = Encoding.UTF8.GetByteCount(json[..notesStart]);
+
+        // Corrupt the first byte of the notes value to 0xFF (invalid UTF-8).
+        regionBytes[notesByteStart] = 0xFF;
+
+        // Write the corrupted region back (preserving the length field).
+        regionBytes.CopyTo(slot, VxampMetadata.Offset + VxampMetadata.BlockHeaderSize);
+
+        // TryRead should return null because of invalid UTF-8.
+        Assert.Null(VxampMetadata.TryRead(slot));
+    }
+
+    [Fact]
+    public void Overflow_drops_nam_then_truncates_notes_both_long()
+    {
+        // Both Nam and Notes are very long, so Nam is dropped first, then Notes is truncated.
+        var bigNam = new JsonObject { ["blob"] = new string('n', 5000) };
+        var bigNotes = new string('x', 5000);
+        var slot = Slot();
+        VxampMetadata.Write(slot, Full() with { Nam = bigNam, Notes = bigNotes });
+        var m = VxampMetadata.TryRead(slot);
+        Assert.NotNull(m);
+        Assert.Null(m!.Nam);                              // dropped due to overflow
+        Assert.NotNull(m.Notes);
+        Assert.True(m.Notes!.Length < 5000);              // truncated
+        Assert.True(VxampMetadata.JsonByteCount(m) <= VxampMetadata.MaxJsonBytes);
+        Assert.Equal("https://tonehunt.org/models/xyz", m.Url);   // other fields survive
+    }
 }
