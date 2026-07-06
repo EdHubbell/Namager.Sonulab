@@ -61,13 +61,23 @@ public partial class AmpListViewModel : ObservableObject
 
     private async Task ReloadAsync()
     {
+        _detailsCts?.Cancel();      // an in-flight details read must not repopulate the cache below
         _detailsCache.Clear();
         var slots = await _amps.ListAmpsAsync();
         Items.Clear();
         foreach (var s in slots) Items.Add(new AmpItemViewModel(s));
     }
 
-    [RelayCommand] private Task RefreshAsync() => CanRefresh ? ReloadAsync() : Task.CompletedTask;
+    [RelayCommand]
+    private async Task RefreshAsync()
+    {
+        // Wrap in the busy pattern so OnSelectedChanged's guard blocks a details read from
+        // interleaving with a plain refresh (mirrors RunAsync, but not write-gated).
+        if (!CanRefresh) return;
+        IsBusy = true; BusyMessage = "Refreshing…";
+        try { await ReloadAsync(); }
+        finally { IsBusy = false; BusyMessage = ""; }
+    }
 
     [RelayCommand] private async Task DeleteAsync()
     {
@@ -300,6 +310,10 @@ public partial class AmpListViewModel : ObservableObject
     public Task? DetailsLoadTask { get; private set; }
 
     private readonly Dictionary<int, (string Name, byte[] Slot, AmpMetadata? Meta)> _detailsCache = new();
+    // Cancelled but deliberately never disposed: a superseded in-flight read may still be
+    // awaiting on this token when the next selection cancels it, and disposing here could
+    // throw ObjectDisposedException on that read's resumption. The CTS is small and
+    // short-lived, so leaking it until GC is an acceptable tradeoff over that race.
     private CancellationTokenSource? _detailsCts;
 
     partial void OnSelectedChanged(AmpItemViewModel? value)
@@ -314,9 +328,10 @@ public partial class AmpListViewModel : ObservableObject
     private async Task LoadDetailsCoreAsync(AmpItemViewModel? item)
     {
         _detailsCts?.Cancel();
-        DetailsFields.Clear();
         DetailsNotes = null; DetailsUrl = null; DetailsError = null; ShowNoMetadata = false;
-        if (item is null || item.IsEmpty) { IsDetailsVisible = false; return; }
+        // No PopulateDetails call on this path (it clears DetailsFields itself), so clear here
+        // explicitly — otherwise stale fields from a prior selection would linger.
+        if (item is null || item.IsEmpty) { DetailsFields.Clear(); IsDetailsVisible = false; return; }
         IsDetailsVisible = true;
 
         if (!_detailsCache.TryGetValue(item.Index, out var entry) || entry.Name != item.Name)
@@ -328,12 +343,19 @@ public partial class AmpListViewModel : ObservableObject
             {
                 var slot = await _amps.ReadAmpAsync(item.Index, cts.Token);
                 entry = (item.Name, slot, VxampMetadata.TryRead(slot));
-                _detailsCache[item.Index] = entry;
             }
-            catch (OperationCanceledException) { return; }   // superseded by a newer selection
-            catch (AmpServiceException ex) { DetailsError = ex.Message; return; }
+            catch (OperationCanceledException) { return; }   // superseded by a newer selection,
+                                                              // which owns the pane now — don't touch it
+            catch (AmpServiceException ex)
+            { DetailsError = ex.Message; DetailsFields.Clear(); return; }
             finally { if (_detailsCts == cts) IsDetailsLoading = false; }
+            // Superseded by a newer selection: don't let a stale read populate the cache.
             if (cts.IsCancellationRequested || Selected != item) return;
+            _detailsCache[item.Index] = entry;
+        }
+        else
+        {
+            IsDetailsLoading = false;   // cache hit: no read is in flight, so the spinner never applies
         }
         PopulateDetails(entry.Meta);
     }
@@ -366,7 +388,13 @@ public partial class AmpListViewModel : ObservableObject
         if (DetailsUrl is { Length: > 0 } url &&
             (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
              url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch { /* opening a link (missing handler, OS quirk, etc.) must never crash the app */ }
+        }
     }
 }
 

@@ -444,4 +444,20 @@ public class AmpListViewModelTests : IDisposable
         await vm.DetailsLoadTask!;
         Assert.Equal(192, DreadCount(dev, 0));              // re-read after invalidation
     }
+
+    [Fact]
+    public async Task Refresh_invalidates_the_details_cache()
+    {
+        var (vm, dev) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.Equal(96, DreadCount(dev, 0));
+
+        await vm.RefreshCommand.ExecuteAsync(null);         // name unchanged ("Clean") but cache cleared
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.Equal(192, DreadCount(dev, 0));              // re-read after invalidation
+    }
 }
