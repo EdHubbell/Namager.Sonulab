@@ -170,7 +170,19 @@ public sealed class T3kAuth(
         { throw new T3kException("Could not reach tone3000.com — check your connection.", T3kError.Network, e); }
         var body = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
-            throw new T3kException($"Tone3000 sign-in failed (HTTP {(int)resp.StatusCode}).", T3kError.Auth);
+        {
+            // A transient token-endpoint outage (429/5xx) must NOT map to Auth: the refresh
+            // caller (GetAccessTokenAsync) treats Kind==Auth as "dead refresh token" and signs
+            // out, wiping a perfectly good stored refresh token over a blip. Only genuine
+            // credential/grant rejections (4xx other than 429) are Auth.
+            var kind = resp.StatusCode switch
+            {
+                HttpStatusCode.TooManyRequests => T3kError.RateLimited,
+                _ when (int)resp.StatusCode >= 500 => T3kError.Api,
+                _ => T3kError.Auth,
+            };
+            throw new T3kException($"Tone3000 sign-in failed (HTTP {(int)resp.StatusCode}).", kind);
+        }
         try
         {
             using var doc = JsonDocument.Parse(body);

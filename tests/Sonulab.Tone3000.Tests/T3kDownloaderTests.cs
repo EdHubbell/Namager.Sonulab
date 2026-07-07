@@ -29,7 +29,7 @@ public class T3kDownloaderTests : IDisposable
         }
     }
 
-    private static T3kModel Model(string name = "Clean Deluxe", string? format = null, string? url = "https://cdn.example/models/9") =>
+    private static T3kModel Model(string name = "Clean Deluxe", string? format = null, string? url = "https://cdn.tone3000.com/models/9") =>
         new(9, name, format, url);
 
     [Fact]
@@ -57,7 +57,7 @@ public class T3kDownloaderTests : IDisposable
     public async Task Wav_extension_from_model_url_wins_when_no_format()
     {
         var dl = new T3kDownloader(new FakeAuth(), _dir, new FileHandler());
-        var path = await dl.DownloadAsync(Model(format: null, url: "https://cdn.example/files/cab.WAV?sig=abc"), toneFormat: null);
+        var path = await dl.DownloadAsync(Model(format: null, url: "https://cdn.tone3000.com/files/cab.WAV?sig=abc"), toneFormat: null);
         Assert.EndsWith(".wav", path);
     }
 
@@ -97,5 +97,30 @@ public class T3kDownloaderTests : IDisposable
         var ex = await Assert.ThrowsAsync<T3kException>(
             () => dl.DownloadAsync(new T3kModel(1, "x", null, null)));
         Assert.Equal(T3kError.Api, ex.Kind);
+    }
+
+    [Fact]
+    public async Task Untrusted_download_url_is_rejected_without_sending_the_token()
+    {
+        var h = new FileHandler();
+        var dl = new T3kDownloader(new FakeAuth(), _dir, h);
+        var ex = await Assert.ThrowsAsync<T3kException>(
+            () => dl.DownloadAsync(Model(url: "http://evil.example/m")));
+        Assert.Equal(T3kError.Api, ex.Kind);
+        Assert.Equal(0, h.Calls);                             // rejected before the token was ever attached
+    }
+
+    [Fact]
+    public async Task Long_names_do_not_collide_across_models()
+    {
+        var longName = new string('A', 150);
+        var dl = new T3kDownloader(new FakeAuth(), _dir, new FileHandler());
+        var m1 = new T3kModel(1, longName, null, "https://cdn.tone3000.com/models/1");
+        var m2 = new T3kModel(2, longName, null, "https://cdn.tone3000.com/models/2");
+
+        var p1 = await dl.DownloadAsync(m1);
+        var p2 = await dl.DownloadAsync(m2);
+
+        Assert.NotEqual(p1, p2);
     }
 }

@@ -25,7 +25,8 @@ public sealed record T3kConfig(string PublishableKey, int RedirectPort)
             if (string.IsNullOrWhiteSpace(key) || key.Contains("YOUR_KEY_HERE")) return null;
             return new T3kConfig(key, port);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException
+                                       or ArgumentException or NotSupportedException)
         { return null; }
     }
 }

@@ -18,9 +18,14 @@ public sealed class T3kDownloader(IT3kAuth auth, string? targetDir = null, HttpM
     {
         if (model.ModelUrl is not { } url)
             throw new T3kException($"'{model.Name}' has no downloadable file.", T3kError.Api);
+        if (!IsTrustedDownloadUrl(url))
+            throw new T3kException($"'{model.Name}' has an untrusted download URL.", T3kError.Api);
 
         string ext = DeriveExtension(toneFormat, model.Format, url);
-        string safe = Sanitize($"{model.Name ?? $"model-{model.Id}"}-{model.Id}");
+        // Sanitize/truncate the NAME portion first, THEN always append "-{id}" — truncating the
+        // combined "{name}-{id}" string let a >=100-char name swallow the id suffix, so two
+        // long-named models collided on the same file (skip-existing then returned the wrong one).
+        string safe = $"{Sanitize(model.Name ?? "")}-{model.Id}";
         Directory.CreateDirectory(_dir);
         string path = Path.Combine(_dir, safe + ext);
         if (File.Exists(path)) return path;
@@ -31,22 +36,34 @@ public sealed class T3kDownloader(IT3kAuth auth, string? targetDir = null, HttpM
         try { resp = await _http.SendAsync(req, ct); }
         catch (HttpRequestException e)
         { throw new T3kException("Download failed — could not reach the file server.", T3kError.Network, e); }
-        if (!resp.IsSuccessStatusCode)
-            throw new T3kException($"Download failed (HTTP {(int)resp.StatusCode}).", T3kError.Api);
+        using (resp)
+        {
+            if (!resp.IsSuccessStatusCode)
+                throw new T3kException($"Download failed (HTTP {(int)resp.StatusCode}).", T3kError.Api);
 
-        string tmp = path + ".part";
-        try
-        {
-            await using (var fs = File.Create(tmp))
-                await resp.Content.CopyToAsync(fs, ct);
-            File.Move(tmp, path, overwrite: true);           // atomic publish
+            string tmp = path + ".part";
+            try
+            {
+                await using (var fs = File.Create(tmp))
+                    await resp.Content.CopyToAsync(fs, ct);
+                File.Move(tmp, path, overwrite: true);           // atomic publish
+            }
+            finally
+            {
+                if (File.Exists(tmp)) File.Delete(tmp);
+            }
+            return path;
         }
-        finally
-        {
-            if (File.Exists(tmp)) File.Delete(tmp);
-        }
-        return path;
     }
+
+    /// <summary>Only attach the user's Bearer token to a URL we trust: absolute https on
+    /// tone3000.com or a subdomain (e.g. cdn.tone3000.com). Otherwise a server-controlled
+    /// ModelUrl on any host would receive the token verbatim.</summary>
+    private static bool IsTrustedDownloadUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        uri.Scheme == Uri.UriSchemeHttps &&
+        (uri.Host.Equals("www.tone3000.com", StringComparison.OrdinalIgnoreCase) ||
+         uri.Host.EndsWith(".tone3000.com", StringComparison.OrdinalIgnoreCase));
 
     private static string DeriveExtension(string? toneFormat, string? modelFormat, string url)
     {

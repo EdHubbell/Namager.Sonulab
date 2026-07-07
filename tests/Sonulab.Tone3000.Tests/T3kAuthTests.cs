@@ -14,6 +14,7 @@ public class T3kAuthTests : IDisposable
         public List<Dictionary<string, string>> Bodies { get; } = new();
         public int ExpiresIn { get; set; } = 3600;
         public bool Fail { get; set; }
+        public HttpStatusCode FailStatus { get; set; } = HttpStatusCode.Unauthorized;
         public bool ThrowNetworkError { get; set; }
         public bool DelayResponse { get; set; }
         public bool NullRefreshToken { get; set; }
@@ -26,7 +27,7 @@ public class T3kAuthTests : IDisposable
                 .ToDictionary(a => Uri.UnescapeDataString(a[0]), a => Uri.UnescapeDataString(a[1]));
             Bodies.Add(form);
             if (DelayResponse) await Task.Delay(50, ct);
-            if (Fail) return new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") };
+            if (Fail) return new HttpResponseMessage(FailStatus) { Content = new StringContent("{}") };
             var n = Bodies.Count;
             object grant = NullRefreshToken
                 ? new { access_token = $"at_{n}", refresh_token = (string?)null, expires_in = ExpiresIn, token_type = "Bearer" }
@@ -182,6 +183,21 @@ public class T3kAuthTests : IDisposable
 
         Assert.Equal(T3kError.Network, ex.Kind);
         Assert.Equal("rt_keep", store.Load());               // NOT wiped by a transient failure
+        Assert.True(auth.IsSignedIn);
+    }
+
+    [Fact]
+    public async Task Server_error_during_refresh_preserves_the_stored_token()
+    {
+        var store = new T3kTokenStore(_tok);
+        store.Save("rt_keep");
+        var handler = new FakeTokenHandler { Fail = true, FailStatus = HttpStatusCode.ServiceUnavailable };
+        var auth = new T3kAuth(Cfg, store, handler, FakeBrowser);
+
+        var ex = await Assert.ThrowsAsync<T3kException>(() => auth.GetAccessTokenAsync());
+
+        Assert.Equal(T3kError.Api, ex.Kind);                  // 503 is NOT an auth rejection
+        Assert.Equal("rt_keep", store.Load());                // NOT wiped by a transient outage
         Assert.True(auth.IsSignedIn);
     }
 

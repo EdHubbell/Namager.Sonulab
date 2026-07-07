@@ -5,6 +5,7 @@ namespace Sonulab.Tone3000;
 
 /// <summary>Persists the OAuth refresh token encrypted with Windows DPAPI (CurrentUser
 /// scope): survives restarts, unreadable by other accounts, deleted on sign-out.</summary>
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public sealed class T3kTokenStore(string? path = null)
 {
     private readonly string _path = path ?? Path.Combine(
@@ -28,12 +29,15 @@ public sealed class T3kTokenStore(string? path = null)
                                                 optionalEntropy: null, DataProtectionScope.CurrentUser);
             return Encoding.UTF8.GetString(plain);
         }
-        catch (Exception e) when (e is CryptographicException or IOException or FormatException)
-        { return null; }                                     // corrupt/foreign file = signed out
+        catch (Exception e) when (e is CryptographicException or IOException or FormatException
+                                       or UnauthorizedAccessException)
+        { return null; }                                     // corrupt/foreign/unreadable file = signed out
     }
 
     public void Clear()
     {
-        try { File.Delete(_path); } catch (IOException) { /* already gone / locked: best effort */ }
+        try { File.Delete(_path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        { /* already gone / locked / ACL-broken: best effort */ }
     }
 }

@@ -31,6 +31,21 @@ public class T3kClientTests
     private static (T3kClient client, CannedHandler h) Make()
     { var h = new CannedHandler(); return (new T3kClient(new FakeAuth(), h), h); }
 
+    /// <summary>Returns each queued body in order, one per request (last one repeats if exhausted).</summary>
+    private sealed class SequencedHandler : HttpMessageHandler
+    {
+        private readonly Queue<string> _bodies;
+        public List<HttpRequestMessage> Requests { get; } = new();
+        public SequencedHandler(IEnumerable<string> bodies) => _bodies = new Queue<string>(bodies);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
+        {
+            Requests.Add(req);
+            var body = _bodies.Count > 1 ? _bodies.Dequeue() : _bodies.Peek();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+        }
+    }
+
     [Fact]
     public async Task Search_builds_the_query_and_sends_the_bearer()
     {
@@ -69,6 +84,24 @@ public class T3kClientTests
         Assert.Contains("tone_id=42", h.Requests.Single().RequestUri!.Query);
         Assert.Single(models);
         Assert.Equal("https://x/m5", models[0].ModelUrl);
+    }
+
+    [Fact]
+    public async Task GetModels_follows_pagination()
+    {
+        var h = new SequencedHandler(new[]
+        {
+            """{ "data": [ { "id": 1, "name": "M1", "model_url": "https://cdn.tone3000.com/m1" } ], "page": 1, "page_size": 100, "total": 2, "total_pages": 2 }""",
+            """{ "data": [ { "id": 2, "name": "M2", "model_url": "https://cdn.tone3000.com/m2" } ], "page": 2, "page_size": 100, "total": 2, "total_pages": 2 }""",
+        });
+        var client = new T3kClient(new FakeAuth(), h);
+
+        var models = await client.GetModelsAsync(42);
+
+        Assert.Equal(2, models.Count);
+        Assert.Equal(2, h.Requests.Count);
+        Assert.Contains("page=1", h.Requests[0].RequestUri!.Query);
+        Assert.Contains("page=2", h.Requests[1].RequestUri!.Query);
     }
 
     [Fact]

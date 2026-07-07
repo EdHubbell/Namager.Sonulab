@@ -2,6 +2,13 @@ using Sonulab.Tone3000;
 
 public class T3kJsonTests
 {
+    // Note: "author"/"page_url"/"downloads" below were the Task 1 ASSUMED field names before
+    // the live API was probed (see docs/tone3000-api-findings.md). They are now genuinely
+    // unknown/unused fields on T3kTone (the real names are "user.username", "url",
+    // "downloads_count" — see Live_tone_search_shape_maps_via_convenience_accessors below).
+    // This test still passes, but only because lenient parsing ignores unknown fields, not
+    // because these names mean anything to the current model — kept as a regression guard on
+    // "parsing tolerates unknown fields", not as documentation of the real wire shape.
     [Fact]
     public void Parses_a_pagination_envelope_with_unknown_fields()
     {

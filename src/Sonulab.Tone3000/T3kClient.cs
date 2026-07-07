@@ -40,8 +40,23 @@ public sealed class T3kClient(IT3kAuth auth, HttpMessageHandler? handler = null,
     public async Task<T3kTone?> GetToneAsync(long id, CancellationToken ct = default) =>
         T3kJson.Parse<T3kTone>(await GetStringAsync($"/api/v1/tones/{id}", ct));
 
-    public async Task<IReadOnlyList<T3kModel>> GetModelsAsync(long toneId, CancellationToken ct = default) =>
-        (await GetPageAsync<T3kModel>($"/api/v1/models?tone_id={toneId}", ct)).Data;
+    public async Task<IReadOnlyList<T3kModel>> GetModelsAsync(long toneId, CancellationToken ct = default)
+    {
+        // The server's default page size (10) silently truncates a tone's model list unless
+        // we ask for a bigger page and follow total_pages for the rest (sequential, not
+        // parallel, to stay a good API citizen and keep request order deterministic for tests).
+        const int modelsPageSize = 100;
+        var first = await GetPageAsync<T3kModel>($"/api/v1/models?tone_id={toneId}&page_size={modelsPageSize}&page=1", ct);
+        if (first.TotalPages <= 1) return first.Data;
+
+        var all = new List<T3kModel>(first.Data);
+        for (int page = 2; page <= first.TotalPages; page++)
+        {
+            var next = await GetPageAsync<T3kModel>($"/api/v1/models?tone_id={toneId}&page_size={modelsPageSize}&page={page}", ct);
+            all.AddRange(next.Data);
+        }
+        return all;
+    }
 
     public async Task<T3kUser?> GetUserAsync(CancellationToken ct = default) =>
         T3kJson.Parse<T3kUser>(await GetStringAsync("/api/v1/user", ct));
