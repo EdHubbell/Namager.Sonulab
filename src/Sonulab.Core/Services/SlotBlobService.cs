@@ -50,7 +50,18 @@ public sealed class SlotBlobService
     }
 
     public Task<byte[]> ReadAsync(int index, CancellationToken ct = default) =>
-        _client.DReadBlobAsync(_kind.ListPath, index, _kind.Chunks, ct);
+        ReadValidatedAsync(index, ct);
+
+    /// <summary>Dread the full slot and FAIL LOUDLY on a short blob (dropped/garbled chunk on
+    /// the serial link). A silently short read cached as "no metadata" once led a later
+    /// metadata save to wipe an on-device SSMD block (slot-26 incident, 2026-07-06).</summary>
+    private async Task<byte[]> ReadValidatedAsync(int index, CancellationToken ct)
+    {
+        var blob = await _client.DReadBlobAsync(_kind.ListPath, index, _kind.Chunks, ct);
+        if (blob.Length != _kind.SlotBytes)
+            throw _raise($"{_kind.Noun} slot {index} read returned {blob.Length} B (expected {_kind.SlotBytes}) — a chunk was dropped or garbled on the serial link. Try again.");
+        return blob;
+    }
 
     public async Task DeleteAsync(int index, CancellationToken ct = default)
     {
@@ -74,7 +85,9 @@ public sealed class SlotBlobService
     private async Task<byte[]> BackupSlotAsync(int index, string suffix, CancellationToken ct)
     {
         Directory.CreateDirectory(_backupDir);
-        var blob = await _client.DReadBlobAsync(_kind.ListPath, index, _kind.Chunks, ct);
+        // Validated read: a truncated backup silently written to disk right before an
+        // overwrite would be a corrupt "safety net" — abort the whole operation instead.
+        var blob = await ReadValidatedAsync(index, ct);
         var path = Path.Combine(_backupDir, $"{_kind.BackupPrefix}-{index}-{DateTime.Now:yyyyMMdd-HHmmss}{suffix}{_kind.BackupExtension}");
         await File.WriteAllBytesAsync(path, blob, ct);
         return blob;

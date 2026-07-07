@@ -583,4 +583,102 @@ public class AmpListViewModelTests : IDisposable
         Assert.Equal("B notes", metaB.Notes);                // B's own metadata, untouched
         Assert.Equal("https://b", metaB.Url);
     }
+
+    // ---- slot-26 incident (2026-07-06): a glitched details read must never become the
+    // merge base or payload source of a metadata save ----
+
+    /// <summary>Fake whose FIRST dread of a given chunk returns valid-hex-but-wrong bytes
+    /// (all zeros), simulating a serial glitch. Later reads are clean — like the real
+    /// incident, where the save-time backup read was fine but the cached read was not.</summary>
+    private sealed class GlitchOnceAmpDevice : FakeAmpDevice
+    {
+        public int GlitchChunk { get; set; } = 65;   // covers bytes 8192..8319: payload tail + SSMD header
+        private bool _glitched;
+        public override async Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            var raw = await base.SendAsync(command, ct);
+            if (!_glitched && command.StartsWith("dread") && command.Contains($"\"chunk\":{GlitchChunk}}}"))
+            {
+                _glitched = true;
+                raw = System.Text.RegularExpressions.Regex.Replace(
+                    raw, "\"value\":\"[0-9a-fA-F]*\"", "\"value\":\"" + new string('0', 256) + "\"");
+            }
+            return raw;
+        }
+    }
+
+    [Fact]
+    public async Task Save_merges_against_fresh_device_read_not_a_poisoned_cache()
+    {
+        var dev = new GlitchOnceAmpDevice();
+        var full = BlobWithMeta(new AmpMetadata(
+            Source: new AmpSourceInfo("Vibroverb.nam", 295018, "2026-07-06T12:27:46Z", "ae55"),
+            Uploaded: "2026-07-06T21:19:43Z",
+            Nam: new JsonObject { ["name"] = "VibroverbJMDefault" },
+            Distill: new AmpDistillInfo("1.0.0", 0.287)), fill: 7);
+        dev.SeedAmp(0, "Vibroverb", full);
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.True(vm.ShowNoMetadata);                     // precondition: the glitched read poisoned the pane
+
+        vm.BeginEditMetadataCommand.Execute(null);
+        vm.EditNotes = "bright, edge of breakup";
+        await vm.SaveMetadataCommand.ExecuteAsync(null);
+        Assert.Null(vm.ErrorMessage);
+
+        var blob = dev.SlotBlobs[0]!;
+        Assert.Equal(full[..VxampMetadata.Offset], blob[..VxampMetadata.Offset]);   // DSP payload never corrupted
+        var meta = VxampMetadata.TryRead(blob)!;
+        Assert.Equal("bright, edge of breakup", meta.Notes);
+        Assert.Equal("Vibroverb.nam", meta.Source?.File);    // pre-existing metadata survives the save
+        Assert.Equal("VibroverbJMDefault", (string?)meta.Nam?["name"]);
+        Assert.Equal("2026-07-06T21:19:43Z", meta.Uploaded);
+        Assert.NotNull(meta.Distill);
+    }
+
+    /// <summary>Fake that blocks dreads of one slot index until released — lets a test observe
+    /// the pane state while a details read is genuinely in flight.</summary>
+    private sealed class GatedAmpDevice : FakeAmpDevice
+    {
+        public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int GateIndex { get; set; } = -1;
+        public override async Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (GateIndex >= 0 && command.StartsWith("dread") && command.Contains($"\"index\":{GateIndex},"))
+                await Gate.Task.WaitAsync(ct);
+            return await base.SendAsync(command, ct);
+        }
+    }
+
+    [Fact]
+    public async Task Selection_change_clears_previous_details_immediately()
+    {
+        var dev = new GatedAmpDevice();
+        dev.SeedAmp(0, "A", BlobWithMeta(new AmpMetadata(
+            Source: new AmpSourceInfo("a.nam", 100, "2026-01-01T00:00:00Z", "aa"), Notes: "a-notes")));
+        dev.SeedAmp(1, "B", BlobWithMeta(new AmpMetadata(Notes: "b-notes")));
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.NotEmpty(vm.DetailsFields);
+        Assert.Equal("a-notes", vm.DetailsNotes);
+
+        dev.GateIndex = 1;                                   // B's read will hang until released
+        vm.Selected = vm.Items[1];                           // select B; do NOT await the load yet
+
+        Assert.Empty(vm.DetailsFields);                      // pane must clear IMMEDIATELY, not on data arrival
+        Assert.Null(vm.DetailsNotes);
+        Assert.Null(vm.DetailsUrl);
+
+        dev.Gate.SetResult();
+        await vm.DetailsLoadTask!;
+        Assert.Equal("b-notes", vm.DetailsNotes);            // and then fill with B's data
+    }
 }

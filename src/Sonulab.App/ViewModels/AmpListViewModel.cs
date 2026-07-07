@@ -349,10 +349,11 @@ public partial class AmpListViewModel : ObservableObject
     private async Task LoadDetailsCoreAsync(AmpItemViewModel? item)
     {
         _detailsCts?.Cancel();
+        // Clear the pane SYNCHRONOUSLY on every load: the previous amp's fields must never
+        // remain visible while another amp's read is in flight (or after a cancelled one).
+        DetailsFields.Clear();
         DetailsNotes = null; DetailsUrl = null; DetailsError = null; ShowNoMetadata = false;
-        // No PopulateDetails call on this path (it clears DetailsFields itself), so clear here
-        // explicitly — otherwise stale fields from a prior selection would linger.
-        if (item is null || item.IsEmpty) { DetailsFields.Clear(); IsDetailsVisible = false; return; }
+        if (item is null || item.IsEmpty) { IsDetailsVisible = false; return; }
         IsDetailsVisible = true;
 
         if (!_detailsCache.TryGetValue(item.Index, out var entry) || entry.Name != item.Name)
@@ -458,28 +459,35 @@ public partial class AmpListViewModel : ObservableObject
 
     [RelayCommand] private void CancelEditMetadata() => IsEditingMetadata = false;
 
-    /// <summary>Rewrites only the SSMD region of the cached slot bytes, then re-flashes the
-    /// slot through the guarded upload path (~3 s: backup -> acked chunks -> verify).</summary>
+    /// <summary>Rewrites only the SSMD region, then re-flashes the slot through the guarded
+    /// upload path (~4 s: fresh read -> backup -> acked chunks -> verify). The merge base and
+    /// payload come from a FRESH device read, never the details cache: a cache entry whose
+    /// SSMD block failed to parse (e.g. a glitched earlier read) must not become "there is no
+    /// metadata" and wipe the on-device block — nor re-flash corrupted payload bytes
+    /// (slot-26 incident, 2026-07-06).</summary>
     [RelayCommand]
     private async Task SaveMetadataAsync()
     {
         if (!IsEditingMetadata) return;    // no open edit (e.g. cancelled by a selection change
                                             // since BeginEdit) — a stale programmatic save is a no-op
         if (Selected is not { IsEmpty: false } s) return;
-        if (!_detailsCache.TryGetValue(s.Index, out var entry)) return;
         int index = s.Index;
         var name = s.Name;
-        var bytes = (byte[])entry.Slot.Clone();
-        var meta = (entry.Meta ?? new AmpMetadata()) with
-        {
-            Notes = NullIfEmpty(EditNotes),
-            Url = NullIfEmpty(EditUrl),
-        };
-        try { VxampMetadata.Write(bytes, meta); }
-        catch (ArgumentException ex) { ErrorMessage = ex.Message; return; }   // e.g. an over-budget
-                                                                              // URL, which the codec never trims
-        if (await RunAsync($"Saving metadata for '{name}'…",
-                () => _amps.UploadAmpAsync(index, bytes, name)))
+        if (await RunAsync($"Saving metadata for '{name}'…", async () =>
+            {
+                var bytes = await _amps.ReadAmpAsync(index);   // device truth, length-validated
+                var meta = (VxampMetadata.TryRead(bytes) ?? new AmpMetadata()) with
+                {
+                    Notes = NullIfEmpty(EditNotes),
+                    Url = NullIfEmpty(EditUrl),
+                };
+                try { VxampMetadata.Write(bytes, meta); }
+                catch (ArgumentException ex)                   // e.g. an over-budget URL, which
+                {                                              // the codec never trims
+                    throw new AmpServiceException(ex.Message);
+                }
+                await _amps.UploadAmpAsync(index, bytes, name);
+            }))
         {
             IsEditingMetadata = false;
             // Items were rebuilt by ReloadAsync, so this is always a fresh instance — assigning

@@ -88,7 +88,7 @@ public sealed class SonuClient
         for (int c = 1; c <= chunkCount; c++)
         {
             var raw = await SendAsync(SonuCommands.DRead(path, index, c), ct);
-            var hex = ResponseParser.ChunkHex(raw, c) ?? "";
+            var hex = ResponseParser.ChunkHex(raw, index, c) ?? "";
             bytes.AddRange(Convert.FromHexString(hex));
         }
         return bytes.ToArray();

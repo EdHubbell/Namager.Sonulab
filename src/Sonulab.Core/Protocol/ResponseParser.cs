@@ -39,4 +39,18 @@ public static class ResponseParser
         }
         return null;
     }
+
+    /// <summary>Index-checked variant: a stale response for the SAME chunk number of a
+    /// DIFFERENT slot (orphaned in the pipeline by a cancelled read) must not be accepted
+    /// as this slot's data (slot-26 incident hardening, 2026-07-06).</summary>
+    public static string? ChunkHex(string raw, int index, int chunk)
+    {
+        var pattern = "\"index\":" + index + @"\b.*?""chunk"":" + chunk + @"\b.*?""value"":""([0-9a-fA-F]*)""";
+        foreach (var rec in Records(raw))
+        {
+            var m = Regex.Match(rec, pattern);
+            if (m.Success) return m.Groups[1].Value;
+        }
+        return null;
+    }
 }
