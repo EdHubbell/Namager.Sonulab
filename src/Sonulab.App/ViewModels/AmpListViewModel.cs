@@ -476,7 +476,19 @@ public partial class AmpListViewModel : ObservableObject
         if (await RunAsync($"Saving metadata for '{name}'…", async () =>
             {
                 var bytes = await _amps.ReadAmpAsync(index);   // device truth, length-validated
-                var meta = (VxampMetadata.TryRead(bytes) ?? new AmpMetadata()) with
+                // Integrity guards before flashing anything back: the vxamp header is a fixed
+                // 32-byte constant, and an UNPARSEABLE-but-non-zero metadata region means the
+                // read (or a future block format) can't be trusted as a merge base.
+                if (!bytes.AsSpan(0, Sonulab.Distill.VxampFormat.HeaderSize)
+                          .SequenceEqual(Sonulab.Distill.VxampFormat.HeaderBytes))
+                    throw new AmpServiceException(
+                        $"Slot {index + 1} read has a corrupt amp header — not saving. Re-select the amp and try again.");
+                var current = VxampMetadata.TryRead(bytes);
+                if (current is null &&
+                    bytes.AsSpan(VxampMetadata.Offset).IndexOfAnyExcept((byte)0) >= 0)
+                    throw new AmpServiceException(
+                        $"Slot {index + 1} has an unreadable (corrupt or newer-format) metadata block — refusing to overwrite it. Re-select the amp and try again.");
+                var meta = (current ?? new AmpMetadata()) with
                 {
                     Notes = NullIfEmpty(EditNotes),
                     Url = NullIfEmpty(EditUrl),

@@ -45,7 +45,10 @@ public static class ResponseParser
     /// as this slot's data (slot-26 incident hardening, 2026-07-06).</summary>
     public static string? ChunkHex(string raw, int index, int chunk)
     {
-        var pattern = "\"index\":" + index + @"\b.*?""chunk"":" + chunk + @"\b.*?""value"":""([0-9a-fA-F]*)""";
+        // [^}]*? (not .*?) confines the match to ONE JSON object: if a glitch merges two
+        // records onto one line, this slot's index must not lazily pair with the NEXT
+        // record's chunk/value.
+        var pattern = "\"index\":" + index + @"\b[^}]*?""chunk"":" + chunk + @"\b[^}]*?""value"":""([0-9a-fA-F]*)""";
         foreach (var rec in Records(raw))
         {
             var m = Regex.Match(rec, pattern);

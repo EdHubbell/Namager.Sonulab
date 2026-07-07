@@ -89,6 +89,10 @@ public sealed class SonuClient
         {
             var raw = await SendAsync(SonuCommands.DRead(path, index, c), ct);
             var hex = ResponseParser.ChunkHex(raw, index, c) ?? "";
+            // A torn record can carry an odd-length hex value; Convert.FromHexString would
+            // throw FormatException past every caller. Treat it as a missing chunk instead —
+            // the resulting short blob fails loudly at the validated-read layer.
+            if ((hex.Length & 1) == 1) hex = "";
             bytes.AddRange(Convert.FromHexString(hex));
         }
         return bytes.ToArray();

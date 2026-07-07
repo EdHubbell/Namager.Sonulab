@@ -62,4 +62,55 @@ public class SlotBlobReadValidationTests : IDisposable
         var blob = await svc.ReadAmpAsync(0);
         Assert.Equal(12288, blob.Length);
     }
+
+    /// <summary>Fake that returns an ODD-LENGTH (torn) hex value for one dread chunk.</summary>
+    private sealed class TornHexAmpDevice : FakeAmpDevice
+    {
+        public int TornChunk { get; set; } = 40;
+        public override async Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            var raw = await base.SendAsync(command, ct);
+            if (command.StartsWith("dread") && command.Contains($"\"chunk\":{TornChunk}}}"))
+                raw = System.Text.RegularExpressions.Regex.Replace(
+                    raw, "\"value\":\"[0-9a-fA-F]*\"", "\"value\":\"" + new string('a', 255) + "\"");
+            return raw;
+        }
+    }
+
+    [Fact]
+    public async Task Torn_odd_length_hex_fails_loudly_not_with_FormatException()
+    {
+        var dev = new TornHexAmpDevice();
+        dev.SeedAmp(0, "Clean", Enumerable.Repeat((byte)1, 12288).ToArray());
+        await dev.OpenAsync();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        var ex = await Assert.ThrowsAsync<AmpServiceException>(() => svc.ReadAmpAsync(0));
+        Assert.Contains("12288", ex.Message);                // surfaced as a short-read protocol error
+    }
+
+    /// <summary>Fake whose reads go short only AFTER a commit has landed — simulates a link
+    /// glitch during the post-write verify readback.</summary>
+    private sealed class ShortVerifyOnceAmpDevice : FakeAmpDevice
+    {
+        public int DropChunk { get; set; } = 40;
+        private bool _dropped;
+        public override Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (!_dropped && CommitSeen && command.StartsWith("dread") && command.Contains($"\"chunk\":{DropChunk}}}"))
+            { _dropped = true; return Task.FromResult(""); }
+            return base.SendAsync(command, ct);
+        }
+    }
+
+    [Fact]
+    public async Task Short_verify_readback_is_retried_not_treated_as_corruption()
+    {
+        var dev = new ShortVerifyOnceAmpDevice();
+        await dev.OpenAsync();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        var payload = Enumerable.Repeat((byte)9, 12288).ToArray();
+        await svc.UploadAmpAsync(0, payload, "NewAmp");      // empty target: no backup read
+        Assert.Equal("NewAmp", dev.SlotNames[0]);            // upload SUCCEEDED after the retry
+        Assert.Equal((byte)9, dev.SlotBlobs[0]![0]);          // slot NOT cleared by the glitched verify
+    }
 }

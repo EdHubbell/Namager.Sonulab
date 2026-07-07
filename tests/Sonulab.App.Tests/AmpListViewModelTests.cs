@@ -12,11 +12,22 @@ public class AmpListViewModelTests : IDisposable
 
     public void Dispose() { if (Directory.Exists(_backupDir)) Directory.Delete(_backupDir, true); }
 
+    /// <summary>A realistic device slot: constant vxamp header, fill-byte body, ZERO padding
+    /// (like every real VoidX-written slot). The metadata-save integrity guards reject blobs
+    /// without the header, so fixtures must carry it.</summary>
+    private static byte[] RealisticBlob(byte fill)
+    {
+        var blob = Enumerable.Repeat(fill, 12288).ToArray();
+        VxampFormat.HeaderBytes.CopyTo(blob, 0);
+        Array.Clear(blob, VxampMetadata.Offset, 12288 - VxampMetadata.Offset);
+        return blob;
+    }
+
     private (AmpListViewModel vm, FakeAmpDevice dev) Make(bool writes = true)
     {
         var dev = new FakeAmpDevice();
-        dev.SeedAmp(0, "Clean", Enumerable.Repeat((byte)1, 12288).ToArray());
-        dev.SeedAmp(1, "Crunch", Enumerable.Repeat((byte)2, 12288).ToArray());
+        dev.SeedAmp(0, "Clean", RealisticBlob(1));
+        dev.SeedAmp(1, "Crunch", RealisticBlob(2));
         dev.OpenAsync().GetAwaiter().GetResult();
         var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
         return (new AmpListViewModel(svc, writes), dev);
@@ -124,10 +135,11 @@ public class AmpListViewModelTests : IDisposable
         return p;
     }
 
-    /// <summary>Seed a slot whose blob carries an SSMD block.</summary>
+    /// <summary>Seed a slot whose blob carries an SSMD block (on a realistic slot layout —
+    /// valid header, so the save-path integrity guards accept it).</summary>
     private static byte[] BlobWithMeta(AmpMetadata meta, byte fill = 3)
     {
-        var blob = Enumerable.Repeat(fill, 12288).ToArray();
+        var blob = RealisticBlob(fill);
         VxampMetadata.Write(blob, meta);
         return blob;
     }
@@ -518,8 +530,8 @@ public class AmpListViewModelTests : IDisposable
         vm.EditNotes = "annotated later";
         await vm.SaveMetadataCommand.ExecuteAsync(null);
         Assert.Equal("annotated later", VxampMetadata.TryRead(dev.SlotBlobs[0]!)!.Notes);
-        // payload preserved:
-        Assert.All(dev.SlotBlobs[0]![..VxampMetadata.Offset], b => Assert.Equal(1, b));
+        // payload preserved (header + fill body, exactly as seeded):
+        Assert.Equal(RealisticBlob(1)[..VxampMetadata.Offset], dev.SlotBlobs[0]![..VxampMetadata.Offset]);
     }
 
     [Fact]
@@ -617,7 +629,7 @@ public class AmpListViewModelTests : IDisposable
             Nam: new JsonObject { ["name"] = "VibroverbJMDefault" },
             Distill: new AmpDistillInfo("1.0.0", 0.287)), fill: 7);
         dev.SeedAmp(0, "Vibroverb", full);
-        dev.OpenAsync().GetAwaiter().GetResult();
+        await dev.OpenAsync();
         var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
         await vm.RefreshCommand.ExecuteAsync(null);
 
@@ -638,6 +650,48 @@ public class AmpListViewModelTests : IDisposable
         Assert.Equal("VibroverbJMDefault", (string?)meta.Nam?["name"]);
         Assert.Equal("2026-07-06T21:19:43Z", meta.Uploaded);
         Assert.NotNull(meta.Distill);
+    }
+
+    /// <summary>Fake that corrupts the Nth dread of a given chunk (1-based), leaving earlier
+    /// reads clean — lets a test poison the SAVE-TIME fresh read while the details read is fine.</summary>
+    private sealed class GlitchNthAmpDevice : FakeAmpDevice
+    {
+        public int GlitchChunk { get; set; } = 65;
+        public int GlitchOnOccurrence { get; set; } = 2;
+        private int _seen;
+        public override async Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            var raw = await base.SendAsync(command, ct);
+            if (command.StartsWith("dread") && command.Contains($"\"chunk\":{GlitchChunk}}}")
+                && ++_seen == GlitchOnOccurrence)
+                raw = System.Text.RegularExpressions.Regex.Replace(
+                    raw, "\"value\":\"[0-9a-fA-F]*\"", "\"value\":\"" + new string('0', 256) + "\"");
+            return raw;
+        }
+    }
+
+    [Fact]
+    public async Task Save_aborts_when_the_fresh_read_itself_looks_corrupt()
+    {
+        var dev = new GlitchNthAmpDevice();                  // details read clean; SAVE-time read corrupt
+        var full = BlobWithMeta(new AmpMetadata(
+            Source: new AmpSourceInfo("Vibroverb.nam", 295018, "2026-07-06T12:27:46Z", "ae55"),
+            Notes: "keep me"), fill: 7);
+        dev.SeedAmp(0, "Vibroverb", full);
+        await dev.OpenAsync();
+        var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.Equal("keep me", vm.DetailsNotes);            // clean details read
+
+        vm.BeginEditMetadataCommand.Execute(null);
+        vm.EditNotes = "new notes";
+        await vm.SaveMetadataCommand.ExecuteAsync(null);
+
+        Assert.NotNull(vm.ErrorMessage);                     // save refused, loudly
+        Assert.Equal(full, dev.SlotBlobs[0]);                // device slot completely untouched
     }
 
     /// <summary>Fake that blocks dreads of one slot index until released — lets a test observe
@@ -661,7 +715,7 @@ public class AmpListViewModelTests : IDisposable
         dev.SeedAmp(0, "A", BlobWithMeta(new AmpMetadata(
             Source: new AmpSourceInfo("a.nam", 100, "2026-01-01T00:00:00Z", "aa"), Notes: "a-notes")));
         dev.SeedAmp(1, "B", BlobWithMeta(new AmpMetadata(Notes: "b-notes")));
-        dev.OpenAsync().GetAwaiter().GetResult();
+        await dev.OpenAsync();
         var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
         await vm.RefreshCommand.ExecuteAsync(null);
 

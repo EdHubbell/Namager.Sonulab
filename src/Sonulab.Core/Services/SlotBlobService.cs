@@ -162,10 +162,21 @@ public sealed class SlotBlobService
         }
         await WriteChunkAckedAsync(-1, nameBuf, -1);       // the commit
 
-        // 3. Read-back verify (after a flash-settle pause).
+        // 3. Read-back verify (after a flash-settle pause). A SHORT readback is a link
+        // glitch, not a bad flash (all 98 chunk writes were just ACKed) — retry it rather
+        // than letting the length mismatch masquerade as corruption and CLEAR a good slot.
         progress?.Report(new(SlotUploadStage.Verifying, totalChunks, totalChunks));
         if (_settleMs > 0) await Task.Delay(_settleMs, ct);
-        var readBack = await _client.DReadBlobAsync(_kind.ListPath, slot, _kind.Chunks, ct);
+        byte[] readBack;
+        for (int attempt = 1; ; attempt++)
+        {
+            readBack = await _client.DReadBlobAsync(_kind.ListPath, slot, _kind.Chunks, ct);
+            if (readBack.Length == payload.Length) break;
+            if (attempt >= 3)
+                throw _raise(
+                    $"Verify readback for slot {slot} returned {readBack.Length} B (expected {payload.Length}) on {attempt} attempts — a serial link problem, not proof of a bad write (every chunk was ACKed). The slot was NOT cleared; verify it on the device.");
+            if (_settleMs > 0) await Task.Delay(_settleMs, ct);
+        }
         if (!readBack.AsSpan().SequenceEqual(payload))
         {
             int firstDiff = -1;
