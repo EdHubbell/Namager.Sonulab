@@ -390,6 +390,41 @@ public class AmpListViewModelTests : IDisposable
         finally { File.Delete(nam); }
     }
 
+    // ---- Tone3000 handoff seam (spec 2026-07-07 §3) ----
+
+    [Fact]
+    public async Task BeginUploadPrefilled_lands_notes_and_url_in_the_panel()
+    {
+        var h = MakeUpload();
+        await h.Vm.RefreshCommand.ExecuteAsync(null);
+        var nam = TempFile($"T3k-{Guid.NewGuid():N}.nam");
+        try
+        {
+            h.Vm.BeginUploadPrefilled(nam, "65 Deluxe Reverb by fabiossousa (Tone3000)",
+                                      "https://www.tone3000.com/tones/42");
+            Assert.True(h.Vm.IsUploadPanelOpen);
+            Assert.Equal("65 Deluxe Reverb by fabiossousa (Tone3000)", h.Vm.UploadNotes);
+            Assert.Equal("https://www.tone3000.com/tones/42", h.Vm.UploadUrl);
+        }
+        finally { File.Delete(nam); }
+    }
+
+    [Fact]
+    public async Task BeginUploadPrefilled_with_nulls_matches_plain_BeginUpload()
+    {
+        var h = MakeUpload();
+        await h.Vm.RefreshCommand.ExecuteAsync(null);
+        var nam = TempFile($"Plain-{Guid.NewGuid():N}.nam");
+        try
+        {
+            h.Vm.BeginUploadPrefilled(nam, null, null);
+            Assert.True(h.Vm.IsUploadPanelOpen);
+            Assert.Equal("", h.Vm.UploadNotes);              // exactly today's cleared state
+            Assert.Equal("", h.Vm.UploadUrl);
+        }
+        finally { File.Delete(nam); }
+    }
+
     // ---- details pane (Task 4) ----
 
     [Fact]

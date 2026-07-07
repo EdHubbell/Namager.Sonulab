@@ -185,6 +185,12 @@ public partial class AmpListViewModel : ObservableObject
     /// <summary>Open the upload panel for a picked .nam/.vxamp file (called by the view
     /// after the OS file picker). Empty slots only — spec decision.</summary>
     [RelayCommand] private void BeginUpload(string? path)
+    { if (path is not null) BeginUploadPrefilled(path, notes: null, url: null); }
+
+    /// <summary>Open the upload panel for a picked .nam/.vxamp file, optionally prefilled
+    /// with provenance (the Tone3000 handoff, spec 2026-07-07 §3). Null notes/url makes
+    /// this byte-identical to the plain command path.</summary>
+    public void BeginUploadPrefilled(string path, string? notes, string? url)
     {
         if (!CanMutate || string.IsNullOrEmpty(path)) return;
         UploadBlockedMessage = null;
@@ -224,6 +230,8 @@ public partial class AmpListViewModel : ObservableObject
         // raise their own change notification.
         OnPropertyChanged(nameof(NotesBudgetWarning));
         IsUploadPanelOpen = true;
+        if (notes is not null) UploadNotes = notes;
+        if (url is not null) UploadUrl = url;
     }
 
     [RelayCommand] private async Task StartUploadAsync()
