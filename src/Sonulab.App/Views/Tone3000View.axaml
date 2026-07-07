@@ -1,0 +1,178 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sonulab.App.ViewModels"
+             xmlns:t3k="using:Sonulab.Tone3000"
+             x:Class="Sonulab.App.Views.Tone3000View"
+             x:DataType="vm:Tone3000ViewModel">
+  <Panel>
+
+    <!-- State 0: no keys configured -->
+    <Border Classes="card" MaxWidth="520" VerticalAlignment="Center" HorizontalAlignment="Center"
+            IsVisible="{Binding !HasConfig}">
+      <StackPanel Spacing="8">
+        <TextBlock Classes="section-label" Text="TONE3000"/>
+        <TextBlock Text="Add your Tone3000 API keys" FontWeight="SemiBold" FontSize="15"/>
+        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                   Text="Copy tone3000.json.example from the repo, add your publishable key, and save it as:"/>
+        <TextBlock Text="{Binding KeysPath}" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11" TextWrapping="Wrap"/>
+        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                   Text="Then restart the app."/>
+      </StackPanel>
+    </Border>
+
+    <Panel IsVisible="{Binding HasConfig}">
+
+      <!-- State 1: signed out -->
+      <Border Classes="card" MaxWidth="440" VerticalAlignment="Center" HorizontalAlignment="Center"
+              IsVisible="{Binding !IsSignedIn}">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="section-label" Text="TONE3000"/>
+          <TextBlock Text="Connect your Tone3000 account" FontWeight="SemiBold" FontSize="15"/>
+          <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                     Text="Sign in opens tone3000.com in your browser. Browse thousands of NAM captures and IRs and send them straight to the pedal."/>
+          <Button Classes="accent-outline" Content="Sign in with Tone3000" Command="{Binding SignInCommand}"/>
+          <TextBlock Text="{Binding Banner}" FontSize="11" TextWrapping="Wrap"
+                     Foreground="{DynamicResource Sonulab.DangerBrush}"
+                     IsVisible="{Binding Banner, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+        </StackPanel>
+      </Border>
+
+      <!-- State 2: browse -->
+      <DockPanel IsVisible="{Binding IsSignedIn}">
+
+        <!-- Toolbar -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,0,0,8">
+          <TextBox Grid.Column="0" Text="{Binding SearchText}" Watermark="Search tones…"
+                   IsEnabled="{Binding !IsLoading}"/>
+          <ToggleButton Grid.Column="1" Margin="6,0,0,0" Content="NAM"
+                        IsChecked="{Binding FormatFilter, Converter={x:Static vm:T3kConverters.IsNam}, Mode=OneWay}"
+                        Command="{Binding SetFormatCommand}" CommandParameter="nam"/>
+          <ToggleButton Grid.Column="2" Margin="4,0,0,0" Content="IR"
+                        IsChecked="{Binding FormatFilter, Converter={x:Static vm:T3kConverters.IsIr}, Mode=OneWay}"
+                        Command="{Binding SetFormatCommand}" CommandParameter="ir"/>
+          <ComboBox Grid.Column="3" Margin="10,0,0,0" MinWidth="130"
+                    SelectedIndex="{Binding ViewModeIndex, Mode=TwoWay}">
+            <ComboBoxItem>Search</ComboBoxItem>
+            <ComboBoxItem>Favorites</ComboBoxItem>
+            <ComboBoxItem>Downloaded</ComboBoxItem>
+          </ComboBox>
+          <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6" Margin="10,0,0,0" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Username, StringFormat='signed in as {0}'}" FontSize="11"
+                       Foreground="{DynamicResource Sonulab.TextMutedBrush}" VerticalAlignment="Center"/>
+            <Button Content="Sign out" FontSize="11" Command="{Binding SignOutCommand}"/>
+          </StackPanel>
+        </Grid>
+
+        <!-- Banner + loading -->
+        <TextBlock DockPanel.Dock="Top" Text="{Binding Banner}" FontSize="11" TextWrapping="Wrap"
+                   Foreground="{DynamicResource Sonulab.WarningBrush}" Margin="0,0,0,6"
+                   IsVisible="{Binding Banner, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+        <ProgressBar DockPanel.Dock="Top" Height="3" IsIndeterminate="True" Margin="0,0,0,6"
+                     IsVisible="{Binding IsLoading}"/>
+
+        <!-- Pager -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0"
+                    HorizontalAlignment="Center">
+          <Button Content="‹" Command="{Binding PrevPageCommand}"/>
+          <TextBlock VerticalAlignment="Center" FontSize="11"
+                     Foreground="{DynamicResource Sonulab.TextMutedBrush}">
+            <TextBlock.Text>
+              <MultiBinding StringFormat="page {0} / {1}">
+                <Binding Path="Page"/><Binding Path="TotalPages"/>
+              </MultiBinding>
+            </TextBlock.Text>
+          </TextBlock>
+          <Button Content="›" Command="{Binding NextPageCommand}"/>
+        </StackPanel>
+
+        <Grid ColumnDefinitions="*,320">
+
+          <!-- Card grid -->
+          <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Results}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="t3k:T3kTone">
+                  <Button Padding="0" Background="Transparent" Margin="0,0,8,8"
+                          Command="{Binding $parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).SelectToneCommand}"
+                          CommandParameter="{Binding}">
+                    <Border Classes="card" Width="200">
+                      <StackPanel Spacing="4">
+                        <Border Height="86" CornerRadius="4" ClipToBounds="True"
+                                Background="{DynamicResource Sonulab.SurfaceAltBrush}">
+                          <Panel>
+                            <TextBlock Text="♪" FontSize="28" Opacity="0.25"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Image Stretch="UniformToFill"
+                                   IsVisible="{Binding ImageUrl, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                   vm:RemoteImage.Source="{Binding ImageUrl}"/>
+                          </Panel>
+                        </Border>
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                                   TextTrimming="CharacterEllipsis">
+                          <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0} · ⬇ {1}">
+                              <Binding Path="Author"/><Binding Path="Downloads"/>
+                            </MultiBinding>
+                          </TextBlock.Text>
+                        </TextBlock>
+                      </StackPanel>
+                    </Border>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+
+          <!-- Detail panel -->
+          <Border Grid.Column="1" Classes="card" Margin="8,0,0,0" VerticalAlignment="Top"
+                  IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <StackPanel Spacing="6">
+              <TextBlock Text="{Binding Selected.Title}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap"/>
+              <TextBlock FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}">
+                <TextBlock.Text>
+                  <MultiBinding StringFormat="by {0} · ★ {1}">
+                    <Binding Path="Selected.Author"/><Binding Path="Selected.Stars"/>
+                  </MultiBinding>
+                </TextBlock.Text>
+              </TextBlock>
+              <TextBlock Text="{Binding Selected.Gear}" FontSize="12" TextWrapping="Wrap"
+                         IsVisible="{Binding Selected.Gear, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+              <TextBlock Text="{Binding Selected.Description}" FontSize="12" TextWrapping="Wrap" MaxHeight="120"
+                         IsVisible="{Binding Selected.Description, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="Open on tone3000.com" Padding="0" Background="Transparent" FontSize="12"
+                        Foreground="{DynamicResource Sonulab.AccentBrush}" Cursor="Hand"
+                        Command="{Binding OpenTonePageCommand}"/>
+                <Button Content="★ Favorite" Padding="0" Background="Transparent" FontSize="12"
+                        Foreground="{DynamicResource Sonulab.AccentBrush}" Cursor="Hand"
+                        Command="{Binding ToggleFavoriteCommand}"
+                        ToolTip.Tip="Add to your Tone3000 favorites"/>
+              </StackPanel>
+              <Border Classes="rule"/>
+              <TextBlock Classes="section-label" Text="MODELS"/>
+              <ItemsControl ItemsSource="{Binding SelectedModels}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="t3k:T3kModel">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                      <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis"/>
+                      <Button Grid.Column="1" Classes="accent-outline" Content="Send to pedal" FontSize="11"
+                              IsEnabled="{Binding $parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).IsDeviceReady}"
+                              ToolTip.Tip="Connect to the pedal (with writes allowed) to send tones"
+                              Command="{Binding $parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).SendToPedalCommand}"
+                              CommandParameter="{Binding}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </Grid>
+      </DockPanel>
+    </Panel>
+  </Panel>
+</UserControl>

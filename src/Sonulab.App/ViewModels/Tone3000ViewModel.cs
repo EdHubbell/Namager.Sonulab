@@ -1,4 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Net.Http;
+using Avalonia;
+using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sonulab.Tone3000;
@@ -40,6 +43,15 @@ public partial class Tone3000ViewModel : ObservableObject
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string? _formatFilter;             // null | "nam" | "ir"
     [ObservableProperty] private T3kViewMode _viewMode = T3kViewMode.Search;
+
+    /// <summary>XAML glue: the ComboBox binds SelectedIndex here (TwoWay), which stays in sync
+    /// with <see cref="ViewMode"/>. Kept as a plain int property (no converter) so it round-trips.</summary>
+    public int ViewModeIndex
+    {
+        get => (int)ViewMode;
+        set => ViewMode = (T3kViewMode)value;
+    }
+
     [ObservableProperty] private int _page = 1;
     [ObservableProperty] private int _totalPages;
     [ObservableProperty] private T3kTone? _selected;
@@ -55,7 +67,12 @@ public partial class Tone3000ViewModel : ObservableObject
 
     partial void OnSearchTextChanged(string value) => Debounce();
     partial void OnFormatFilterChanged(string? value) => Debounce();
-    partial void OnViewModeChanged(T3kViewMode value) { Page = 1; PendingOperation = LoadAsync(); }
+    partial void OnViewModeChanged(T3kViewMode value)
+    {
+        OnPropertyChanged(nameof(ViewModeIndex));
+        Page = 1;
+        PendingOperation = LoadAsync();
+    }
     partial void OnSelectedChanged(T3kTone? value) => PendingOperation = LoadModelsAsync(value);
 
     private void Debounce()
@@ -178,5 +195,44 @@ public partial class Tone3000ViewModel : ObservableObject
             !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return;
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
         catch { /* opening a link must never crash the app */ }
+    }
+
+    [RelayCommand] private void SelectTone(T3kTone? tone) => Selected = tone;
+    [RelayCommand] private void SetFormat(string? format) => FormatFilter = FormatFilter == format ? null : format;
+}
+
+/// <summary>XAML glue for the Tone3000 view: chip checked-state.</summary>
+public static class T3kConverters
+{
+    public static readonly Avalonia.Data.Converters.IValueConverter IsNam =
+        new Avalonia.Data.Converters.FuncValueConverter<string?, bool>(f => f == "nam");
+    public static readonly Avalonia.Data.Converters.IValueConverter IsIr =
+        new Avalonia.Data.Converters.FuncValueConverter<string?, bool>(f => f == "ir");
+}
+
+/// <summary>Attached property that loads a remote image into an Image control off the UI
+/// thread, with silent failure (the ♪ placeholder behind it stays visible).</summary>
+public static class RemoteImage
+{
+    public static readonly Avalonia.AttachedProperty<string?> SourceProperty =
+        Avalonia.AvaloniaProperty.RegisterAttached<Avalonia.Controls.Image, string?>("Source", typeof(RemoteImage));
+
+    public static void SetSource(Avalonia.Controls.Image image, string? url) => image.SetValue(SourceProperty, url);
+    public static string? GetSource(Avalonia.Controls.Image image) => image.GetValue(SourceProperty);
+
+    static RemoteImage()
+    {
+        SourceProperty.Changed.AddClassHandler<Avalonia.Controls.Image>(async (img, e) =>
+        {
+            if (e.NewValue is not string url || !url.StartsWith("http")) { img.Source = null; return; }
+            try
+            {
+                using var http = new HttpClient();
+                var bytes = await http.GetByteArrayAsync(url);
+                using var ms = new MemoryStream(bytes);
+                img.Source = new Avalonia.Media.Imaging.Bitmap(ms);
+            }
+            catch { /* placeholder stays */ }
+        });
     }
 }
