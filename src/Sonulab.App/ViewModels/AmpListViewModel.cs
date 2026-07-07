@@ -325,7 +325,7 @@ public partial class AmpListViewModel : ObservableObject
     /// <summary>Last details load — test seam: set Selected, then await this.</summary>
     public Task? DetailsLoadTask { get; private set; }
 
-    private readonly Dictionary<int, (string Name, byte[] Slot, AmpMetadata? Meta)> _detailsCache = new();
+    private readonly Dictionary<int, (string Name, AmpMetadata? Meta)> _detailsCache = new();
     // Cancelled but deliberately never disposed: a superseded in-flight read may still be
     // awaiting on this token when the next selection cancels it, and disposing here could
     // throw ObjectDisposedException on that read's resumption. The CTS is small and
@@ -363,8 +363,7 @@ public partial class AmpListViewModel : ObservableObject
             IsDetailsLoading = true;
             try
             {
-                var slot = await _amps.ReadAmpAsync(item.Index, cts.Token);
-                entry = (item.Name, slot, VxampMetadata.TryRead(slot));
+                entry = (item.Name, await ReadMetadataAsync(item.Index, cts.Token));
             }
             catch (OperationCanceledException) { return; }   // superseded by a newer selection,
                                                               // which owns the pane now — don't touch it
@@ -380,6 +379,28 @@ public partial class AmpListViewModel : ObservableObject
             IsDetailsLoading = false;   // cache hit: no read is in flight, so the spinner never applies
         }
         PopulateDetails(entry.Meta);
+    }
+
+    /// <summary>Region-only metadata fetch: one chunk to find the SSMD block and its length,
+    /// then exactly the chunks it spans (~0.4 s typical vs ~5 s full-slot). Display-only —
+    /// SaveMetadataAsync still does a FULL fresh read with integrity guards before flashing.</summary>
+    private async Task<AmpMetadata?> ReadMetadataAsync(int index, CancellationToken ct)
+    {
+        var head = await _amps.ReadChunksAsync(index, VxampMetadata.FirstRegionChunk, 1, ct);
+        var regionStart = head.AsSpan(VxampMetadata.OffsetInFirstChunk);
+        if (VxampMetadata.BlockLength(regionStart) is not { } blockLen) return null;
+
+        var region = new byte[VxampMetadata.RegionSize];
+        regionStart.CopyTo(region);
+        int firstChunkLen = regionStart.Length;   // captured before the next await: Span can't cross it
+        int lastChunk = VxampMetadata.LastRegionChunk(blockLen);
+        if (lastChunk > VxampMetadata.FirstRegionChunk)
+        {
+            var rest = await _amps.ReadChunksAsync(index, VxampMetadata.FirstRegionChunk + 1,
+                                                   lastChunk - VxampMetadata.FirstRegionChunk, ct);
+            rest.CopyTo(region, firstChunkLen);
+        }
+        return VxampMetadata.TryReadRegion(region);
     }
 
     private void PopulateDetails(AmpMetadata? meta)

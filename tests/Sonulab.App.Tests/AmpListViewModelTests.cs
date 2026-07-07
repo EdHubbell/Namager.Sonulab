@@ -442,12 +442,12 @@ public class AmpListViewModelTests : IDisposable
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.Equal(96, DreadCount(dev, 0));               // one full read
+        Assert.Equal(1, DreadCount(dev, 0));                // one region probe (no block: single chunk)
         vm.Selected = vm.Items[1];
         await vm.DetailsLoadTask!;
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.Equal(96, DreadCount(dev, 0));               // still one — cache hit
+        Assert.Equal(1, DreadCount(dev, 0));                // still one — cache hit
     }
 
     [Fact]
@@ -457,7 +457,7 @@ public class AmpListViewModelTests : IDisposable
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.Equal(96, DreadCount(dev, 0));
+        Assert.Equal(1, DreadCount(dev, 0));
 
         var item = vm.Items[0];
         item.BeginRenameCommand.Execute(null);
@@ -466,7 +466,7 @@ public class AmpListViewModelTests : IDisposable
 
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.Equal(192, DreadCount(dev, 0));              // re-read after invalidation
+        Assert.Equal(2, DreadCount(dev, 0));                // re-read after invalidation
     }
 
     [Fact]
@@ -476,13 +476,48 @@ public class AmpListViewModelTests : IDisposable
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.Equal(96, DreadCount(dev, 0));
+        Assert.Equal(1, DreadCount(dev, 0));
 
         await vm.RefreshCommand.ExecuteAsync(null);         // name unchanged ("Clean") but cache cleared
 
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.Equal(192, DreadCount(dev, 0));              // re-read after invalidation
+        Assert.Equal(2, DreadCount(dev, 0));                // re-read after invalidation
+    }
+
+    // ---- region-only read: prove the dread counts (spec 2026-07-07) ----
+
+    [Fact]
+    public async Task Details_read_of_an_amp_with_metadata_fetches_only_the_block_chunks()
+    {
+        var dev = new FakeAmpDevice();
+        var blob = BlobWithMeta(new AmpMetadata(
+            Source: new AmpSourceInfo("a.nam", 1000, "2026-01-01T00:00:00Z", "aa"),
+            Notes: "hello"));
+        dev.SeedAmp(0, "A", blob);
+        await dev.OpenAsync();
+        var vm = new AmpListViewModel(new AmpService(new SonuClient(dev), _backupDir, 0, 0), true);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+
+        Assert.Equal("hello", vm.DetailsNotes);              // metadata fully loaded...
+        int blockLen = VxampMetadata.BlockLength(blob.AsSpan(VxampMetadata.Offset))!.Value;
+        int expected = 1 + (VxampMetadata.LastRegionChunk(blockLen) - VxampMetadata.FirstRegionChunk);
+        Assert.Equal(expected, DreadCount(dev, 0));          // ...from exactly the block's chunks
+        Assert.True(expected < 8, $"small block should span few chunks, got {expected}");
+    }
+
+    [Fact]
+    public async Task Details_read_of_a_no_metadata_amp_is_a_single_chunk()
+    {
+        var (vm, dev) = Make();                              // RealisticBlob seeds: no SSMD block
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DetailsLoadTask!;
+        Assert.True(vm.ShowNoMetadata);
+        Assert.Equal(1, DreadCount(dev, 0));
     }
 
     // ---- edit notes/URL on the pedal (Task 5) ----
