@@ -1,0 +1,112 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- ===== Studio-warm palette tokens (spec §1.1). Both variants ALWAYS defined. ===== -->
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <Color x:Key="Sonulab.AccentColor">#D9820F</Color>
+          <Color x:Key="Sonulab.AccentHoverColor">#E8A04A</Color>
+          <SolidColorBrush x:Key="Sonulab.AccentBrush" Color="#D9820F"/>
+          <SolidColorBrush x:Key="Sonulab.AccentHoverBrush" Color="#E8A04A"/>
+          <SolidColorBrush x:Key="Sonulab.AccentTintBrush" Color="#D9820F" Opacity="0.16"/>
+          <SolidColorBrush x:Key="Sonulab.HoverTintBrush" Color="#D9820F" Opacity="0.08"/>
+          <SolidColorBrush x:Key="Sonulab.SurfaceBrush" Color="#26221E"/>
+          <SolidColorBrush x:Key="Sonulab.SurfaceAltBrush" Color="#1E1B18"/>
+          <SolidColorBrush x:Key="Sonulab.BorderBrush" Color="#3A332C"/>
+          <SolidColorBrush x:Key="Sonulab.RuleBrush" Color="#332D27"/>
+          <SolidColorBrush x:Key="Sonulab.TextMutedBrush" Color="#E8E2DA" Opacity="0.55"/>
+          <SolidColorBrush x:Key="Sonulab.SuccessBrush" Color="#7BC47B"/>
+          <SolidColorBrush x:Key="Sonulab.DangerBrush" Color="#E06C68"/>
+          <SolidColorBrush x:Key="Sonulab.WarningBrush" Color="#E8A04A"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <Color x:Key="Sonulab.AccentColor">#B96A08</Color>
+          <Color x:Key="Sonulab.AccentHoverColor">#D9820F</Color>
+          <SolidColorBrush x:Key="Sonulab.AccentBrush" Color="#B96A08"/>
+          <SolidColorBrush x:Key="Sonulab.AccentHoverBrush" Color="#D9820F"/>
+          <SolidColorBrush x:Key="Sonulab.AccentTintBrush" Color="#B96A08" Opacity="0.14"/>
+          <SolidColorBrush x:Key="Sonulab.HoverTintBrush" Color="#B96A08" Opacity="0.07"/>
+          <SolidColorBrush x:Key="Sonulab.SurfaceBrush" Color="#FFFDF9"/>
+          <SolidColorBrush x:Key="Sonulab.SurfaceAltBrush" Color="#F6F2EC"/>
+          <SolidColorBrush x:Key="Sonulab.BorderBrush" Color="#DDD3C4"/>
+          <SolidColorBrush x:Key="Sonulab.RuleBrush" Color="#EDE5D8"/>
+          <SolidColorBrush x:Key="Sonulab.TextMutedBrush" Color="#2B2620" Opacity="0.55"/>
+          <SolidColorBrush x:Key="Sonulab.SuccessBrush" Color="#4A9E4A"/>
+          <SolidColorBrush x:Key="Sonulab.DangerBrush" Color="#C0392B"/>
+          <SolidColorBrush x:Key="Sonulab.WarningBrush" Color="#B96A08"/>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+  <!-- ===== Chrome: warm window / nav backgrounds ===== -->
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{DynamicResource Sonulab.SurfaceAltBrush}"/>
+  </Style>
+  <Style Selector="SplitView">
+    <Setter Property="PaneBackground" Value="{DynamicResource Sonulab.SurfaceAltBrush}"/>
+  </Style>
+
+  <!-- ===== Cards and rules (spec §1.3) ===== -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{DynamicResource Sonulab.SurfaceBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Sonulab.BorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="6"/>
+    <Setter Property="Padding" Value="12"/>
+  </Style>
+  <Style Selector="Border.rule">
+    <Setter Property="BorderBrush" Value="{DynamicResource Sonulab.RuleBrush}"/>
+    <Setter Property="BorderThickness" Value="0,1,0,0"/>
+    <Setter Property="Margin" Value="0,8,0,6"/>
+    <Setter Property="Height" Value="1"/>
+  </Style>
+
+  <!-- ===== Typography ===== -->
+  <Style Selector="TextBlock.section-label">
+    <Setter Property="FontSize" Value="10"/>
+    <Setter Property="LetterSpacing" Value="1"/>
+    <Setter Property="Foreground" Value="{DynamicResource Sonulab.TextMutedBrush}"/>
+  </Style>
+  <Style Selector="TextBlock.slot-number">
+    <Setter Property="FontFamily" Value="Consolas,Cascadia Mono,monospace"/>
+    <Setter Property="Foreground" Value="{DynamicResource Sonulab.TextMutedBrush}"/>
+  </Style>
+
+  <!-- ===== Accent-outlined button ===== -->
+  <Style Selector="Button.accent-outline">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Sonulab.AccentBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Foreground" Value="{DynamicResource Sonulab.AccentBrush}"/>
+  </Style>
+  <Style Selector="Button.accent-outline:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Sonulab.HoverTintBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Sonulab.AccentHoverBrush}"/>
+    <Setter Property="Foreground" Value="{DynamicResource Sonulab.AccentHoverBrush}"/>
+  </Style>
+
+  <!-- ===== List rows: amber left bar + tint (spec §1.3). Fluent's ListBoxItem template
+       binds Background/BorderBrush/BorderThickness onto PART_ContentPresenter, but its
+       pseudo-class styles override Background there — so the bar rides the item-level
+       Border* properties while tints target the presenter directly. ===== -->
+  <Style Selector="ListBoxItem">
+    <Setter Property="BorderThickness" Value="3,0,0,0"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="CornerRadius" Value="3"/>
+    <Setter Property="Padding" Value="9,6"/>
+    <Setter Property="MinHeight" Value="0"/>
+  </Style>
+  <Style Selector="ListBoxItem:selected">
+    <Setter Property="BorderBrush" Value="{DynamicResource Sonulab.AccentBrush}"/>
+  </Style>
+  <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Sonulab.AccentTintBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource Sonulab.AccentBrush}"/>
+  </Style>
+  <Style Selector="ListBoxItem:pointerover:not(:selected) /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource Sonulab.HoverTintBrush}"/>
+  </Style>
+</Styles>
