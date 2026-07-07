@@ -149,7 +149,8 @@ public class SlotBlobReadValidationTests : IDisposable
     }
 
     [Theory]
-    [InlineData(-1, 1, 1)]    // bad index
+    [InlineData(-1, 1, 1)]    // bad index (low)
+    [InlineData(30, 1, 1)]    // bad index (high: slots are 0..29)
     [InlineData(0, 0, 1)]     // chunk numbers are 1-based
     [InlineData(0, 1, 0)]     // count must be >= 1
     [InlineData(0, 96, 2)]    // range overruns the 96-chunk slot

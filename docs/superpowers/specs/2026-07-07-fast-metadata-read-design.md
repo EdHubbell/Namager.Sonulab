@@ -42,7 +42,8 @@ public async Task<byte[]> ReadChunkRangeAsync(int index, int firstChunk, int cou
 - **Layering rule:** Core stays SSMD-ignorant. No `Sonulab.Distill` reference, no metadata
   offsets — it reads chunk ranges, period. (IR slots get the API for free; unused for now.)
 
-`DReadBlobAsync` in `SonuClient` is unchanged (full-slot reads still use it).
+`DReadBlobAsync` in `SonuClient` keeps its signature and behavior; as built it delegates to
+`DReadChunkRangeAsync(path, index, 1, chunkCount)` (DRY — verified behavior-identical in review).
 
 ## 2. Codec: region parsing + block length
 
