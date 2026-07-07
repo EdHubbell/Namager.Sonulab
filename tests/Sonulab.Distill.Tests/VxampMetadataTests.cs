@@ -196,4 +196,90 @@ public class VxampMetadataTests
         Assert.True(VxampMetadata.JsonByteCount(m) <= VxampMetadata.MaxJsonBytes);
         Assert.Equal("https://tonehunt.org/models/xyz", m.Url);   // other fields survive
     }
+
+    // ---- region-parsing entry points (fast partial reads, spec 2026-07-07) ----
+
+    [Fact]
+    public void TryReadRegion_roundtrips_a_written_block()
+    {
+        var slot = Slot();
+        VxampMetadata.Write(slot, Full());
+        var region = slot[VxampMetadata.Offset..];
+        var m = VxampMetadata.TryReadRegion(region);
+        Assert.NotNull(m);
+        Assert.Equal("Bassman 5F6A.nam", m!.Source!.File);
+        Assert.Equal("warm clean tone", m.Notes);
+    }
+
+    [Fact]
+    public void TryReadRegion_needs_only_the_block_bytes_not_the_whole_region()
+    {
+        var slot = Slot();
+        VxampMetadata.Write(slot, Full());
+        int blockLen = VxampMetadata.BlockLength(slot.AsSpan(VxampMetadata.Offset))!.Value;
+        var exact = slot[VxampMetadata.Offset..(VxampMetadata.Offset + blockLen)];
+        Assert.NotNull(VxampMetadata.TryReadRegion(exact));          // exactly the block: parses
+        var short1 = slot[VxampMetadata.Offset..(VxampMetadata.Offset + blockLen - 1)];
+        Assert.Null(VxampMetadata.TryReadRegion(short1));            // one byte short: null, no throw
+    }
+
+    [Theory]
+    [InlineData(0)]   // all zeros (no block)
+    [InlineData(1)]   // bad magic
+    [InlineData(2)]   // bad version
+    [InlineData(3)]   // len > MaxJsonBytes
+    [InlineData(4)]   // buffer shorter than the 8-byte header
+    public void BlockLength_rejects_invalid_starts(int kind)
+    {
+        var region = new byte[VxampMetadata.RegionSize];
+        if (kind >= 1)
+        {
+            var slot = Slot();
+            VxampMetadata.Write(slot, Full());
+            slot.AsSpan(VxampMetadata.Offset).CopyTo(region);
+            switch (kind)
+            {
+                case 1: region[0] = (byte)'X'; break;
+                case 2: region[4] = 99; break;
+                case 3: region[6] = 0xFF; region[7] = 0xFF; break;
+            }
+        }
+        var span = kind == 4 ? region.AsSpan(0, 7) : region.AsSpan();
+        Assert.Null(VxampMetadata.BlockLength(span));
+    }
+
+    [Fact]
+    public void BlockLength_returns_header_plus_json_length()
+    {
+        var slot = Slot();
+        VxampMetadata.Write(slot, Full());
+        int storedLen = slot[VxampMetadata.Offset + 6] | (slot[VxampMetadata.Offset + 7] << 8);
+        Assert.Equal(VxampMetadata.BlockHeaderSize + storedLen,
+                     VxampMetadata.BlockLength(slot.AsSpan(VxampMetadata.Offset)));
+    }
+
+    [Fact]
+    public void Chunk_geometry_constants_match_the_slot_layout()
+    {
+        Assert.Equal(65, VxampMetadata.FirstRegionChunk);            // offset 8256 sits in chunk 65...
+        Assert.Equal(64, VxampMetadata.OffsetInFirstChunk);          // ...64 bytes in
+        // Block fully inside chunk 65 (<= 64 bytes) ends there:
+        Assert.Equal(65, VxampMetadata.LastRegionChunk(64));
+        // One byte more spills into chunk 66:
+        Assert.Equal(66, VxampMetadata.LastRegionChunk(65));
+        // A block ending exactly at a chunk edge: 64 + 128 bytes ends at byte 8447 = chunk 66's last:
+        Assert.Equal(66, VxampMetadata.LastRegionChunk(64 + 128));
+        // Maximum block (8 + 4024 = 4032) ends at the slot's final byte, chunk 96:
+        Assert.Equal(96, VxampMetadata.LastRegionChunk(VxampMetadata.RegionSize));
+    }
+
+    [Fact]
+    public void Header_only_block_reports_length_8_but_parses_null()
+    {
+        var region = new byte[VxampMetadata.RegionSize];
+        "SSMD"u8.ToArray().CopyTo(region, 0);
+        region[4] = 1;                                               // version 1, len 0
+        Assert.Equal(8, VxampMetadata.BlockLength(region));
+        Assert.Null(VxampMetadata.TryReadRegion(region));            // empty JSON is not a block
+    }
 }

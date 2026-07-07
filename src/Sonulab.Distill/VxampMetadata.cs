@@ -32,26 +32,51 @@ public static class VxampMetadata
     public const int BlockHeaderSize = 8;
     public const int MaxJsonBytes = RegionSize - BlockHeaderSize;              // 4024
     public const ushort Version = 1;
+    /// <summary>The device protocol's dread/dwrite chunk size, mirrored here purely for
+    /// region geometry (which 1-based chunk holds which region byte).</summary>
+    public const int ProtocolChunkSize = 128;
+    /// <summary>1-based chunk containing the region start (Offset 8256 → chunk 65)...</summary>
+    public const int FirstRegionChunk = Offset / ProtocolChunkSize + 1;
+    /// <summary>...and where the region starts inside that chunk (byte 64).</summary>
+    public const int OffsetInFirstChunk = Offset % ProtocolChunkSize;
 
     private static ReadOnlySpan<byte> Magic => "SSMD"u8;
     private static readonly string[] KnownKeys = ["source", "uploaded", "nam", "distill", "notes", "url"];
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
-    public static AmpMetadata? TryRead(ReadOnlySpan<byte> slot)
+    public static AmpMetadata? TryRead(ReadOnlySpan<byte> slot) =>
+        slot.Length == VxampFormat.SlotSize ? TryReadRegion(slot.Slice(Offset, RegionSize)) : null;
+
+    /// <summary>Parse an SSMD block from a buffer that STARTS at slot offset 8256 (the
+    /// padding region). Accepts any length; bytes beyond 8+len are ignored (zeros or
+    /// unread). Same null-on-anything-malformed contract as TryRead — never throws.</summary>
+    public static AmpMetadata? TryReadRegion(ReadOnlySpan<byte> region)
     {
-        if (slot.Length != VxampFormat.SlotSize) return null;
-        var r = slot.Slice(Offset, RegionSize);
-        if (!r[..4].SequenceEqual(Magic)) return null;
-        if (BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(4, 2)) != Version) return null;
-        int n = BinaryPrimitives.ReadUInt16LittleEndian(r.Slice(6, 2));
-        if (n > MaxJsonBytes) return null;
+        if (BlockLength(region) is not { } blockLen || blockLen > region.Length) return null;
         try
         {
-            return JsonNode.Parse(StrictUtf8.GetString(r.Slice(BlockHeaderSize, n)))
+            return JsonNode.Parse(StrictUtf8.GetString(region.Slice(BlockHeaderSize, blockLen - BlockHeaderSize)))
                 is JsonObject o ? FromJson(o) : null;
         }
         catch (Exception e) when (e is JsonException or ArgumentException or FormatException or InvalidOperationException) { return null; }
     }
+
+    /// <summary>Total block byte count (header + JSON = 8 + len) read from the first 8 bytes
+    /// of a region buffer, or null when there is no valid block start (short buffer, bad
+    /// magic, bad version, or len > MaxJsonBytes). Needs only the first 8 bytes.</summary>
+    public static int? BlockLength(ReadOnlySpan<byte> regionStart)
+    {
+        if (regionStart.Length < BlockHeaderSize) return null;
+        if (!regionStart[..4].SequenceEqual(Magic)) return null;
+        if (BinaryPrimitives.ReadUInt16LittleEndian(regionStart.Slice(4, 2)) != Version) return null;
+        int n = BinaryPrimitives.ReadUInt16LittleEndian(regionStart.Slice(6, 2));
+        return n > MaxJsonBytes ? null : BlockHeaderSize + n;
+    }
+
+    /// <summary>1-based chunk holding the final byte of a block of the given total length
+    /// (as returned by BlockLength).</summary>
+    public static int LastRegionChunk(int blockLength) =>
+        (Offset + blockLength - 1) / ProtocolChunkSize + 1;
 
     /// <summary>Stamp the block in place. On budget overflow trims Nam first, then Notes
     /// (spec trim priority). Never modifies bytes below Offset.</summary>
