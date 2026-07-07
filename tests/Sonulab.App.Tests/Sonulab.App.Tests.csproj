@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sonulab.App\Sonulab.App.csproj" />
     <ProjectReference Include="..\..\src\Sonulab.Core\Sonulab.Core.csproj" />
+    <ProjectReference Include="..\..\src\Sonulab.Tone3000\Sonulab.Tone3000.csproj" />
   </ItemGroup>
 
   <ItemGroup>
