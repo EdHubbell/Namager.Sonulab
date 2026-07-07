@@ -20,6 +20,7 @@
           <SolidColorBrush x:Key="Sonulab.SuccessBrush" Color="#7BC47B"/>
           <SolidColorBrush x:Key="Sonulab.DangerBrush" Color="#E06C68"/>
           <SolidColorBrush x:Key="Sonulab.WarningBrush" Color="#E8A04A"/>
+          <SolidColorBrush x:Key="Sonulab.ScrimBrush" Color="#000000" Opacity="0.38"/>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
           <Color x:Key="Sonulab.AccentColor">#B96A08</Color>
@@ -36,6 +37,7 @@
           <SolidColorBrush x:Key="Sonulab.SuccessBrush" Color="#4A9E4A"/>
           <SolidColorBrush x:Key="Sonulab.DangerBrush" Color="#C0392B"/>
           <SolidColorBrush x:Key="Sonulab.WarningBrush" Color="#B96A08"/>
+          <SolidColorBrush x:Key="Sonulab.ScrimBrush" Color="#000000" Opacity="0.38"/>
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
     </ResourceDictionary>

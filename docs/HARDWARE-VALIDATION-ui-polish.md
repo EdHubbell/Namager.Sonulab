@@ -13,9 +13,8 @@ Most steps are device-free. Steps marked [PEDAL] need the StompStation connected
        amber (nav selection bar+tint, focus rings, progress bars) — no stock blue.
 - [ ] 2. Switch Windows to LIGHT mode (Settings > Personalization > Colors) with the
        app running: everything re-renders warm-paper; no white-on-white or unreadable
-       text anywhere. Both variants intentional = spec's hard requirement.
-- [ ] 3. Amps tab, disconnected: list left, "Select an amp to see its details."
-       placeholder right. No bottom-docked panels remain.
+       text anywhere. Both variants intentional = spec's hard requirement. (Known exception: the connection status dot and editor enable-dots refresh on the next state change, not instantly — converter-resolved brushes.)
+- [ ] 3. Disconnected, the Amps tab content area is blank (tab views are created on connect — pre-existing behavior, not a regression). [PEDAL] After connecting, with no amp selected: list left, "Select an amp to see its details." placeholder right. No bottom-docked panels remain.
 - [ ] 4. [PEDAL] Connect. Amps tab: select an amp with metadata → details card right
        (name header + amber SLOT badge, ruled SOURCE/DISTILLED/NAM/NOTES sections,
        accent link, Edit button). Select a VoidX-era amp → "No metadata" state.
