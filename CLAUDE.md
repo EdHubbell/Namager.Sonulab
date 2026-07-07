@@ -21,6 +21,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 - **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml` + Styles/SonulabTheme.axaml (Studio-warm palette tokens & style classes — use tokens, never hex literals in views).
+- **`src/Sonulab.Tone3000`** (no UI, unit-tested): Tone3000 API integration — OAuth PKCE (T3kAuth, publishable key ONLY; the t3k_cs_ secret is never app-readable), DPAPI token store, typed client, downloader. Keys: %APPDATA%\StompStationManager\tone3000.json (gitignored; template tone3000.json.example). Contract record: docs/tone3000-api-findings.md.
 - **`tests/`** Sonulab.Core.Tests + Sonulab.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
   full preset/reorder logic be tested offline against realistic firmware behavior.
 
@@ -59,3 +60,4 @@ pending manual checks.) Performance pass done — before/after numbers in `docs/
 the preset-dwrite question is resolved (VERDICT in PROTOCOL.md; byte-exact restore/duplicate via dwrite is a possible follow-up, not built).
 Amp metadata hardware validation (docs/HARDWARE-VALIDATION-amp-metadata.md) pending — run before relying on SSMD blocks on-device. IR-slot metadata not designed.
 UI-polish visual checklist (docs/HARDWARE-VALIDATION-ui-polish.md) pending.
+Tone3000 live checklist (docs/HARDWARE-VALIDATION-tone3000.md) pending.
