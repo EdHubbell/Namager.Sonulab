@@ -20,7 +20,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   reference oracle; parity goldens via `tools/distiller/make_cs_fixtures.py`.
 - **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
-  ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml`.
+  ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml` + Styles/SonulabTheme.axaml (Studio-warm palette tokens & style classes — use tokens, never hex literals in views).
 - **`tests/`** Sonulab.Core.Tests + Sonulab.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
   full preset/reorder logic be tested offline against realistic firmware behavior.
 
@@ -45,6 +45,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   backups land in `docs/backups/`, gitignored). Reorder/write paths read-back-verify + roll back on failure.
 - Parameter editor exposure is a **blocklist** (`hidden-params.json`) so new firmware params auto-appear.
 - `.pcapng` captures live in the PARENT dir `..\` (not committed).
+- UI colors come from Styles/SonulabTheme.axaml tokens (Sonulab.*Brush, both theme variants) — never hardcode hex in .axaml; Fluent accent ramp is overridden in App.axaml.
 
 ## Workflow
 superpowers **brainstorming → spec (`docs/superpowers/specs/`) → writing-plans
@@ -57,3 +58,4 @@ Amp/IR reorder and backup-all UI deferred from their v1 tabs. (See
 pending manual checks.) Performance pass done — before/after numbers in `docs/perf-findings.md`;
 the preset-dwrite question is resolved (VERDICT in PROTOCOL.md; byte-exact restore/duplicate via dwrite is a possible follow-up, not built).
 Amp metadata hardware validation (docs/HARDWARE-VALIDATION-amp-metadata.md) pending — run before relying on SSMD blocks on-device. IR-slot metadata not designed.
+UI-polish visual checklist (docs/HARDWARE-VALIDATION-ui-polish.md) pending.
