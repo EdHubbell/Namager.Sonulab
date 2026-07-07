@@ -4,8 +4,9 @@ using System.Text;
 namespace Sonulab.Tone3000;
 
 /// <summary>Persists the OAuth refresh token encrypted with Windows DPAPI (CurrentUser
-/// scope): survives restarts, unreadable by other accounts, deleted on sign-out.</summary>
-[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+/// scope): survives restarts, unreadable by other accounts, deleted on sign-out.
+/// (The Windows-only constraint this DPAPI use imposes is declared assembly-wide in
+/// AssemblyInfo.cs.)</summary>
 public sealed class T3kTokenStore(string? path = null)
 {
     private readonly string _path = path ?? Path.Combine(
