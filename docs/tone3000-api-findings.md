@@ -78,6 +78,8 @@ Regression tests added to `T3kJsonTests.cs` using sanitized real snippets from t
 `Live_tone_search_shape_maps_via_convenience_accessors`, `Live_user_shape_has_string_id_not_long`,
 `Live_model_shape_has_no_format_field`.
 
+**T3kDownloader implementation consequence:** The per-model `format` field is always null, so `T3kDownloader` derives the file extension from the parent tone's format (fallback: `ModelUrl` path extension, then `.nam` default) — the per-model format field cannot be used.
+
 ## Unverifiable with secret key
 - `GET /api/v1/user` returned `HTTP 200` with the secret (server) key and identified the
   account (`edhubbell`) — so, contrary to the spec's caution that `/user` "may be
