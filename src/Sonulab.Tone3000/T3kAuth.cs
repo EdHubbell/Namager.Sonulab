@@ -28,6 +28,7 @@ public sealed class T3kAuth(
     private readonly Action<string> _openBrowser = openBrowser ?? (url =>
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }));
 
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private string? _accessToken;
     private DateTimeOffset _accessExpires = DateTimeOffset.MinValue;
     private string? _refreshToken = store.Load();
@@ -46,7 +47,13 @@ public sealed class T3kAuth(
         int port = config.RedirectPort > 0 ? config.RedirectPort : GetFreePort();
         string redirect = $"http://127.0.0.1:{port}/callback";
         listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        listener.Start();
+        try { listener.Start(); }
+        catch (HttpListenerException e)
+        {
+            throw new T3kException(
+                $"Could not open the sign-in listener on port {port} — it may already be in use.",
+                T3kError.Auth, e);
+        }
 
         var authorizeUrl = $"{_http.BaseAddress!.ToString().TrimEnd('/')}/api/v1/oauth/authorize" +
             $"?client_id={Uri.EscapeDataString(config.PublishableKey)}&response_type=code" +
@@ -55,13 +62,32 @@ public sealed class T3kAuth(
             $"&state={Uri.EscapeDataString(state)}";
         _openBrowser(authorizeUrl);
 
+        // Wait for the real callback, ignoring unrelated noise (port scans, browser
+        // preflight requests) that arrive on the loopback listener without a `code`.
+        // A request that DOES carry a code but the wrong state is a CSRF signal and
+        // must fail the flow immediately rather than keep waiting.
         HttpListenerContext ctx;
         using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
         {
             timeout.CancelAfter(TimeSpan.FromMinutes(5));
-            try { ctx = await listener.GetContextAsync().WaitAsync(timeout.Token); }
-            catch (OperationCanceledException)
-            { throw new T3kException("Sign-in timed out — the browser window was closed or never completed.", T3kError.Auth); }
+            while (true)
+            {
+                HttpListenerContext candidate;
+                try { candidate = await listener.GetContextAsync().WaitAsync(timeout.Token); }
+                catch (OperationCanceledException)
+                {
+                    if (ct.IsCancellationRequested) throw new OperationCanceledException(ct);
+                    throw new T3kException("Sign-in timed out — the browser window was closed or never completed.", T3kError.Auth);
+                }
+                if (candidate.Request.QueryString["code"] is null)
+                {
+                    candidate.Response.StatusCode = 404;
+                    candidate.Response.Close();
+                    continue;
+                }
+                ctx = candidate;
+                break;
+            }
         }
         var q = ctx.Request.QueryString;
         string? code = q["code"];
@@ -70,6 +96,8 @@ public sealed class T3kAuth(
                       : "<html><body>Sign-in failed.</body></html>";
         var bytes = Encoding.UTF8.GetBytes(page);
         ctx.Response.ContentType = "text/html";
+        ctx.Response.StatusCode = ok ? 200 : 400;
+        ctx.Response.Headers["Cache-Control"] = "no-store";
         await ctx.Response.OutputStream.WriteAsync(bytes, ct);
         ctx.Response.Close();
         if (!ok) throw new T3kException("Sign-in was rejected (state mismatch or no code) — try again.", T3kError.Auth);
@@ -98,23 +126,40 @@ public sealed class T3kAuth(
             return _accessToken;
         if (_refreshToken is null)
             throw new T3kException("Not signed in to Tone3000.", T3kError.Auth);
-        Dictionary<string, string> grant;
+
+        // Single-flight refresh: the stored refresh token is single-use/rotating, so two
+        // concurrent callers near expiry must not both spend it. The loser re-checks the
+        // (now fresh) access token after acquiring the lock instead of refreshing again.
+        await _refreshLock.WaitAsync(ct);
         try
         {
-            grant = await TokenRequestAsync(new Dictionary<string, string>
+            if (_accessToken is not null && DateTimeOffset.UtcNow < _accessExpires - TimeSpan.FromSeconds(60))
+                return _accessToken;
+            if (_refreshToken is null)
+                throw new T3kException("Not signed in to Tone3000.", T3kError.Auth);
+
+            Dictionary<string, string> grant;
+            try
             {
-                ["grant_type"] = "refresh_token",
-                ["refresh_token"] = _refreshToken,
-                ["client_id"] = config.PublishableKey,
-            }, ct);
+                grant = await TokenRequestAsync(new Dictionary<string, string>
+                {
+                    ["grant_type"] = "refresh_token",
+                    ["refresh_token"] = _refreshToken,
+                    ["client_id"] = config.PublishableKey,
+                }, ct);
+            }
+            catch (T3kException e) when (e.Kind == T3kError.Auth)
+            {
+                SignOut();                                   // dead refresh token: honest sign-out
+                throw new T3kException("Your Tone3000 session expired — please sign in again.", T3kError.Auth);
+            }
+            ApplyGrant(grant);
+            return _accessToken!;
         }
-        catch (T3kException)
+        finally
         {
-            SignOut();                                       // dead refresh token: honest sign-out
-            throw new T3kException("Your Tone3000 session expired — please sign in again.", T3kError.Auth);
+            _refreshLock.Release();
         }
-        ApplyGrant(grant);
-        return _accessToken!;
     }
 
     private async Task<Dictionary<string, string>> TokenRequestAsync(Dictionary<string, string> form, CancellationToken ct)
@@ -131,7 +176,13 @@ public sealed class T3kAuth(
             using var doc = JsonDocument.Parse(body);
             var d = new Dictionary<string, string>();
             foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                // Skip null (and any non-string/number) properties: a JSON null must NOT
+                // become the literal string "null" via GetRawText() and get persisted —
+                // e.g. a rotating refresh_token that comes back null means "unchanged".
+                if (p.Value.ValueKind is not (JsonValueKind.String or JsonValueKind.Number)) continue;
                 d[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString()! : p.Value.GetRawText();
+            }
             return d;
         }
         catch (JsonException e)

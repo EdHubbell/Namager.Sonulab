@@ -14,20 +14,26 @@ public class T3kAuthTests : IDisposable
         public List<Dictionary<string, string>> Bodies { get; } = new();
         public int ExpiresIn { get; set; } = 3600;
         public bool Fail { get; set; }
+        public bool ThrowNetworkError { get; set; }
+        public bool DelayResponse { get; set; }
+        public bool NullRefreshToken { get; set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
         {
+            if (ThrowNetworkError) throw new HttpRequestException("simulated network failure");
             Assert.Equal("/api/v1/oauth/token", req.RequestUri!.AbsolutePath);
             var form = (await req.Content!.ReadAsStringAsync(ct)).Split('&')
                 .Select(kv => kv.Split('=', 2))
                 .ToDictionary(a => Uri.UnescapeDataString(a[0]), a => Uri.UnescapeDataString(a[1]));
             Bodies.Add(form);
+            if (DelayResponse) await Task.Delay(50, ct);
             if (Fail) return new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("{}") };
             var n = Bodies.Count;
+            object grant = NullRefreshToken
+                ? new { access_token = $"at_{n}", refresh_token = (string?)null, expires_in = ExpiresIn, token_type = "Bearer" }
+                : new { access_token = $"at_{n}", refresh_token = (string?)$"rt_{n}", expires_in = ExpiresIn, token_type = "Bearer" };
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(JsonSerializer.Serialize(new
-                { access_token = $"at_{n}", refresh_token = $"rt_{n}", expires_in = ExpiresIn, token_type = "Bearer" }),
-                Encoding.UTF8, "application/json")
+                Content = new StringContent(JsonSerializer.Serialize(grant), Encoding.UTF8, "application/json")
             };
         }
     }
@@ -56,7 +62,22 @@ public class T3kAuthTests : IDisposable
     {
         var handler = new FakeTokenHandler();
         var store = new T3kTokenStore(_tok);
-        var auth = new T3kAuth(Cfg, store, handler, FakeBrowser);
+        string? capturedChallenge = null;
+        var auth = new T3kAuth(Cfg, store, handler, url =>
+        {
+            var q = System.Web.HttpUtility.ParseQueryString(new Uri(url).Query);
+            Assert.Equal("t3k_pub_test", q["client_id"]);
+            Assert.Equal("code", q["response_type"]);
+            Assert.Equal("S256", q["code_challenge_method"]);
+            Assert.NotNull(q["code_challenge"]);
+            capturedChallenge = q["code_challenge"];
+            var redirect = q["redirect_uri"]!;
+            _ = Task.Run(async () =>
+            {
+                using var c = new HttpClient();
+                await c.GetAsync($"{redirect}?code=authcode123&state={Uri.EscapeDataString(q["state"]!)}");
+            });
+        });
 
         await auth.SignInAsync();
 
@@ -69,6 +90,12 @@ public class T3kAuthTests : IDisposable
         Assert.StartsWith("http://127.0.0.1:", body["redirect_uri"]);
         Assert.Equal("rt_1", store.Load());                  // persisted for next launch
         Assert.Equal("at_1", await auth.GetAccessTokenAsync());
+
+        // Cross-check: the challenge sent to /authorize must be S256(verifier sent to /token).
+        var expectedChallenge = Convert.ToBase64String(
+                System.Security.Cryptography.SHA256.HashData(Encoding.ASCII.GetBytes(body["code_verifier"])))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        Assert.Equal(expectedChallenge, capturedChallenge);
     }
 
     [Fact]
@@ -141,5 +168,49 @@ public class T3kAuthTests : IDisposable
         auth.SignOut();
         Assert.False(auth.IsSignedIn);
         Assert.Null(store.Load());
+    }
+
+    [Fact]
+    public async Task Network_failure_during_refresh_preserves_the_stored_token()
+    {
+        var store = new T3kTokenStore(_tok);
+        store.Save("rt_keep");
+        var handler = new FakeTokenHandler { ThrowNetworkError = true };
+        var auth = new T3kAuth(Cfg, store, handler, FakeBrowser);
+
+        var ex = await Assert.ThrowsAsync<T3kException>(() => auth.GetAccessTokenAsync());
+
+        Assert.Equal(T3kError.Network, ex.Kind);
+        Assert.Equal("rt_keep", store.Load());               // NOT wiped by a transient failure
+        Assert.True(auth.IsSignedIn);
+    }
+
+    [Fact]
+    public async Task Concurrent_token_requests_refresh_only_once()
+    {
+        var store = new T3kTokenStore(_tok);
+        store.Save("rt_start");
+        var handler = new FakeTokenHandler { ExpiresIn = 3600, DelayResponse = true };
+        var auth = new T3kAuth(Cfg, store, handler, FakeBrowser);
+
+        var results = await Task.WhenAll(auth.GetAccessTokenAsync(), auth.GetAccessTokenAsync());
+
+        Assert.Equal("at_1", results[0]);
+        Assert.Equal("at_1", results[1]);
+        Assert.Single(handler.Bodies);                        // single-flight: only one refresh hit the wire
+    }
+
+    [Fact]
+    public async Task Null_refresh_token_in_grant_keeps_the_existing_one()
+    {
+        var store = new T3kTokenStore(_tok);
+        store.Save("rt_keep");
+        var handler = new FakeTokenHandler { ExpiresIn = 3600, NullRefreshToken = true };
+        var auth = new T3kAuth(Cfg, store, handler, FakeBrowser);
+
+        var token = await auth.GetAccessTokenAsync();
+
+        Assert.Equal("at_1", token);
+        Assert.Equal("rt_keep", store.Load());                // null refresh_token must not overwrite it
     }
 }
