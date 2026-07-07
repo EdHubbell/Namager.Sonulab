@@ -102,4 +102,57 @@ public class T3kClientTests
         var ex = await Assert.ThrowsAsync<T3kException>(() => client.GetToneAsync(1));
         Assert.Equal(T3kError.Network, ex.Kind);
     }
+
+    [Fact]
+    public async Task Favorited_hits_the_right_endpoint()
+    {
+        var (client, h) = Make();
+        h.Body = """{ "data": [ { "id": 1, "title": "T" } ], "page": 1, "page_size": 20, "total": 1, "total_pages": 1 }""";
+        var page = await client.FavoritedAsync(1);
+
+        var req = h.Requests.Single();
+        Assert.Equal("/api/v1/tones/favorited", req.RequestUri!.AbsolutePath);
+        Assert.Contains("page=1", req.RequestUri.Query);
+        Assert.Single(page.Data);
+    }
+
+    [Fact]
+    public async Task Downloaded_hits_the_right_endpoint()
+    {
+        var (client, h) = Make();
+        h.Body = """{ "data": [ { "id": 1, "title": "T" } ], "page": 1, "page_size": 20, "total": 1, "total_pages": 1 }""";
+        var page = await client.DownloadedAsync(1);
+
+        var req = h.Requests.Single();
+        Assert.Equal("/api/v1/tones/downloaded", req.RequestUri!.AbsolutePath);
+        Assert.Contains("page=1", req.RequestUri.Query);
+        Assert.Single(page.Data);
+    }
+
+    [Fact]
+    public async Task GetUser_parses_the_user()
+    {
+        var (client, h) = Make();
+        h.Body = """{"id":"uuid-123","username":"ed"}""";
+        var user = await client.GetUserAsync();
+
+        var req = h.Requests.Single();
+        Assert.Equal("/api/v1/user", req.RequestUri!.AbsolutePath);
+        Assert.NotNull(user);
+        Assert.Equal("ed", user.Username);
+    }
+
+    [Fact]
+    public async Task GetTone_parses_a_tone()
+    {
+        var (client, h) = Make();
+        h.Body = """{"id":7,"title":"T","user":{"username":"ed"}}""";
+        var tone = await client.GetToneAsync(7);
+
+        var req = h.Requests.Single();
+        Assert.Equal("/api/v1/tones/7", req.RequestUri!.AbsolutePath);
+        Assert.NotNull(tone);
+        Assert.Equal("T", tone.Title);
+        Assert.Equal("ed", tone.Author);
+    }
 }

@@ -15,25 +15,27 @@ public interface IT3kClient
 
 /// <summary>Typed Tone3000 API client. Every call carries the user's OAuth Bearer token;
 /// HTTP failures map to T3kException kinds the UI shows verbatim. Parameter names match
-/// docs/tone3000-api-findings.md (the live-probe record).</summary>
+/// docs/tone3000-api-findings.md (the live-probe record).
+/// Register as a long-lived singleton — owns an HttpClient.</summary>
 public sealed class T3kClient(IT3kAuth auth, HttpMessageHandler? handler = null, string? baseUrl = null) : IT3kClient
 {
+    private const int PageSize = 20;
     private readonly HttpClient _http = new(handler ?? new HttpClientHandler())
     { BaseAddress = new Uri(baseUrl ?? T3kConfig.DefaultBaseUrl) };
 
     public Task<T3kPage<T3kTone>> SearchAsync(string? query, string? format, int page, CancellationToken ct = default)
     {
-        var q = new List<string> { $"page={page}", "page_size=20" };
+        var q = new List<string> { $"page={page}", $"page_size={PageSize}" };
         if (!string.IsNullOrWhiteSpace(query)) q.Add($"query={Uri.EscapeDataString(query)}");
         if (!string.IsNullOrWhiteSpace(format)) q.Add($"format={Uri.EscapeDataString(format)}");
         return GetPageAsync<T3kTone>($"/api/v1/tones/search?{string.Join('&', q)}", ct);
     }
 
     public Task<T3kPage<T3kTone>> FavoritedAsync(int page, CancellationToken ct = default) =>
-        GetPageAsync<T3kTone>($"/api/v1/tones/favorited?page={page}&page_size=20", ct);
+        GetPageAsync<T3kTone>($"/api/v1/tones/favorited?page={page}&page_size={PageSize}", ct);
 
     public Task<T3kPage<T3kTone>> DownloadedAsync(int page, CancellationToken ct = default) =>
-        GetPageAsync<T3kTone>($"/api/v1/tones/downloaded?page={page}&page_size=20", ct);
+        GetPageAsync<T3kTone>($"/api/v1/tones/downloaded?page={page}&page_size={PageSize}", ct);
 
     public async Task<T3kTone?> GetToneAsync(long id, CancellationToken ct = default) =>
         T3kJson.Parse<T3kTone>(await GetStringAsync($"/api/v1/tones/{id}", ct));
@@ -48,7 +50,7 @@ public sealed class T3kClient(IT3kAuth auth, HttpMessageHandler? handler = null,
     {
         var req = new HttpRequestMessage(favorite ? HttpMethod.Put : HttpMethod.Delete,
                                          $"/api/v1/tones/{toneId}/favorite");
-        await SendAsync(req, ct);
+        using var resp = await SendAsync(req, ct);
     }
 
     private async Task<T3kPage<T>> GetPageAsync<T>(string path, CancellationToken ct) =>
@@ -56,7 +58,7 @@ public sealed class T3kClient(IT3kAuth auth, HttpMessageHandler? handler = null,
 
     private async Task<string> GetStringAsync(string path, CancellationToken ct)
     {
-        var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Get, path), ct);
+        using var resp = await SendAsync(new HttpRequestMessage(HttpMethod.Get, path), ct);
         return await resp.Content.ReadAsStringAsync(ct);
     }
 
@@ -68,6 +70,7 @@ public sealed class T3kClient(IT3kAuth auth, HttpMessageHandler? handler = null,
         catch (HttpRequestException e)
         { throw new T3kException("Could not reach tone3000.com — check your connection.", T3kError.Network, e); }
         if (resp.IsSuccessStatusCode) return resp;
+        resp.Dispose();
         throw resp.StatusCode switch
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
