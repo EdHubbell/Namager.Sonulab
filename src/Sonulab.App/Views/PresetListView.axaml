@@ -38,7 +38,7 @@
     <!-- Busy indicator -->
     <StackPanel DockPanel.Dock="Bottom" Margin="8,2" IsVisible="{Binding IsBusy}" Spacing="4">
       <ProgressBar IsIndeterminate="True" Height="4"/>
-      <TextBlock Text="{Binding BusyMessage}" FontSize="11" Opacity="0.7"/>
+      <TextBlock Text="{Binding BusyMessage}" FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
     </StackPanel>
 
     <!-- Preset list -->
@@ -68,10 +68,8 @@
                 <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="12" Height="12"/>
               </Button>
             </StackPanel>
-            <TextBlock Text="{Binding DisplaySlot, StringFormat='{}{0:00}'}"
-                       Width="28" VerticalAlignment="Center"
-                       FontFamily="Consolas,Cascadia Mono,monospace"
-                       Opacity="0.6"/>
+            <TextBlock Classes="slot-number" Text="{Binding DisplaySlot, StringFormat='{}{0:00}'}"
+                       Width="28" VerticalAlignment="Center"/>
             <Panel VerticalAlignment="Center" Margin="8,0,0,0">
               <TextBlock VerticalAlignment="Center" IsVisible="{Binding !IsEditing}"
                          Opacity="{Binding IsEmpty, Converter={x:Static conv:BoolToOpacity.Instance}}">

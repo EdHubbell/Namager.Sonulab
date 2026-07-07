@@ -6,7 +6,7 @@
       <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
         <Button Content="Load" Command="{Binding LoadCommand}"/>
         <Button Content="Save" Command="{Binding SaveCommand}"/>
-        <TextBlock Text="●" IsVisible="{Binding IsDirty}" Foreground="#FF9900"
+        <TextBlock Text="●" IsVisible="{Binding IsDirty}" Foreground="{DynamicResource Sonulab.WarningBrush}"
                    VerticalAlignment="Center" ToolTip.Tip="Unsaved changes"/>
       </StackPanel>
       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
@@ -51,7 +51,7 @@
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:SubGroupViewModel">
                         <StackPanel Margin="12,4,0,0">
-                          <TextBlock Text="{Binding Header}" FontWeight="SemiBold" Margin="0,2"/>
+                          <TextBlock Classes="section-label" Text="{Binding Header}" FontWeight="SemiBold" Margin="0,4,0,2"/>
                           <ItemsControl ItemsSource="{Binding Fields}">
                             <ItemsControl.ItemTemplate>
                               <DataTemplate x:DataType="vm:ParameterFieldViewModel">
@@ -89,7 +89,7 @@
     <Border IsVisible="{Binding IsLoading}" Background="#60000000">
       <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
         <ProgressBar IsIndeterminate="True" Width="140"/>
-        <TextBlock Text="Loading…" HorizontalAlignment="Center" Opacity="0.8"/>
+        <TextBlock Text="Loading…" HorizontalAlignment="Center" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
       </StackPanel>
     </Border>
   </Grid>

@@ -15,10 +15,12 @@
   <DockPanel>
 
     <!-- ===== Top connection bar ===== -->
-    <Border DockPanel.Dock="Top" Padding="12,8">
+    <Border DockPanel.Dock="Top" Padding="12,8"
+            Background="{DynamicResource Sonulab.SurfaceAltBrush}"
+            BorderBrush="{DynamicResource Sonulab.BorderBrush}" BorderThickness="0,0,0,1">
       <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
 
-        <Button Command="{Binding Connection.ConnectCommand}"
+        <Button Classes="accent-outline" Command="{Binding Connection.ConnectCommand}"
                 ToolTip.Tip="Connect to StompStation">
           <StackPanel Orientation="Horizontal">
             <PathIcon Data="{StaticResource Icon.Power}" Width="16" Height="16"/>
