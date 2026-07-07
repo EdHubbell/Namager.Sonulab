@@ -14,6 +14,20 @@ public class MainWindowViewModelTests
         return new AmpListViewModel(svc, writesAllowed: true);
     }
 
+    /// <summary>C1 test seam: gates the "read root\amp" list read behind a TaskCompletionSource so
+    /// the first-visit refresh started by EnsureTabLoaded stays genuinely in-flight (a real await
+    /// suspension, not one that completes synchronously like the plain fakes do) until the test
+    /// releases it.</summary>
+    private sealed class GatedAmpDevice : FakeAmpDevice
+    {
+        public readonly TaskCompletionSource Gate = new();
+        public override async Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (command == @"read root\amp") await Gate.Task;
+            return await base.SendAsync(command, ct);
+        }
+    }
+
     [Fact]
     public void EnsureTabLoaded_refreshes_amps_once_on_first_visit_only()
     {
@@ -57,5 +71,40 @@ public class MainWindowViewModelTests
         vm.NavigateToUpload(isIr: false, path: "x.nam", notes: "n", url: "u");
         Assert.Null(navigatedTo);
         Assert.NotNull(vm.Tone3000.Banner);                  // told the user why nothing happened
+    }
+
+    /// <summary>C1: a Tone3000 send-to-pedal that arrives before the Amps tab has ever been
+    /// visited fires NavigateRequested, which (per MainWindow.axaml.cs's nav-changed handler)
+    /// triggers EnsureTabLoaded's first-visit refresh. NavigateToUploadAsync must await that
+    /// in-flight refresh (via PendingTabLoad) BEFORE calling BeginUploadPrefilled — otherwise
+    /// BeginUploadPrefilled runs while Amps.IsBusy is still true, CanMutate is false, and it
+    /// silently no-ops (the panel never opens).</summary>
+    [Fact]
+    public async Task NavigateToUpload_waits_for_the_first_visit_tab_load()
+    {
+        var dev = new GatedAmpDevice();
+        dev.SeedAmp(0, "A", Enumerable.Repeat((byte)1, 12288).ToArray());
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new AmpService(new SonuClient(dev), Path.Combine(Path.GetTempPath(), "mwvm-t2"), 0, 0);
+        var amps = new AmpListViewModel(svc, writesAllowed: true);
+
+        var vm = new MainWindowViewModel { Amps = amps };
+        // Mirror MainWindow.axaml.cs's OnNavSelectionChanged: NavigateRequested drives EnsureTabLoaded.
+        vm.NavigateRequested += i => vm.EnsureTabLoaded(i);
+
+        var handoff = vm.NavigateToUploadAsync(isIr: false, path: "x.nam", notes: "n", url: "u");
+
+        // The first-visit refresh is genuinely in flight (gated); the guard that causes C1 must
+        // be observably armed right now — BeginUploadPrefilled must NOT have run yet.
+        Assert.True(amps.IsBusy);
+        Assert.False(amps.IsUploadPanelOpen);
+
+        dev.Gate.SetResult();
+        await handoff;
+
+        Assert.False(amps.IsBusy);
+        Assert.True(amps.IsUploadPanelOpen);                 // now prefilled, after the load completed
+        Assert.Equal("n", amps.UploadNotes);
+        Assert.Equal("u", amps.UploadUrl);
     }
 }

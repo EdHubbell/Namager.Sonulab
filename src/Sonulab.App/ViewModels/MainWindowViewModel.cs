@@ -25,12 +25,18 @@ public partial class MainWindowViewModel : ObservableObject
     /// whichever tab the user is already looking at.</summary>
     public int CurrentNavIndex { get; set; }
 
+    /// <summary>Test/handoff seam: the in-flight first-visit refresh kicked off by
+    /// <see cref="EnsureTabLoaded"/> (if any). <see cref="NavigateToUploadAsync"/> awaits this
+    /// before prefilling, so a Tone3000 send-to-pedal that arrives before the target tab has ever
+    /// been visited doesn't race the lazy load (C1).</summary>
+    public Task? PendingTabLoad { get; private set; }
+
     /// <summary>Lazy tab loading (perf spec §3): Amps/IRs fetch their device lists on FIRST
     /// visit instead of at connect — removes two full list reads from the connect path.</summary>
     public void EnsureTabLoaded(int navIndex)
     {
-        if (navIndex == 1 && Amps is { } a && !_ampsLoaded) { _ampsLoaded = true; _ = TimedRefreshAsync(a.RefreshCommand, "amps-first-visit"); }
-        else if (navIndex == 2 && Irs is { } i && !_irsLoaded) { _irsLoaded = true; _ = TimedRefreshAsync(i.RefreshCommand, "irs-first-visit"); }
+        if (navIndex == 1 && Amps is { } a && !_ampsLoaded) { _ampsLoaded = true; PendingTabLoad = TimedRefreshAsync(a.RefreshCommand, "amps-first-visit"); }
+        else if (navIndex == 2 && Irs is { } i && !_irsLoaded) { _irsLoaded = true; PendingTabLoad = TimedRefreshAsync(i.RefreshCommand, "irs-first-visit"); }
     }
 
     private static async Task TimedRefreshAsync(CommunityToolkit.Mvvm.Input.IAsyncRelayCommand refresh, string label)
@@ -57,7 +63,7 @@ public partial class MainWindowViewModel : ObservableObject
             _tone3000 = new Tone3000ViewModel(null, null, null);
         }
         _tone3000.SendToPedalRequested += (path, notes, url, isIr) =>
-            NavigateToUpload(isIr, path, notes, url);
+            NavigateToUpload(isIr, path, notes, url);   // fire-and-forget wrapper; keeps this subscription simple
 
         // Adaptive settle (perf spec §4): instead of always paying a fixed 1500 ms for the
         // ESP32's post-open reboot, wait briefly and let the probe-retry loop find the moment
@@ -118,19 +124,31 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>Tone3000 handoff: switch to the Amps or IRs tab and open the upload panel
-    /// prefilled. Nav indices match MainWindow's NavList (0 presets, 1 amps, 2 irs, 4 t3k).</summary>
-    public void NavigateToUpload(bool isIr, string path, string? notes, string? url)
+    /// prefilled. Nav indices match MainWindow's NavList (0 presets, 1 amps, 2 irs, 4 t3k).
+    /// Fire-and-forget wrapper around <see cref="NavigateToUploadAsync"/> so the Tone3000
+    /// event subscription stays a plain synchronous handler.</summary>
+    public void NavigateToUpload(bool isIr, string path, string? notes, string? url) =>
+        _ = NavigateToUploadAsync(isIr, path, notes, url);
+
+    /// <summary>C1: if the target tab has never been visited since connect, NavigateRequested
+    /// triggers EnsureTabLoaded's first-visit refresh (View's nav-changed handler calls it
+    /// synchronously off NavigateRequested). Awaiting that in-flight load before prefilling stops
+    /// BeginUploadPrefilled from no-opping while Amps.IsBusy (CanMutate false) — or the IRs path
+    /// seeing an empty Items list and reporting "no empty slots" wrongly.</summary>
+    public async Task NavigateToUploadAsync(bool isIr, string path, string? notes, string? url)
     {
         if (isIr)
         {
             if (Irs is not { } irs) { Tone3000.Banner = "Connect to the pedal first."; return; }
             NavigateRequested?.Invoke(2);
+            if (PendingTabLoad is { } t) { try { await t; } catch { /* superseded/failed load; proceed anyway */ } }
             irs.BeginUploadCommand.Execute(path);            // IRs: name prefill via filename; no SSMD
         }
         else
         {
             if (Amps is not { } amps) { Tone3000.Banner = "Connect to the pedal first."; return; }
             NavigateRequested?.Invoke(1);
+            if (PendingTabLoad is { } t) { try { await t; } catch { /* superseded/failed load; proceed anyway */ } }
             amps.BeginUploadPrefilled(path, notes, url);
         }
     }

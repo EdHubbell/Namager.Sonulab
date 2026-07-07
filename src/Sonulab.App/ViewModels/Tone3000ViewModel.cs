@@ -21,6 +21,7 @@ public partial class Tone3000ViewModel : ObservableObject
     private readonly Action<Action> _dispatch;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private CancellationTokenSource? _debounceCts;
+    private int _loadGeneration;
 
     public Tone3000ViewModel(IT3kAuth? auth, IT3kClient? client, IT3kDownloader? downloader,
         Action<Action>? dispatch = null, Func<TimeSpan, CancellationToken, Task>? delay = null)
@@ -128,6 +129,7 @@ public partial class Tone3000ViewModel : ObservableObject
     private async Task LoadAsync()
     {
         if (_client is null || !IsSignedIn) return;
+        int gen = ++_loadGeneration;
         IsLoading = true; Banner = null;
         try
         {
@@ -140,52 +142,68 @@ public partial class Tone3000ViewModel : ObservableObject
             };
             _dispatch(() =>
             {
+                if (gen != _loadGeneration) return;           // a newer load already landed
                 Results.Clear();
                 foreach (var t in page.Data) Results.Add(t);
                 TotalPages = page.TotalPages;
             });
         }
-        catch (T3kException ex) { _dispatch(() => { Results.Clear(); Banner = ex.Message; }); }
+        catch (T3kException ex)
+        {
+            FlagAuthIfNeeded(ex);
+            _dispatch(() => { if (gen != _loadGeneration) return; Results.Clear(); Banner = ex.Message; });
+        }
         finally { IsLoading = false; }
     }
 
     private async Task LoadModelsAsync(T3kTone? tone)
     {
+        int gen = ++_loadGeneration;                          // shares the counter with LoadAsync
         SelectedModels.Clear();
         if (tone is null || _client is null) return;
         try
         {
             var models = await _client.GetModelsAsync(tone.Id);
-            _dispatch(() => { foreach (var m in models) SelectedModels.Add(m); });
+            _dispatch(() => { if (gen != _loadGeneration) return; foreach (var m in models) SelectedModels.Add(m); });
         }
-        catch (T3kException ex) { _dispatch(() => Banner = ex.Message); }
+        catch (T3kException ex)
+        {
+            FlagAuthIfNeeded(ex);
+            _dispatch(() => { if (gen != _loadGeneration) return; Banner = ex.Message; });
+        }
     }
+
+    /// <summary>I4: a dead/expired session (T3kError.Auth) flips the tab back to the
+    /// signed-out card instead of leaving a stale "signed in" state with a banner nobody reads.</summary>
+    private void FlagAuthIfNeeded(T3kException ex)
+    { if (ex.Kind == T3kError.Auth) IsSignedIn = _auth?.IsSignedIn ?? false; }
 
     [RelayCommand]
     private async Task ToggleFavoriteAsync()
     {
         if (_client is null || Selected is not { } t) return;
         try { await _client.SetFavoriteAsync(t.Id, favorite: true); }
-        catch (T3kException ex) { Banner = ex.Message; }
+        catch (T3kException ex) { Banner = ex.Message; FlagAuthIfNeeded(ex); }
     }
 
     [RelayCommand]
     private async Task SendToPedalAsync(T3kModel? model)
     {
         if (model is null || _downloader is null || !IsDeviceReady) return;
-        Banner = null;
+        var tone = Selected;                  // I1: capture BEFORE the download await — a selection
+        Banner = null;                        // change mid-download must not re-stamp the wrong tone.
         try
         {
-            var path = await _downloader.DownloadAsync(model, Selected?.Format);
+            var path = await _downloader.DownloadAsync(model, tone?.Format);
             // T3kModel.Format is always null on the live API (docs/tone3000-api-findings.md) —
             // derive isIr from the parent tone's Format first, falling back to the file extension.
-            bool isIr = Selected?.Format is "ir" or "wav" ||
+            bool isIr = tone?.Format is "ir" or "wav" ||
                         path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase);
-            string? notes = Selected is { } t ? $"{t.Title} by {t.Author} (Tone3000)" : null;
-            string? url = Selected?.PageUrl;
+            string? notes = tone is { } t ? $"{t.Title} by {t.Author} (Tone3000)" : null;
+            string? url = tone?.PageUrl;
             SendToPedalRequested?.Invoke(path, notes, url, isIr);
         }
-        catch (T3kException ex) { Banner = ex.Message; }
+        catch (T3kException ex) { Banner = ex.Message; FlagAuthIfNeeded(ex); }
     }
 
     [RelayCommand]
@@ -214,6 +232,8 @@ public static class T3kConverters
 /// thread, with silent failure (the ♪ placeholder behind it stays visible).</summary>
 public static class RemoteImage
 {
+    private static readonly HttpClient Http = new();
+
     public static readonly Avalonia.AttachedProperty<string?> SourceProperty =
         Avalonia.AvaloniaProperty.RegisterAttached<Avalonia.Controls.Image, string?>("Source", typeof(RemoteImage));
 
@@ -227,8 +247,7 @@ public static class RemoteImage
             if (e.NewValue is not string url || !url.StartsWith("http")) { img.Source = null; return; }
             try
             {
-                using var http = new HttpClient();
-                var bytes = await http.GetByteArrayAsync(url);
+                var bytes = await Http.GetByteArrayAsync(url);
                 using var ms = new MemoryStream(bytes);
                 img.Source = new Avalonia.Media.Imaging.Bitmap(ms);
             }

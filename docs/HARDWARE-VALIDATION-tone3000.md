@@ -15,7 +15,8 @@ Steps 1–6 need only internet + keys; steps 7–9 need the pedal (VoidX-Control
 - [ ] 5. Select a tone → detail panel: title/author/gear/description/link/models.
        "Open on tone3000.com" opens the browser.
 - [ ] 6. Disconnected: "Send to pedal" buttons are DISABLED with the tooltip.
-- [ ] 7. [PEDAL] Connect. Send a NAM model → downloads to NAMFiles\Tone3000\, switches to
+- [ ] 7. [PEDAL] Connect. Send a NAM model → downloads to NAMFiles\Tone3000\ under the app's
+       base directory (bin\Debug\net10.0\ when run via dotnet run), switches to
        the Amps tab, upload panel open with name + notes ("<title> by <author> (Tone3000)")
        + link prefilled. Complete the upload; check the amp's details pane shows the
        Tone3000 URL and notes in its SSMD metadata.
@@ -24,3 +25,4 @@ Steps 1–6 need only internet + keys; steps 7–9 need the pedal (VoidX-Control
 - [ ] 9. Sign out → signed-out card; sign back in.
 - [ ] 10. Record date, findings, and any divergence into docs/tone3000-api-findings.md.
 - [ ] 11. Keyboard nav: arrow keys in the nav list skip the disabled BROWSE TONES header (first disabled ListBoxItem in this codebase).
+- [ ] 12. Connect while ON the Tone3000 tab, then Send to pedal immediately — the Amps tab must open with the upload panel prefilled (first-visit lazy-load ordering).
