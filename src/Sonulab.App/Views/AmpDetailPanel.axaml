@@ -1,0 +1,157 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sonulab.App.ViewModels"
+             xmlns:conv="using:Sonulab.App.Converters"
+             x:Class="Sonulab.App.Views.AmpDetailPanel"
+             x:DataType="vm:AmpListViewModel">
+  <DockPanel>
+
+    <!-- Messages always on top, whatever state is active (spec §2) -->
+    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,4" FontSize="11" TextWrapping="Wrap"
+               Foreground="{DynamicResource Sonulab.WarningBrush}"
+               Text="{Binding UploadBlockedMessage}"
+               IsVisible="{Binding UploadBlockedMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,4" FontSize="11" TextWrapping="Wrap"
+               Foreground="{DynamicResource Sonulab.DangerBrush}"
+               Text="{Binding ErrorMessage}"
+               IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <Panel>
+
+        <!-- ===== State 1: upload form ===== -->
+        <Border Classes="card" VerticalAlignment="Top" IsVisible="{Binding IsUploadPanelOpen}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="section-label" Text="UPLOAD"/>
+            <TextBlock Text="{Binding UploadSourceFileName}" FontWeight="SemiBold" FontSize="15"/>
+            <Border Classes="rule"/>
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto">
+              <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBox Grid.Column="1" Text="{Binding UploadName}" MaxLength="31"
+                       IsEnabled="{Binding !IsUploading}"/>
+              <TextBlock Grid.Column="2" Text="Slot" VerticalAlignment="Center" Margin="12,0,8,0"/>
+              <ComboBox Grid.Column="3" MinWidth="90"
+                        ItemsSource="{Binding EmptySlots}"
+                        SelectedItem="{Binding SelectedEmptySlot}"
+                        IsEnabled="{Binding !IsUploading}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="x:Int32">
+                    <TextBlock Text="{Binding Converter={x:Static conv:IndexToSlotNumber.Instance}}"/>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+              <TextBlock Grid.Row="0" Grid.Column="0" Text="Link" VerticalAlignment="Center" Margin="0,0,8,0"/>
+              <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding UploadUrl}" Watermark="https:// where the tone came from (optional)"
+                       IsEnabled="{Binding !IsUploading}" Margin="0,0,0,4"/>
+              <TextBlock Grid.Row="1" Grid.Column="0" Text="Notes" VerticalAlignment="Top" Margin="0,4,8,0"/>
+              <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding UploadNotes}" Watermark="Notes about this tone (optional)"
+                       AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="96"
+                       IsEnabled="{Binding !IsUploading}"/>
+            </Grid>
+            <TextBlock Text="{Binding NotesBudgetWarning}" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Sonulab.WarningBrush}"
+                       IsVisible="{Binding NotesBudgetWarning, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            <ProgressBar Height="6" Minimum="0" Maximum="1"
+                         Value="{Binding UploadProgressValue}"
+                         IsIndeterminate="{Binding IsUploadIndeterminate}"
+                         IsVisible="{Binding IsUploading}"/>
+            <TextBlock Text="{Binding UploadStatus}" FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
+            <TextBlock Text="{Binding UploadError}" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Sonulab.DangerBrush}"
+                       IsVisible="{Binding UploadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Classes="accent-outline" Content="Start" Command="{Binding StartUploadCommand}" IsEnabled="{Binding !IsUploading}"/>
+              <Button Content="Cancel" Command="{Binding CancelUploadCommand}" IsEnabled="{Binding CanCancelUpload}"
+                      ToolTip.Tip="Cancelling is only possible while distilling — device writes always run to completion"/>
+              <Button Content="Close" Command="{Binding CloseUploadPanelCommand}" IsEnabled="{Binding !IsUploading}"/>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- ===== State 2: details ===== -->
+        <Border Classes="card" VerticalAlignment="Top">
+          <Border.IsVisible>
+            <MultiBinding Converter="{x:Static BoolConverters.And}">
+              <Binding Path="IsDetailsVisible"/>
+              <Binding Path="!IsUploadPanelOpen"/>
+            </MultiBinding>
+          </Border.IsVisible>
+          <StackPanel Spacing="4">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="{Binding Selected.Name}" FontWeight="SemiBold" FontSize="15"/>
+              <TextBlock Text="{Binding Selected.DisplaySlot, StringFormat='SLOT {0:00}'}"
+                         FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"
+                         Foreground="{DynamicResource Sonulab.AccentBrush}"/>
+            </StackPanel>
+            <TextBlock Text="Reading amp metadata…" FontSize="11"
+                       Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                       IsVisible="{Binding IsDetailsLoading}"/>
+            <TextBlock Text="No metadata — uploaded outside StompStation Manager." FontSize="11"
+                       Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                       IsVisible="{Binding ShowNoMetadata}"/>
+            <TextBlock Text="{Binding DetailsError}" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{DynamicResource Sonulab.DangerBrush}"
+                       IsVisible="{Binding DetailsError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            <Border Classes="rule"/>
+            <ItemsControl ItemsSource="{Binding DetailsFields}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MetadataField">
+                  <Grid ColumnDefinitions="130,*" Margin="0,1">
+                    <TextBlock Grid.Column="0" Classes="section-label" Text="{Binding Label}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="12" TextWrapping="Wrap"/>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel IsVisible="{Binding DetailsNotes, Converter={x:Static ObjectConverters.IsNotNull}}">
+              <Border Classes="rule"/>
+              <TextBlock Classes="section-label" Text="NOTES"/>
+              <TextBlock Text="{Binding DetailsNotes}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>
+            </StackPanel>
+            <Button Content="{Binding DetailsUrl}" Command="{Binding OpenDetailsUrlCommand}"
+                    Padding="0" Background="Transparent" FontSize="12" Cursor="Hand"
+                    Foreground="{DynamicResource Sonulab.AccentBrush}"
+                    IsVisible="{Binding DetailsUrl, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+            <Border Classes="rule"/>
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !IsEditingMetadata}">
+              <Button Classes="accent-outline" Content="Edit notes/link" Command="{Binding BeginEditMetadataCommand}"
+                      IsEnabled="{Binding CanMutate}" FontSize="11"/>
+            </StackPanel>
+            <StackPanel Spacing="4" IsVisible="{Binding IsEditingMetadata}">
+              <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Link" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="11"/>
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding EditUrl}" Margin="0,0,0,4"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Notes" VerticalAlignment="Top" Margin="0,4,8,0" FontSize="11"/>
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding EditNotes}" AcceptsReturn="True"
+                         TextWrapping="Wrap" MaxHeight="96"/>
+              </Grid>
+              <TextBlock Text="{Binding EditBudgetWarning}" FontSize="11" TextWrapping="Wrap"
+                         Foreground="{DynamicResource Sonulab.WarningBrush}"
+                         IsVisible="{Binding EditBudgetWarning, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Classes="accent-outline" Content="Save to pedal" Command="{Binding SaveMetadataCommand}" IsEnabled="{Binding CanMutate}"
+                        ToolTip.Tip="Re-flashes the slot (~3 s): backup, write, verify — the amp sound is untouched"/>
+                <Button Content="Cancel" Command="{Binding CancelEditMetadataCommand}"/>
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- ===== State 3: placeholder ===== -->
+        <TextBlock Text="Select an amp to see its details."
+                   Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,48,0,0">
+          <TextBlock.IsVisible>
+            <MultiBinding Converter="{x:Static BoolConverters.And}">
+              <Binding Path="!IsDetailsVisible"/>
+              <Binding Path="!IsUploadPanelOpen"/>
+            </MultiBinding>
+          </TextBlock.IsVisible>
+        </TextBlock>
+
+      </Panel>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

@@ -3,177 +3,73 @@
              xmlns:vm="using:Sonulab.App.ViewModels"
              xmlns:conv="using:Sonulab.App.Converters"
              xmlns:behaviors="using:Sonulab.App.Behaviors"
+             xmlns:views="using:Sonulab.App.Views"
              x:Class="Sonulab.App.Views.AmpListView"
              x:DataType="vm:AmpListViewModel">
-  <DockPanel MaxWidth="560" HorizontalAlignment="Left">
+  <Grid ColumnDefinitions="260,*">
 
-    <!-- Command bar -->
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="8,6,8,4">
-      <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
-        <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
-      </Button>
-      <Button x:Name="UploadNamButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Distill a .nam and upload it to an empty slot">
-        <TextBlock Text="Upload .nam…"/>
-      </Button>
-      <Button x:Name="UploadVxampButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Upload an already-distilled .vxamp to an empty slot">
-        <TextBlock Text="Upload .vxamp…"/>
-      </Button>
-      <Button Command="{Binding DeleteCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete (backs up first)">
-        <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
-      </Button>
-    </StackPanel>
-
-    <!-- Blocked / error messages -->
-    <TextBlock DockPanel.Dock="Top" Margin="8,0" FontSize="11" Foreground="#D9820F"
-               Text="{Binding UploadBlockedMessage}"
-               IsVisible="{Binding UploadBlockedMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-    <TextBlock DockPanel.Dock="Top" Margin="8,0" FontSize="11" Foreground="#D9534F"
-               Text="{Binding ErrorMessage}" TextWrapping="Wrap"
-               IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-
-    <!-- Upload panel (inline, bottom) -->
-    <Border DockPanel.Dock="Bottom" Margin="8,4" Padding="10" CornerRadius="4"
-            BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-            IsVisible="{Binding IsUploadPanelOpen}">
-      <StackPanel Spacing="6">
-        <TextBlock Text="{Binding UploadSourceFileName}" FontWeight="SemiBold"/>
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto" >
-          <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" Margin="0,0,8,0"/>
-          <TextBox Grid.Column="1" Text="{Binding UploadName}" MaxLength="31"
-                   IsEnabled="{Binding !IsUploading}"/>
-          <TextBlock Grid.Column="2" Text="Slot" VerticalAlignment="Center" Margin="12,0,8,0"/>
-          <ComboBox Grid.Column="3" MinWidth="90"
-                    ItemsSource="{Binding EmptySlots}"
-                    SelectedItem="{Binding SelectedEmptySlot}"
-                    IsEnabled="{Binding !IsUploading}">
-            <ComboBox.ItemTemplate>
-              <DataTemplate x:DataType="x:Int32">
-                <TextBlock Text="{Binding Converter={x:Static conv:IndexToSlotNumber.Instance}}"/>
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
-        </Grid>
-        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" >
-          <TextBlock Grid.Row="0" Grid.Column="0" Text="Link" VerticalAlignment="Center" Margin="0,0,8,0"/>
-          <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding UploadUrl}" Watermark="https:// where the tone came from (optional)"
-                   IsEnabled="{Binding !IsUploading}" Margin="0,0,0,4"/>
-          <TextBlock Grid.Row="1" Grid.Column="0" Text="Notes" VerticalAlignment="Top" Margin="0,4,8,0"/>
-          <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding UploadNotes}" Watermark="Notes about this tone (optional)"
-                   AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="72"
-                   IsEnabled="{Binding !IsUploading}"/>
-        </Grid>
-        <TextBlock Text="{Binding NotesBudgetWarning}" FontSize="11" Foreground="#D9820F" TextWrapping="Wrap"
-                   IsVisible="{Binding NotesBudgetWarning, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-        <ProgressBar Height="6" Minimum="0" Maximum="1"
-                     Value="{Binding UploadProgressValue}"
-                     IsIndeterminate="{Binding IsUploadIndeterminate}"
-                     IsVisible="{Binding IsUploading}"/>
-        <TextBlock Text="{Binding UploadStatus}" FontSize="11" Opacity="0.8"/>
-        <TextBlock Text="{Binding UploadError}" FontSize="11" Foreground="#D9534F" TextWrapping="Wrap"
-                   IsVisible="{Binding UploadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <Button Content="Start" Command="{Binding StartUploadCommand}" IsEnabled="{Binding !IsUploading}"/>
-          <Button Content="Cancel" Command="{Binding CancelUploadCommand}" IsEnabled="{Binding CanCancelUpload}"
-                  ToolTip.Tip="Cancelling is only possible while distilling — device writes always run to completion"/>
-          <Button Content="Close" Command="{Binding CloseUploadPanelCommand}" IsEnabled="{Binding !IsUploading}"/>
-        </StackPanel>
+    <!-- ===== Left: command bar + slot list ===== -->
+    <DockPanel Grid.Column="0">
+      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="0,0,0,6">
+        <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
+          <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
+        </Button>
+        <Button x:Name="UploadNamButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Distill a .nam and upload it to an empty slot">
+          <TextBlock Text="Upload .nam…"/>
+        </Button>
+        <Button x:Name="UploadVxampButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Upload an already-distilled .vxamp to an empty slot">
+          <TextBlock Text="Upload .vxamp…"/>
+        </Button>
+        <Button Command="{Binding DeleteCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete (backs up first)">
+          <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
+        </Button>
       </StackPanel>
-    </Border>
 
-    <!-- Busy indicator -->
-    <StackPanel DockPanel.Dock="Bottom" Margin="8,2" IsVisible="{Binding IsBusy}" Spacing="4">
-      <ProgressBar IsIndeterminate="True" Height="4"/>
-      <TextBlock Text="{Binding BusyMessage}" FontSize="11" Opacity="0.7"/>
-    </StackPanel>
-
-    <!-- Details pane (selected amp metadata) -->
-    <Border DockPanel.Dock="Bottom" Margin="8,4" Padding="10" CornerRadius="4"
-            BorderThickness="1" BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
-            IsVisible="{Binding IsDetailsVisible}">
-      <StackPanel Spacing="4">
-        <TextBlock Text="Reading amp metadata…" FontSize="11" Opacity="0.7"
-                   IsVisible="{Binding IsDetailsLoading}"/>
-        <TextBlock Text="No metadata — uploaded outside StompStation Manager." FontSize="11" Opacity="0.7"
-                   IsVisible="{Binding ShowNoMetadata}"/>
-        <TextBlock Text="{Binding DetailsError}" FontSize="11" Foreground="#D9534F" TextWrapping="Wrap"
-                   IsVisible="{Binding DetailsError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-        <ItemsControl ItemsSource="{Binding DetailsFields}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:MetadataField">
-              <Grid ColumnDefinitions="130,*">
-                <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="11" Opacity="0.6"/>
-                <TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="11" TextWrapping="Wrap"/>
-              </Grid>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <TextBlock Text="{Binding DetailsNotes}" FontSize="11" TextWrapping="Wrap"
-                   IsVisible="{Binding DetailsNotes, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-        <Button Content="{Binding DetailsUrl}" Command="{Binding OpenDetailsUrlCommand}"
-                Padding="0" Background="Transparent" Foreground="#3B82D6" FontSize="11" Cursor="Hand"
-                IsVisible="{Binding DetailsUrl, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !IsEditingMetadata}">
-          <Button Content="Edit notes/link" Command="{Binding BeginEditMetadataCommand}"
-                  IsEnabled="{Binding CanMutate}" FontSize="11"/>
-        </StackPanel>
-        <StackPanel Spacing="4" IsVisible="{Binding IsEditingMetadata}">
-          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Link" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="11"/>
-            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding EditUrl}" Margin="0,0,0,4"/>
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Notes" VerticalAlignment="Top" Margin="0,4,8,0" FontSize="11"/>
-            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding EditNotes}" AcceptsReturn="True"
-                     TextWrapping="Wrap" MaxHeight="72"/>
-          </Grid>
-          <TextBlock Text="{Binding EditBudgetWarning}" FontSize="11" Foreground="#D9820F" TextWrapping="Wrap"
-                     IsVisible="{Binding EditBudgetWarning, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="Save to pedal" Command="{Binding SaveMetadataCommand}" IsEnabled="{Binding CanMutate}"
-                    ToolTip.Tip="Re-flashes the slot (~3 s): backup, write, verify — the amp sound is untouched"/>
-            <Button Content="Cancel" Command="{Binding CancelEditMetadataCommand}"/>
-          </StackPanel>
-        </StackPanel>
+      <StackPanel DockPanel.Dock="Bottom" Margin="0,4,0,0" IsVisible="{Binding IsBusy}" Spacing="4">
+        <ProgressBar IsIndeterminate="True" Height="4"/>
+        <TextBlock Text="{Binding BusyMessage}" FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
       </StackPanel>
-    </Border>
 
-    <!-- Amp list -->
-    <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
-             IsEnabled="{Binding !IsBusy}">
-      <ListBox.KeyBindings>
-        <KeyBinding Gesture="F2" Command="{Binding Selected.BeginRenameCommand}"/>
-      </ListBox.KeyBindings>
-      <ListBox.ItemTemplate>
-        <DataTemplate x:DataType="vm:AmpItemViewModel">
-          <DockPanel>
-            <DockPanel.ContextMenu>
-              <ContextMenu>
-                <MenuItem Header="Rename" Command="{Binding BeginRenameCommand}"/>
-              </ContextMenu>
-            </DockPanel.ContextMenu>
-            <TextBlock Text="{Binding DisplaySlot, StringFormat='{}{0:00}'}"
-                       Width="28" VerticalAlignment="Center"
-                       FontFamily="Consolas,Cascadia Mono,monospace"
-                       Opacity="0.6"/>
-            <Panel VerticalAlignment="Center" Margin="8,0,0,0">
-              <TextBlock VerticalAlignment="Center" IsVisible="{Binding !IsEditing}"
-                         Opacity="{Binding IsEmpty, Converter={x:Static conv:BoolToOpacity.Instance}}"
-                         FontStyle="{Binding IsEmpty, Converter={x:Static conv:BoolToItalic.Instance}}"
-                         Text="{Binding Name}"/>
-              <TextBox IsVisible="{Binding IsEditing}" Text="{Binding EditName}" MaxLength="31"
-                       Padding="2,0" VerticalAlignment="Center"
-                       behaviors:EditBoxBehavior.FocusOnVisible="{Binding IsEditing}"
-                       LostFocus="OnEditBoxLostFocus">
-                <TextBox.KeyBindings>
-                  <KeyBinding Gesture="Enter"
-                              Command="{Binding $parent[ListBox].((vm:AmpListViewModel)DataContext).CommitRenameCommand}"
-                              CommandParameter="{Binding}"/>
-                  <KeyBinding Gesture="Escape" Command="{Binding CancelRenameCommand}"/>
-                </TextBox.KeyBindings>
-              </TextBox>
-            </Panel>
-          </DockPanel>
-        </DataTemplate>
-      </ListBox.ItemTemplate>
-    </ListBox>
+      <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}"
+               IsEnabled="{Binding !IsBusy}">
+        <ListBox.KeyBindings>
+          <KeyBinding Gesture="F2" Command="{Binding Selected.BeginRenameCommand}"/>
+        </ListBox.KeyBindings>
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:AmpItemViewModel">
+            <DockPanel>
+              <DockPanel.ContextMenu>
+                <ContextMenu>
+                  <MenuItem Header="Rename" Command="{Binding BeginRenameCommand}"/>
+                </ContextMenu>
+              </DockPanel.ContextMenu>
+              <TextBlock Classes="slot-number" Text="{Binding DisplaySlot, StringFormat='{}{0:00}'}"
+                         Width="28" VerticalAlignment="Center"/>
+              <Panel VerticalAlignment="Center" Margin="8,0,0,0">
+                <TextBlock VerticalAlignment="Center" IsVisible="{Binding !IsEditing}"
+                           Opacity="{Binding IsEmpty, Converter={x:Static conv:BoolToOpacity.Instance}}"
+                           FontStyle="{Binding IsEmpty, Converter={x:Static conv:BoolToItalic.Instance}}"
+                           Text="{Binding Name}"/>
+                <TextBox IsVisible="{Binding IsEditing}" Text="{Binding EditName}" MaxLength="31"
+                         Padding="2,0" VerticalAlignment="Center"
+                         behaviors:EditBoxBehavior.FocusOnVisible="{Binding IsEditing}"
+                         LostFocus="OnEditBoxLostFocus">
+                  <TextBox.KeyBindings>
+                    <KeyBinding Gesture="Enter"
+                                Command="{Binding $parent[ListBox].((vm:AmpListViewModel)DataContext).CommitRenameCommand}"
+                                CommandParameter="{Binding}"/>
+                    <KeyBinding Gesture="Escape" Command="{Binding CancelRenameCommand}"/>
+                  </TextBox.KeyBindings>
+                </TextBox>
+              </Panel>
+            </DockPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
 
-  </DockPanel>
+    <!-- ===== Right: detail panel (upload form / details / placeholder) ===== -->
+    <views:AmpDetailPanel Grid.Column="1" Margin="12,0,0,0"/>
+
+  </Grid>
 </UserControl>
