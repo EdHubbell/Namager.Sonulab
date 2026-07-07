@@ -1,0 +1,14 @@
+{
+  "_readme": [
+    "Tone3000 API keys. Copy this file to %APPDATA%\\StompStationManager\\tone3000.json",
+    "and fill in your keys from your tone3000.com developer registration.",
+    "publishable_key (t3k_pk_...): the OAuth client_id. REQUIRED for sign-in.",
+    "secret_key (t3k_cs_...): OPTIONAL. The app NEVER reads it - it exists only for the",
+    "  dev probe tool (tools/T3kProbe). Treat it like a password; never commit it.",
+    "redirect_port: 0 = pick any free port for the OAuth loopback redirect. Set a fixed",
+    "  port only if your Tone3000 app registration requires an exact redirect URI."
+  ],
+  "publishable_key": "t3k_pk_YOUR_KEY_HERE",
+  "secret_key": "",
+  "redirect_port": 0
+}
