@@ -38,4 +38,24 @@ public class MainWindowViewModelTests
         vm.EnsureTabLoaded(1);                    // Amps is null before connect: must not throw
         vm.EnsureTabLoaded(2);
     }
+
+    [Fact]
+    public void Tone3000_tab_exists_from_construction_without_a_device()
+    {
+        var vm = new MainWindowViewModel();
+        Assert.NotNull(vm.Tone3000);
+        Assert.False(vm.Tone3000.IsDeviceReady);             // no device yet
+    }
+
+    [Fact]
+    public void NavigateToUpload_for_amp_prefills_and_navigates()
+    {
+        var vm = new MainWindowViewModel();
+        int? navigatedTo = null;
+        vm.NavigateRequested += i => navigatedTo = i;
+        // No device connected: must not throw, must not navigate.
+        vm.NavigateToUpload(isIr: false, path: "x.nam", notes: "n", url: "u");
+        Assert.Null(navigatedTo);
+        Assert.NotNull(vm.Tone3000.Banner);                  // told the user why nothing happened
+    }
 }

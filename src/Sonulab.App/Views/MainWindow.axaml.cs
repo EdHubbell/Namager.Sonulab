@@ -9,13 +9,19 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         NavList.SelectionChanged += OnNavSelectionChanged;
+        DataContextChanged += (_, _) =>
+        {
+            if (DataContext is MainWindowViewModel vm)
+                vm.NavigateRequested += i => NavList.SelectedIndex = i;
+        };
     }
 
     private void OnNavSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        PresetsPage.IsVisible = NavList.SelectedIndex == 0;
-        AmpsPage.IsVisible    = NavList.SelectedIndex == 1;
-        IRsPage.IsVisible     = NavList.SelectedIndex == 2;
+        PresetsPage.IsVisible  = NavList.SelectedIndex == 0;
+        AmpsPage.IsVisible     = NavList.SelectedIndex == 1;
+        IRsPage.IsVisible      = NavList.SelectedIndex == 2;
+        Tone3000Page.IsVisible = NavList.SelectedIndex == 4;   // 3 = the disabled section header
 
         if (DataContext is MainWindowViewModel vm)
         {

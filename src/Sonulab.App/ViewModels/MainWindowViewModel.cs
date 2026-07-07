@@ -16,6 +16,10 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private ParameterEditorViewModel? _editor;
     [ObservableProperty] private AmpListViewModel? _amps;
     [ObservableProperty] private IrListViewModel? _irs;
+    [ObservableProperty] private Tone3000ViewModel _tone3000;
+
+    /// <summary>Raised when a flow needs the window to switch nav tabs (index into NavList).</summary>
+    public event Action<int>? NavigateRequested;
 
     /// <summary>Set by the view on every nav change; lets the Connected handler lazy-load
     /// whichever tab the user is already looking at.</summary>
@@ -38,6 +42,23 @@ public partial class MainWindowViewModel : ObservableObject
 
     public MainWindowViewModel()
     {
+        // Tone3000 (Browse Tones) exists from startup - browsing needs no pedal. Null config
+        // = the tab shows its "add your keys" card.
+        var t3kConfig = Sonulab.Tone3000.T3kConfig.TryLoad();
+        if (t3kConfig is not null)
+        {
+            var t3kAuth = new Sonulab.Tone3000.T3kAuth(t3kConfig, new Sonulab.Tone3000.T3kTokenStore());
+            _tone3000 = new Tone3000ViewModel(t3kAuth, new Sonulab.Tone3000.T3kClient(t3kAuth),
+                new Sonulab.Tone3000.T3kDownloader(t3kAuth,
+                    System.IO.Path.Combine(AppContext.BaseDirectory, "NAMFiles", "Tone3000")));
+        }
+        else
+        {
+            _tone3000 = new Tone3000ViewModel(null, null, null);
+        }
+        _tone3000.SendToPedalRequested += (path, notes, url, isIr) =>
+            NavigateToUpload(isIr, path, notes, url);
+
         // Adaptive settle (perf spec §4): instead of always paying a fixed 1500 ms for the
         // ESP32's post-open reboot, wait briefly and let the probe-retry loop find the moment
         // the device answers. Worst case: 250 + 8×300 + 7×150 ≈ 3.7s (old: 1500 + 3×300 + 2×300
@@ -82,6 +103,8 @@ public partial class MainWindowViewModel : ObservableObject
             var irs = new IrListViewModel(irService, _connection.WritesAllowed);
             Irs = irs;
 
+            Tone3000.IsDeviceReady = _connection.WritesAllowed;
+
             _ = LoadInitialAsync(presets);
             EnsureTabLoaded(CurrentNavIndex);
         };
@@ -91,6 +114,24 @@ public partial class MainWindowViewModel : ObservableObject
             var sw = System.Diagnostics.Stopwatch.StartNew();
             await presets.RefreshCommand.ExecuteAsync(null);
             Log.Info("PERF connect presets-list={0}ms", sw.ElapsedMilliseconds);
+        }
+    }
+
+    /// <summary>Tone3000 handoff: switch to the Amps or IRs tab and open the upload panel
+    /// prefilled. Nav indices match MainWindow's NavList (0 presets, 1 amps, 2 irs, 4 t3k).</summary>
+    public void NavigateToUpload(bool isIr, string path, string? notes, string? url)
+    {
+        if (isIr)
+        {
+            if (Irs is not { } irs) { Tone3000.Banner = "Connect to the pedal first."; return; }
+            NavigateRequested?.Invoke(2);
+            irs.BeginUploadCommand.Execute(path);            // IRs: name prefill via filename; no SSMD
+        }
+        else
+        {
+            if (Amps is not { } amps) { Tone3000.Banner = "Connect to the pedal first."; return; }
+            NavigateRequested?.Invoke(1);
+            amps.BeginUploadPrefilled(path, notes, url);
         }
     }
 }

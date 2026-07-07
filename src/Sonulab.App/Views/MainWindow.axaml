@@ -59,6 +59,15 @@
               <TextBlock Text="IRs" VerticalAlignment="Center"/>
             </StackPanel>
           </ListBoxItem>
+          <ListBoxItem IsEnabled="False" MinHeight="0" Margin="0,10,0,0">
+            <TextBlock Classes="section-label" Text="BROWSE TONES"/>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <PathIcon Data="{StaticResource Icon.List}" Width="16" Height="16"/>
+              <TextBlock Text="Tone3000" VerticalAlignment="Center"/>
+            </StackPanel>
+          </ListBoxItem>
         </ListBox>
       </SplitView.Pane>
 
@@ -84,6 +93,12 @@
           <!-- IRs page -->
           <ContentControl x:Name="IRsPage"
                           Content="{Binding Irs}"
+                          Margin="12"
+                          IsVisible="False"/>
+
+          <!-- Tone3000 page (index 4; index 3 is the disabled section header) -->
+          <ContentControl x:Name="Tone3000Page"
+                          Content="{Binding Tone3000}"
                           Margin="12"
                           IsVisible="False"/>
 
