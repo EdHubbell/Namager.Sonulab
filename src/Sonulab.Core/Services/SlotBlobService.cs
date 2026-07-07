@@ -63,6 +63,21 @@ public sealed class SlotBlobService
         return blob;
     }
 
+    /// <summary>Dread chunks [firstChunk .. firstChunk+count-1] (1-based) and return exactly
+    /// count*128 bytes, or FAIL LOUDLY (same discipline as ReadValidatedAsync). Generic —
+    /// this service knows nothing about what lives at any offset.</summary>
+    public async Task<byte[]> ReadChunkRangeAsync(int index, int firstChunk, int count, CancellationToken ct = default)
+    {
+        if (index is < 0 or >= SlotCount)
+            throw _raise($"Slot must be 0..{SlotCount - 1}, got {index}.");
+        if (firstChunk < 1 || count < 1 || firstChunk + count - 1 > _kind.Chunks)
+            throw _raise($"Chunk range {firstChunk}..{firstChunk + count - 1} is outside 1..{_kind.Chunks}.");
+        var buf = await _client.DReadChunkRangeAsync(_kind.ListPath, index, firstChunk, count, ct);
+        if (buf.Length != count * 128)
+            throw _raise($"{_kind.Noun} slot {index} chunks {firstChunk}..{firstChunk + count - 1} returned {buf.Length} B (expected {count * 128}) — a chunk was dropped or garbled on the serial link. Try again.");
+        return buf;
+    }
+
     public async Task DeleteAsync(int index, CancellationToken ct = default)
     {
         var names = await _client.ReadListAsync(_kind.ListPath, ct);

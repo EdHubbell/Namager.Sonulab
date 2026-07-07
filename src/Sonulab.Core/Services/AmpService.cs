@@ -30,6 +30,11 @@ public sealed class AmpService
         (await _inner.ListAsync(ct)).Select(s => new AmpSlot(s.Index, s.Name)).ToArray();
 
     public Task<byte[]> ReadAmpAsync(int index, CancellationToken ct = default) => _inner.ReadAsync(index, ct);
+
+    /// <summary>Validated read of an arbitrary 1-based chunk range (128 B per chunk).</summary>
+    public Task<byte[]> ReadChunksAsync(int index, int firstChunk, int count, CancellationToken ct = default) =>
+        _inner.ReadChunkRangeAsync(index, firstChunk, count, ct);
+
     public Task DeleteAmpAsync(int index, CancellationToken ct = default) => _inner.DeleteAsync(index, ct);
     public Task RenameAmpAsync(int index, string name, CancellationToken ct = default) => _inner.RenameAsync(index, name, ct);
 

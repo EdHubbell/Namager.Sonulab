@@ -82,16 +82,22 @@ public sealed class SonuClient
     /// <summary>Sends a raw protocol command and returns the raw response window (diagnostics).</summary>
     public Task<string> SendRawAsync(string command, CancellationToken ct = default) => SendAsync(command, ct);
 
-    public async Task<byte[]> DReadBlobAsync(string path, int index, int chunkCount, CancellationToken ct = default)
+    public Task<byte[]> DReadBlobAsync(string path, int index, int chunkCount, CancellationToken ct = default) =>
+        DReadChunkRangeAsync(path, index, 1, chunkCount, ct);
+
+    /// <summary>Dread chunks [firstChunk .. firstChunk+count-1] (1-based). PERMISSIVE like
+    /// DReadBlobAsync: a missing/torn chunk contributes 0 bytes, shortening the result —
+    /// callers that need integrity use SlotBlobService's validated wrappers.</summary>
+    public async Task<byte[]> DReadChunkRangeAsync(string path, int index, int firstChunk, int count, CancellationToken ct = default)
     {
-        var bytes = new List<byte>(chunkCount * 128);
-        for (int c = 1; c <= chunkCount; c++)
+        var bytes = new List<byte>(count * 128);
+        for (int c = firstChunk; c < firstChunk + count; c++)
         {
             var raw = await SendAsync(SonuCommands.DRead(path, index, c), ct);
             var hex = ResponseParser.ChunkHex(raw, index, c) ?? "";
             // A torn record can carry an odd-length hex value; Convert.FromHexString would
             // throw FormatException past every caller. Treat it as a missing chunk instead —
-            // the resulting short blob fails loudly at the validated-read layer.
+            // the resulting short buffer fails loudly at the validated-read layer.
             if ((hex.Length & 1) == 1) hex = "";
             bytes.AddRange(Convert.FromHexString(hex));
         }

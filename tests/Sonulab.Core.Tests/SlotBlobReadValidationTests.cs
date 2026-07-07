@@ -113,4 +113,52 @@ public class SlotBlobReadValidationTests : IDisposable
         Assert.Equal("NewAmp", dev.SlotNames[0]);            // upload SUCCEEDED after the retry
         Assert.Equal((byte)9, dev.SlotBlobs[0]![0]);          // slot NOT cleared by the glitched verify
     }
+
+    // ---- generic chunk-range read (region-only metadata fetch, spec 2026-07-07) ----
+
+    /// <summary>Blob whose every byte encodes its own offset (mod 251, a prime, so chunk
+    /// boundaries never alias) — any shift/drop inside a range read is detectable.</summary>
+    private static byte[] PatternBlob() =>
+        Enumerable.Range(0, 12288).Select(i => (byte)(i % 251)).ToArray();
+
+    [Fact]
+    public async Task ReadChunks_returns_exactly_the_requested_range()
+    {
+        var dev = new DropChunkAmpDevice { Dropping = false };
+        dev.SeedAmp(0, "Clean", PatternBlob());
+        await dev.OpenAsync();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+
+        var buf = await svc.ReadChunksAsync(0, firstChunk: 65, count: 3);   // bytes 8192..8575
+
+        Assert.Equal(3 * 128, buf.Length);
+        Assert.Equal(PatternBlob()[8192..8576], buf);
+    }
+
+    [Fact]
+    public async Task ReadChunks_throws_on_a_dropped_chunk_inside_the_range()
+    {
+        var dev = new DropChunkAmpDevice { DropChunk = 66 };
+        dev.SeedAmp(0, "Clean", PatternBlob());
+        await dev.OpenAsync();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+
+        var ex = await Assert.ThrowsAsync<AmpServiceException>(() => svc.ReadChunksAsync(0, 65, 3));
+        Assert.Contains("384", ex.Message);                 // expected 3*128
+        Assert.Contains("256", ex.Message);                 // got 2*128
+    }
+
+    [Theory]
+    [InlineData(-1, 1, 1)]    // bad index
+    [InlineData(0, 0, 1)]     // chunk numbers are 1-based
+    [InlineData(0, 1, 0)]     // count must be >= 1
+    [InlineData(0, 96, 2)]    // range overruns the 96-chunk slot
+    public async Task ReadChunks_validates_its_arguments(int index, int first, int count)
+    {
+        var dev = new DropChunkAmpDevice { Dropping = false };
+        dev.SeedAmp(0, "Clean", PatternBlob());
+        await dev.OpenAsync();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        await Assert.ThrowsAsync<AmpServiceException>(() => svc.ReadChunksAsync(index, first, count));
+    }
 }
