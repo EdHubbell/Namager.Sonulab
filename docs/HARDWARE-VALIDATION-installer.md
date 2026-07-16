@@ -8,6 +8,7 @@ Run after the first successful tag build (dry run: tag `v0.9.0`).
 - [ ] `FeedbackService.EndpointUrl` matches the deployed worker URL
 
 ## Release pipeline (tag v0.9.0, push, watch Actions)
+- Release tags must be plain numeric `vX.Y.Z` (e.g. v0.9.0) — a prerelease suffix like `-rc1` fails the MSI build (ProductVersion must be numeric).
 - [ ] `git tag v0.9.0 && git push origin v0.9.0` → Release workflow goes green
 - [ ] Release page shows `StompStationManager-0.9.0-x64.msi` + SmartScreen note in body
 

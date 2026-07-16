@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Sonulab.App.ViewModels;
@@ -12,7 +13,11 @@ public partial class FeedbackDialog : Window
         DataContextChanged += (_, _) =>
         {
             if (DataContext is FeedbackViewModel vm)
-                vm.CloseRequested += Close;
+                vm.CloseRequested += async () =>
+                {
+                    await Task.Delay(900);   // let "Thanks — feedback sent!" register before closing
+                    Close();
+                };
         };
     }
 
