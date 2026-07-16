@@ -22,9 +22,8 @@ public sealed class FeedbackService : IFeedbackService
 {
     /// <summary>Deployed worker endpoint. If `wrangler deploy` reports a different URL
     /// (workers.dev subdomain is per-account), update this constant to match.</summary>
-    //public const string EndpointUrl = "https://stompstation-feedback.edhubbell.workers.dev/";
-    public const string EndpointUrl = " https://stompstation-feedback.ed-eed.workers.dev/";
-    
+    public const string EndpointUrl = "https://stompstation-feedback.ed-eed.workers.dev/";
+
 
     private readonly HttpClient _http;
     private readonly string _endpoint;
