@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Sonulab.App;
 using Sonulab.App.ViewModels;
 
 namespace Sonulab.App.Views;
@@ -7,6 +8,7 @@ public partial class MainWindow : Window
 {
     public MainWindow()
     {
+        Title = $"StompStation Manager v{AppInfo.Version}";
         InitializeComponent();
         NavList.SelectionChanged += OnNavSelectionChanged;
         DataContextChanged += (_, _) =>
