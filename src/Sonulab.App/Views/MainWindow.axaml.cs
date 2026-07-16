@@ -46,4 +46,13 @@ public partial class MainWindow : Window
         if (DataContext is MainWindowViewModel { UpdateAvailable: { } update })
             _ = Launcher.LaunchUriAsync(new Uri(update.Url));
     }
+
+    private async void OnFeedbackClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = new FeedbackViewModel(
+            new FeedbackService(),
+            AppInfo.Version,
+            System.Runtime.InteropServices.RuntimeInformation.OSDescription);
+        await new FeedbackDialog { DataContext = vm }.ShowDialog(this);
+    }
 }
