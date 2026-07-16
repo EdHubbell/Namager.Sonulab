@@ -1,5 +1,7 @@
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Sonulab.App;
+using Sonulab.App.Services;
 using Sonulab.App.ViewModels;
 
 namespace Sonulab.App.Views;
@@ -16,6 +18,13 @@ public partial class MainWindow : Window
             if (DataContext is MainWindowViewModel vm)
                 vm.NavigateRequested += i => NavList.SelectedIndex = i;
         };
+
+        // Update check runs after the window shows so it can never delay startup.
+        Opened += (_, _) =>
+        {
+            if (DataContext is MainWindowViewModel vm)
+                _ = vm.CheckForUpdatesAsync(new UpdateCheckService());
+        };
     }
 
     private void OnNavSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -30,5 +39,11 @@ public partial class MainWindow : Window
             vm.CurrentNavIndex = NavList.SelectedIndex;
             vm.EnsureTabLoaded(NavList.SelectedIndex);
         }
+    }
+
+    private void OnDownloadUpdateClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel { UpdateAvailable: { } update })
+            _ = Launcher.LaunchUriAsync(new Uri(update.Url));
     }
 }

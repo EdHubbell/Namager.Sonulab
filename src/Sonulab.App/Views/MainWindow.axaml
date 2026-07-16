@@ -35,6 +35,19 @@
       </StackPanel>
     </Border>
 
+    <!-- ===== Update-available banner (hidden unless a newer release exists) ===== -->
+    <Border DockPanel.Dock="Top" Padding="12,6"
+            Background="{DynamicResource Sonulab.SurfaceAltBrush}"
+            BorderBrush="{DynamicResource Sonulab.BorderBrush}" BorderThickness="0,0,0,1"
+            IsVisible="{Binding UpdateAvailable, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+        <TextBlock VerticalAlignment="Center"
+                   Text="{Binding UpdateAvailable.Version, StringFormat='Version {0} is available.'}"/>
+        <Button Classes="accent-outline" Content="Download" Click="OnDownloadUpdateClick"/>
+        <Button Content="Dismiss" Command="{Binding DismissUpdateCommand}"/>
+      </StackPanel>
+    </Border>
+
     <!-- ===== SplitView: left nav pane + content ===== -->
     <SplitView DisplayMode="Inline" IsPaneOpen="True" OpenPaneLength="180">
 
