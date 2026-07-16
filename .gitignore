@@ -25,3 +25,6 @@ tests/Sonulab.Distill.Tests/goldens-corpus/
 # Tone3000 API keys - the real file lives in %APPDATA%\StompStationManager\ and must
 # never be committed; only tone3000.json.example belongs in the repo.
 tone3000.json
+
+# Feedback worker dev secrets (Cloudflare wrangler dev only)
+infra/feedback-worker/.dev.vars
