@@ -4,6 +4,24 @@ A fast desktop app (Avalonia / .NET 10) to manage a **Sonulab StompStation** ("A
 ESP32-S3) guitar pedal over USB serial — list, reorder, duplicate, rename, delete, edit, and
 back up presets, fixing the slow VoidX-Control workflow.
 
+## Install
+
+1. Grab the latest `.msi` from the [Releases page](https://github.com/EdHubbell/StompStationManager/releases/latest).
+2. Run it. Windows SmartScreen will warn that the app is unrecognized (the installer is
+   unsigned) — click **More info → Run anyway**. Installation is per-user: no admin rights
+   needed, and .NET does not need to be installed.
+3. Launch **StompStation Manager** from the Start Menu. Close VoidX-Control first — it
+   holds the pedal's COM port.
+
+Updating: the app tells you when a new version is available; download and run the new
+`.msi` and it upgrades in place.
+
+## Feedback
+
+Use **Send Feedback** (bottom-left in the app). Your message — including the name and
+email you enter — is posted as a public [GitHub issue](https://github.com/EdHubbell/StompStationManager/issues)
+so you can follow the discussion.
+
 ## Status
 Reverse-engineering / Phase 0 complete; implementation planning next. The full control protocol
 has been mapped and validated against real hardware.
