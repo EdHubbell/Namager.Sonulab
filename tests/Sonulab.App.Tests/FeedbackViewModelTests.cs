@@ -15,10 +15,16 @@ public class FeedbackViewModelTests
         }
     }
 
-    private static FeedbackViewModel Vm(FakeFeedbackService? svc = null)
+    private sealed class GatedFeedbackService : IFeedbackService
+    {
+        public readonly TaskCompletionSource Gate = new();
+        public Task SendAsync(FeedbackReport report, CancellationToken ct = default) => Gate.Task;
+    }
+
+    private static FeedbackViewModel Vm(IFeedbackService? svc = null)
         => new(svc ?? new FakeFeedbackService(), "1.2.3", "Windows 11");
 
-    private static FeedbackViewModel ValidVm(FakeFeedbackService? svc = null)
+    private static FeedbackViewModel ValidVm(IFeedbackService? svc = null)
     {
         var vm = Vm(svc);
         vm.Name = "Ed"; vm.Email = "ed@gsdware.com"; vm.Message = "Love it, but...";
@@ -56,6 +62,45 @@ public class FeedbackViewModelTests
         vm.Name = "Ed";
         vm.Message = new string('x', 4001);
         Assert.False(vm.CanSend);
+        vm.Message = "Love it, but...";
+        vm.Email = new string('x', 195) + "@example.com";  // 207 chars, over 200 cap
+        Assert.False(vm.CanSend);
+    }
+
+    [Fact]
+    public void Exactly_at_cap_fields_can_send()
+    {
+        var vm = ValidVm();
+
+        // Exactly 100 chars
+        vm.Name = new string('x', 100);
+        Assert.True(vm.CanSend);
+
+        // Exactly 200 chars
+        vm.Email = new string('x', 188) + "@example.com";  // 188 + 12 = 200
+        Assert.True(vm.CanSend);
+
+        // Exactly 4000 chars
+        vm.Message = new string('x', 4000);
+        Assert.True(vm.CanSend);
+    }
+
+    // ---------- send: state machine ----------
+    [Fact]
+    public async Task Cannot_send_while_sending()
+    {
+        var svc = new GatedFeedbackService();
+        var vm = ValidVm(svc);
+
+        var sendTask = vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal(FeedbackState.Sending, vm.State);
+        Assert.False(vm.CanSend);
+
+        svc.Gate.SetResult();
+        await sendTask;
+
+        Assert.Equal(FeedbackState.Sent, vm.State);
     }
 
     // ---------- send: success ----------
