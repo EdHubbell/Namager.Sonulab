@@ -24,8 +24,8 @@ Send Feedback dialog and creates a GitHub issue labeled `user-feedback` on
    ```
    cd infra/feedback-worker
    npx wrangler login          # first time only: opens browser to your Cloudflare account
-   npx wrangler deploy
    npx wrangler secret put GITHUB_TOKEN    # paste the PAT when prompted
+   npx wrangler deploy
    ```
    `deploy` prints the live URL, e.g. `https://stompstation-feedback.<your-subdomain>.workers.dev`.
 
