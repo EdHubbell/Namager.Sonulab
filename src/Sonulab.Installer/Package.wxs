@@ -1,0 +1,41 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Per-user install: no admin/UAC, lands in %LOCALAPPDATA%\Programs\StompStationManager.
+       UpgradeCode is FOREVER - changing it breaks in-place upgrades for every user. -->
+  <Package Name="StompStation Manager"
+           Manufacturer="Ed Hubbell"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="1431D009-A559-46D0-9568-BD9675EFC753"
+           Scope="perUser"
+           Language="1033">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of StompStation Manager is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="..\Sonulab.App\Assets\app-icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/EdHubbell/StompStationManager" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="StompStationManager">
+          <!-- Everything dotnet publish emitted, subfolders included. -->
+          <Files Include="$(var.PublishDir)\**" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="AppShortcut"
+                  Name="StompStation Manager"
+                  Target="[INSTALLFOLDER]Sonulab.App.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\StompStationManager"
+                       Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        <RemoveFolder Id="CleanupShortcut" Directory="ProgramMenuFolder" On="uninstall" />
+      </Component>
+    </StandardDirectory>
+
+  </Package>
+</Wix>

@@ -1,0 +1,22 @@
+<!-- Deliberately NOT in Sonulab.slnx: packaging runs only in the release workflow or
+     via an explicit local build (see step 3), never on plain solution builds. -->
+<Project Sdk="WixToolset.Sdk/6.0.1">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <!-- MSI ProductVersion must be numeric x.y.z - CI passes -p:ProductVersion=<tag>. -->
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+    <!-- Must be absolute: WiX's Files/@Include harvesting resolves relative paths against the
+         nested StandardDirectory hierarchy (it picked up "Programs" from ProgramsDir's Name),
+         not the project directory, so a relative PublishDir silently harvests zero files. -->
+    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildProjectDirectory)\..\Sonulab.App\bin\Release\net10.0\win-x64\publish</PublishDir>
+    <DefineConstants>$(DefineConstants);ProductVersion=$(ProductVersion);PublishDir=$(PublishDir)</DefineConstants>
+    <OutputName>StompStationManager-$(ProductVersion)-x64</OutputName>
+    <!-- ICE38/ICE64 flag per-user (Scope=perUser) file components under LocalAppDataFolder as
+         needing an HKCU registry KeyPath instead of a file KeyPath, and the user-profile
+         directories as missing a RemoveFile entry. Both are well-known false positives for
+         per-user MSIs that don't rely on Windows Installer self-repair/advertisement across
+         multiple users of the same machine (see wixtoolset/issues#8633). -->
+    <SuppressIces>ICE38;ICE64</SuppressIces>
+  </PropertyGroup>
+</Project>
