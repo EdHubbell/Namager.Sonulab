@@ -24,10 +24,12 @@ Send Feedback dialog and creates a GitHub issue labeled `user-feedback` on
    ```
    cd infra/feedback-worker
    npx wrangler login          # first time only: opens browser to your Cloudflare account
-   npx wrangler secret put GITHUB_TOKEN    # paste the PAT when prompted
    npx wrangler deploy
+   npx wrangler secret put GITHUB_TOKEN    # paste the PAT when prompted
    ```
    `deploy` prints the live URL, e.g. `https://stompstation-feedback.<your-subdomain>.workers.dev`.
+
+   Note: until the secret is set, the endpoint returns 502 — harmless, since nobody has the URL yet.
 
 4. **Sync the app**: if the printed URL differs from `FeedbackService.EndpointUrl`
    (`src/Sonulab.App/Services/FeedbackService.cs`), update that constant and commit.

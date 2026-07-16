@@ -39,7 +39,6 @@ export default {
     const recent = (hits.get(ip) || []).filter(t => now - t < 3600_000);
     if (recent.length >= MAX_PER_HOUR)
       return new Response('rate limited', { status: 429 });
-    if (recent.length === 0) hits.delete(ip);
     hits.set(ip, [...recent, now]);
 
     const title = `Feedback: ${f.message.trim().slice(0, 60)}`;
