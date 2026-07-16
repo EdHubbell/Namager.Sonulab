@@ -1,4 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Sonulab.App.Services;
 using Sonulab.Core.Connection;
 using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
@@ -17,6 +19,7 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private AmpListViewModel? _amps;
     [ObservableProperty] private IrListViewModel? _irs;
     [ObservableProperty] private Tone3000ViewModel _tone3000;
+    [ObservableProperty] private UpdateInfo? _updateAvailable;
 
     /// <summary>Raised when a flow needs the window to switch nav tabs (index into NavList).</summary>
     public event Action<int>? NavigateRequested;
@@ -45,6 +48,14 @@ public partial class MainWindowViewModel : ObservableObject
         await refresh.ExecuteAsync(null);
         Log.Info("PERF {0}={1}ms", label, sw.ElapsedMilliseconds);
     }
+
+    /// <summary>Called by the view once the window has opened (fire-and-forget there).
+    /// Seam: tests pass a fake; the view passes a real UpdateCheckService.</summary>
+    public async Task CheckForUpdatesAsync(IUpdateCheckService service)
+        => UpdateAvailable = await service.CheckAsync();
+
+    [RelayCommand]
+    private void DismissUpdate() => UpdateAvailable = null;
 
     public MainWindowViewModel()
     {
