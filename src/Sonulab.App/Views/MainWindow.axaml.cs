@@ -8,8 +8,8 @@ public partial class MainWindow : Window
 {
     public MainWindow()
     {
-        Title = $"StompStation Manager v{AppInfo.Version}";
         InitializeComponent();
+        Title = $"StompStation Manager v{AppInfo.Version}";
         NavList.SelectionChanged += OnNavSelectionChanged;
         DataContextChanged += (_, _) =>
         {
