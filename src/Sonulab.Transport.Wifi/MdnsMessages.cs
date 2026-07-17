@@ -37,7 +37,12 @@ public static class MdnsMessages
         int qd = (d[4] << 8) | d[5];
         int answers = ((d[6] << 8) | d[7]) + ((d[8] << 8) | d[9]) + ((d[10] << 8) | d[11]);
         int off = 12;
-        for (int i = 0; i < qd; i++) { (_, off) = ReadName(d, off); off += 4; }
+        for (int i = 0; i < qd; i++)
+        {
+            (_, off) = ReadName(d, off);
+            if (off + 4 > d.Length) return null;
+            off += 4;
+        }
 
         string? instance = null, host = null, address = null, deviceName = null;
         int port = 0;
@@ -64,6 +69,8 @@ public static class MdnsMessages
                 }
                 case 33: // SRV: priority(2) weight(2) port(2) target
                 {
+                    if (rdlen < 7) return null;   // SRV minimum: 2+2+2+name (at least 7 bytes for priority+weight+port)
+                    if (!name.EndsWith(ServiceName, StringComparison.OrdinalIgnoreCase)) break;   // Only accept SRV for _http._tcp.local
                     port = (d[rdOff + 4] << 8) | d[rdOff + 5];
                     (host, _) = ReadName(d, rdOff + 6);
                     instance ??= name.Split('.')[0];
@@ -71,10 +78,13 @@ public static class MdnsMessages
                 }
                 case 16: // TXT: length-prefixed key=value strings
                 {
+                    if (!name.EndsWith(ServiceName, StringComparison.OrdinalIgnoreCase)) break;   // Only accept TXT for _http._tcp.local
                     int p = rdOff;
                     while (p < rdOff + rdlen)
                     {
+                        if (p + 1 > rdOff + rdlen) return null;   // Ensure we can read the length byte
                         int len = d[p];
+                        if (p + 1 + len > rdOff + rdlen) return null;   // Ensure the entire string fits within rdlen
                         var kv = Encoding.UTF8.GetString(d, p + 1, len);
                         if (kv == "id=voidx") isVoidx = true;
                         else if (kv.StartsWith("name=", StringComparison.Ordinal)) deviceName = kv[5..];
