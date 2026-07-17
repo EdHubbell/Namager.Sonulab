@@ -10,9 +10,30 @@ Reverse-engineered from a USBPcap capture (`SonulabCapture1.pcapng`) + static st
   - **USB serial** via CH340 (`VID_1A86 PID_7523`, `COM6`) — bulk OUT `0x02` / IN `0x82`.
   - **BLE** (used for the heavy lifting in the capture; ATT Write Command `0x52` host→device,
     Handle Value Notification `0x1b` device→host as ACKs).
-  - **TCP socket** (WiFi / mDNS via `flutter_nsd`).
+  - **TCP socket** (WiFi / mDNS via `flutter_nsd`). **CONFIRMED live 2026-07-17** against the
+    real pedal on WiFi (`192.168.8.241`) — see the WiFi/TCP section below.
 - Baud rate: not yet confirmed (CH340 sets it via vendor control req `0x9A`, not CDC). Auto-detect
   by opening COM6 and sending `read root\sys\_name\0` until a valid reply appears (try 115200 first).
+
+### WiFi / TCP transport (CONFIRMED live 2026-07-17, pedal on "Duke Park Mesh")
+- **Raw TCP socket on port 8080**, speaking the **identical** NUL-terminated protocol as USB
+  (`DartSocketConnection`, NOT HTTP/WebSocket despite the mDNS `_http._tcp` type).
+  Probe `read root\sys\_name\0` → `root\sys\_name:{"value":"AMP Station"}\0`.
+- **One persistent connection** carries the whole session (sequential commands, like the serial
+  port stays open). `browse root\0` returned the full ~35 KB tree over one socket.
+- **No continuous meter stream over TCP** (listen-only after connect = silence), unlike USB which
+  streams `root\sys\_meters\…`. Meter filtering still cheap to keep for safety.
+- **First command after connect can return an empty record** (`\r\n\0`) — same class of quirk as
+  the USB ESP32-reset-eats-first-command; handle with the existing probe-retry (ProbeAttempts).
+- **mDNS discovery** (query `_http._tcp.local` PTR on `224.0.0.251:5353`):
+  - Instance name: `voidx<deviceId>._http._tcp.local` where `deviceId` = `root\sys\_id`
+    (observed `voidxc7e811051914272110b41dc7c558`).
+  - **SRV** → port **8080**, target `voidx<deviceId>.local`; **A** → the pedal IP.
+  - **TXT** keys: `id=voidx` (reliable pedal filter — distinguishes from other `_http._tcp`
+    advertisers like a Canon printer), `MAC=10:B4:1D:C7:C5:5A`, `name=AMP Station`.
+- **WiFi config nodes** (`browse root\sys\wifi`): `ssid`, `password` (**stored PLAINTEXT** —
+  `opus9999` was readable directly), `state` (`DISCONNECTED`/… string). Pedal appears to run
+  **one transport at a time** (`state` = `DISCONNECTED` while USB was active).
 
 ## Wire framing
 - **Commands (host -> device): NUL-terminated (`\x00`) ASCII**, e.g. `read root\sys\_name\0`.
