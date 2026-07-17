@@ -70,7 +70,8 @@ public static class MdnsMessages
                 case 33: // SRV: priority(2) weight(2) port(2) target
                 {
                     if (rdlen < 7) return null;   // SRV minimum: 2+2+2+name (at least 7 bytes for priority+weight+port)
-                    if (!name.EndsWith(ServiceName, StringComparison.OrdinalIgnoreCase)) break;   // Only accept SRV for _http._tcp.local
+                    if (!(name.Equals(ServiceName, StringComparison.OrdinalIgnoreCase) ||
+                          name.EndsWith("." + ServiceName, StringComparison.OrdinalIgnoreCase))) break;   // Only accept _http._tcp.local or *._.http._tcp.local
                     port = (d[rdOff + 4] << 8) | d[rdOff + 5];
                     (host, _) = ReadName(d, rdOff + 6);
                     instance ??= name.Split('.')[0];
@@ -78,11 +79,11 @@ public static class MdnsMessages
                 }
                 case 16: // TXT: length-prefixed key=value strings
                 {
-                    if (!name.EndsWith(ServiceName, StringComparison.OrdinalIgnoreCase)) break;   // Only accept TXT for _http._tcp.local
+                    if (!(name.Equals(ServiceName, StringComparison.OrdinalIgnoreCase) ||
+                          name.EndsWith("." + ServiceName, StringComparison.OrdinalIgnoreCase))) break;   // Only accept _http._tcp.local or *._.http._tcp.local
                     int p = rdOff;
                     while (p < rdOff + rdlen)
                     {
-                        if (p + 1 > rdOff + rdlen) return null;   // Ensure we can read the length byte
                         int len = d[p];
                         if (p + 1 + len > rdOff + rdlen) return null;   // Ensure the entire string fits within rdlen
                         var kv = Encoding.UTF8.GetString(d, p + 1, len);

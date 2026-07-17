@@ -138,17 +138,44 @@ public class MdnsMessagesTests
     }
 
     [Fact]
+    public void Rejects_label_boundary_spoof()
+    {
+        // Synthetic datagram: SRV+TXT owner "x_http._tcp.local" (labels: "x_http", "_tcp", "local")
+        // looks like _http._tcp.local but isn't (first label is x_http, not _http).
+        // The service-type check must use label-boundary comparison, not string suffix.
+        var srvRdata = new MemoryStream();
+        srvRdata.WriteByte(0);
+        srvRdata.WriteByte(0);
+        srvRdata.WriteByte(0);
+        srvRdata.WriteByte(0);
+        srvRdata.WriteByte(0x1F);
+        srvRdata.WriteByte(0x90); // port 8080
+        srvRdata.Write(Encoding.ASCII.GetBytes("\x01x\x05local\x00")); // target: x.local
+        var srvData = srvRdata.ToArray();
+
+        var txtRdata = new byte[] { 0x08, 0x69, 0x64, 0x3D, 0x76, 0x6F, 0x69, 0x64, 0x78 }; // "\x08id=voidx"
+
+        var aRdata = new byte[] { 0x01, 0x02, 0x03, 0x04 }; // 1.2.3.4
+
+        var datagram = BuildDatagram(
+            ("x_http._tcp.local", 33, srvData),
+            ("x_http._tcp.local", 16, txtRdata),
+            ("x.local", 1, aRdata)
+        );
+
+        Assert.Null(MdnsMessages.TryParsePedal(datagram));
+    }
+
+    [Fact]
     public void Truncated_txt_rdlen_returns_null()
     {
-        // Synthetic datagram: TXT record with rdlen shorter than its inner
-        // length-prefixed strings declare. The parser must detect the overflow
-        // and return null rather than reading past the record boundary.
-        var txtRdata = new byte[]
-        {
-            0x08, 0x69, 0x64, 0x3D, 0x76, 0x6F, 0x69, 0x64, 0x78, // "\x08id=voidx" (9 bytes)
-            0x10, 0x6E, 0x61, 0x6D, 0x65, 0x3D, 0x54, 0x65, 0x73, 0x74, 0x20, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65 // "\x10name=Test Device" (17 bytes)
-        };
-
+        // Synthetic datagram: TXT record where rdlen is set so that a second string entry
+        // claims more bytes than remain in the rdata. The inner guard must catch this and return null.
+        // First string: 0x08 + "id=voidx" (9 bytes total, valid — this ensures isVoidx=true)
+        // Second string: 0x64 (claims 100 bytes follow) + 0 bytes (rdlen only provides the length byte)
+        // rdlen=10 provides exactly the first 9 bytes + 1 byte for the second string's length byte.
+        // Without the inner guard, GetString(d, p+1, 100) would read 100 bytes past the TXT rdata,
+        // corrupting the parse. With the guard, we return null before attempting that read.
         var srvRdata = new MemoryStream();
         srvRdata.WriteByte(0);
         srvRdata.WriteByte(0);
@@ -158,38 +185,19 @@ public class MdnsMessagesTests
         srvRdata.WriteByte(0x90); // port 8080
         srvRdata.Write(Encoding.ASCII.GetBytes("\x04test\x05local\x00")); // target: test.local
 
+        // TXT: [0x08, 'i', 'd', '=', 'v', 'o', 'i', 'd', 'x', 0x64]
+        // (9 bytes for id=voidx + 1 byte claiming 100 more = 10 bytes total)
+        var txtRdata = new byte[] { 0x08, 0x69, 0x64, 0x3D, 0x76, 0x6F, 0x69, 0x64, 0x78, 0x64 };
+
         var aRdata = new byte[] { 0xC0, 0xA8, 0x08, 0xF1 }; // 192.168.8.241
 
         var datagram = BuildDatagram(
             ("test._http._tcp.local", 33, srvRdata.ToArray()),
-            ("test._http._tcp.local", 16, txtRdata[..4]) // Truncate: only first 4 bytes of TXT data, but rdlen claims full length
+            ("test._http._tcp.local", 16, txtRdata),
+            ("test.local", 1, aRdata)
         );
 
-        // Manually patch rdlen in the TXT record to claim full txtRdata length
-        // Find the TXT record in datagram and modify its rdlen field
-        var ms = new MemoryStream(datagram);
-        ms.Seek(0, SeekOrigin.End);
-        var datagramBytes = datagram.ToList();
-
-        // The TXT record starts after SRV record. Find it by scanning for type 16 (0x00 0x10)
-        int txtTypePos = -1;
-        for (int i = 12; i < datagramBytes.Count - 10; i++)
-        {
-            if (datagramBytes[i] == 0x00 && datagramBytes[i + 1] == 0x10)
-            {
-                txtTypePos = i;
-                break;
-            }
-        }
-
-        if (txtTypePos > 0)
-        {
-            // Patch rdlen to claim full txtRdata length (26 bytes)
-            datagramBytes[txtTypePos + 8] = 0x00;
-            datagramBytes[txtTypePos + 9] = 0x1A; // 26 in decimal
-            datagram = datagramBytes.ToArray();
-        }
-
+        // RED CHECK: Temporarily remove the inner guard to verify test catches it (see report).
         Assert.Null(MdnsMessages.TryParsePedal(datagram));
     }
 }
