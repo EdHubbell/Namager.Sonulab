@@ -85,13 +85,15 @@ public partial class MainWindowViewModel : ObservableObject
         // the only serial device.
         var options = new SerialLinkOptions
         { OpenSettleMs = 250, ProbeAttempts = 8, ProbeRetryDelayMs = 150 };
-        var connector = new SonuConnector(() => new SystemSerialPort(), options);
-        var session = new DeviceSession(connector, new CompatibilityChecker(FirmwareCatalog.Default));
+        var providers = new List<ILinkProvider>
+        {
+            // Fresh port enumeration per connect: a pedal replugged onto a new COM number
+            // is found without restarting the app.
+            new SerialLinkProvider(() => new SystemSerialPort(), options),
+        };
+        var session = new DeviceSession(providers, new CompatibilityChecker(FirmwareCatalog.Default));
 
-        var ports = System.IO.Ports.SerialPort.GetPortNames();
-        var portList = (ports.Length > 0 ? ports : new[] { "COM6" }) as IReadOnlyList<string>;
-
-        _connection = new ConnectionViewModel(session, portList);
+        _connection = new ConnectionViewModel(session);
         _connection.Connected += (_, _) =>
         {
             _ampsLoaded = _irsLoaded = false;

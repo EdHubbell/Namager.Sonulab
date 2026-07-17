@@ -9,11 +9,9 @@ namespace Sonulab.App.ViewModels;
 public partial class ConnectionViewModel : ObservableObject
 {
     private readonly DeviceSession _session;
-    private readonly IReadOnlyList<string> _ports;
-    private static readonly int[] Bauds = { 115200 };
 
-    public ConnectionViewModel(DeviceSession session, IReadOnlyList<string> ports)
-    { _session = session; _ports = ports; }
+    public ConnectionViewModel(DeviceSession session)
+    { _session = session; }
 
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private bool _writesAllowed;
@@ -29,12 +27,12 @@ public partial class ConnectionViewModel : ObservableObject
     {
         try
         {
-            var state = await _session.ConnectAsync(_ports, Bauds);
+            var state = await _session.ConnectAsync();
             IsConnected = state.Connected;
             if (!state.Connected) { Status = "Disconnected (no device found)"; return; }
 
             WritesAllowed = state.Compatibility!.WritesAllowed;
-            Status = $"{state.Device!.Name} {state.Device.Version} — {state.Compatibility!.Message}";
+            Status = $"{state.Device!.Name} {state.Device.Version} — {state.Compatibility!.Message} ({state.Transport})";
             Client = _session.Client;
             Repository = new DeviceRepository(_session.Client!);
             Reorder = new ReorderService(Repository);

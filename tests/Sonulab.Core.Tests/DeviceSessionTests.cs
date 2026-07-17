@@ -29,31 +29,77 @@ public class DeviceSessionTests
         return p;
     }
 
+    private sealed class FixedProvider(string name, Sonulab.Core.Transport.ISonuLink? link) : ILinkProvider
+    {
+        public string Name => name;
+        public Task<Sonulab.Core.Transport.ISonuLink?> TryConnectAsync(CancellationToken ct = default)
+            => Task.FromResult(link);
+    }
+
+    private sealed class ThrowingProvider : ILinkProvider
+    {
+        public string Name => "Broken";
+        public Task<Sonulab.Core.Transport.ISonuLink?> TryConnectAsync(CancellationToken ct = default)
+            => throw new InvalidOperationException("transport unavailable");
+    }
+
     [Fact] public async Task Connects_identifies_and_reports_tested()
     {
         var connector = new SonuConnector(MakeDevice, Fast);
+        var workingLink = await connector.ConnectAsync(new[] { "COM6" }, new[] { 115200 });
         var checker = new CompatibilityChecker(new[] { new TestedFirmware("stompstation1", "ESP32S3", "2.5.1") });
-        var session = new DeviceSession(connector, checker);
+        var session = new DeviceSession(
+            new ILinkProvider[] { new FixedProvider("USB", workingLink) },
+            checker);
 
-        var state = await session.ConnectAsync(new[] { "COM6" }, new[] { 115200 });
+        var state = await session.ConnectAsync();
 
         Assert.True(state.Connected);
         Assert.Equal("AMP Station", state.Device!.Name);
         Assert.Equal(CompatibilityStatus.Tested, state.Compatibility!.Status);
         Assert.True(state.Compatibility.WritesAllowed);
+        Assert.Equal("USB", state.Transport);
         Assert.NotNull(session.Client);
     }
 
     [Fact] public async Task Reports_disconnected_when_no_device()
     {
-        var connector = new SonuConnector(() => new FakeSerialPort(), Fast); // never answers
         var checker = new CompatibilityChecker(System.Array.Empty<TestedFirmware>());
-        var session = new DeviceSession(connector, checker);
+        var session = new DeviceSession(
+            new ILinkProvider[] { new FixedProvider("USB", null) },
+            checker);
 
-        var state = await session.ConnectAsync(new[] { "COM6" }, new[] { 115200 });
+        var state = await session.ConnectAsync();
 
         Assert.False(state.Connected);
         Assert.Null(state.Device);
+        Assert.Null(state.Transport);
         Assert.Null(session.Client);
+    }
+
+    [Fact]
+    public async Task Second_provider_is_tried_when_first_returns_null_and_transport_is_reported()
+    {
+        var connector = new SonuConnector(MakeDevice, Fast);
+        var workingLink = await connector.ConnectAsync(new[] { "COM6" }, new[] { 115200 });
+        var session = new DeviceSession(
+            new ILinkProvider[] { new FixedProvider("USB", null), new FixedProvider("WiFi", workingLink) },
+            new CompatibilityChecker(FirmwareCatalog.Default));
+        var state = await session.ConnectAsync();
+        Assert.True(state.Connected);
+        Assert.Equal("WiFi", state.Transport);
+    }
+
+    [Fact]
+    public async Task Throwing_provider_is_skipped_not_fatal()
+    {
+        var connector = new SonuConnector(MakeDevice, Fast);
+        var workingLink = await connector.ConnectAsync(new[] { "COM6" }, new[] { 115200 });
+        var session = new DeviceSession(
+            new ILinkProvider[] { new ThrowingProvider(), new FixedProvider("WiFi", workingLink) },
+            new CompatibilityChecker(FirmwareCatalog.Default));
+        var state = await session.ConnectAsync();
+        Assert.True(state.Connected);
+        Assert.Equal("WiFi", state.Transport);
     }
 }

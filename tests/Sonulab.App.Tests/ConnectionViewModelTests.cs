@@ -5,6 +5,13 @@ using Xunit;
 
 public class ConnectionViewModelTests
 {
+    private sealed class FixedProvider(string name, Sonulab.Core.Transport.ISonuLink? link) : ILinkProvider
+    {
+        public string Name => name;
+        public Task<Sonulab.Core.Transport.ISonuLink?> TryConnectAsync(CancellationToken ct = default)
+            => Task.FromResult(link);
+    }
+
     // A connector whose factory yields a fake that answers identity + per-node browse on baud 115200.
     static DeviceSession Session()
     {
@@ -26,12 +33,15 @@ public class ConnectionViewModelTests
             return p;
         }
         var connector = new SonuConnector(Make, new SerialLinkOptions { PollMs = 2, IdleGapMs = 10, FirstByteTimeoutMs = 20, MaxWaitMs = 300 });
-        return new DeviceSession(connector, new CompatibilityChecker(FirmwareCatalog.Default));
+        var workingLink = connector.ConnectAsync(new[] { "COM6" }, new[] { 115200 }).GetAwaiter().GetResult();
+        return new DeviceSession(
+            new ILinkProvider[] { new FixedProvider("USB", workingLink) },
+            new CompatibilityChecker(FirmwareCatalog.Default));
     }
 
     [Fact] public async Task Connect_sets_status_and_exposes_repository()
     {
-        var vm = new ConnectionViewModel(Session(), new[] { "COM6" });
+        var vm = new ConnectionViewModel(Session());
         Assert.False(vm.IsConnected);
         bool fired = false; vm.Connected += (_, _) => fired = true;
         await vm.ConnectCommand.ExecuteAsync(null);
@@ -39,6 +49,7 @@ public class ConnectionViewModelTests
         Assert.True(vm.WritesAllowed);
         Assert.Contains("AMP Station", vm.Status);
         Assert.Contains("2.5.1", vm.Status);
+        Assert.Contains("(USB)", vm.Status);
         Assert.NotNull(vm.Repository);
         Assert.NotNull(vm.Reorder);
         Assert.True(fired);
