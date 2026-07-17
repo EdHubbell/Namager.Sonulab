@@ -34,9 +34,7 @@ public sealed class SonuConnector
                 for (int attempt = 0; attempt < attempts; attempt++)
                 {
                     // First command after open is often lost to the ESP32 reset — retry.
-                    var resp = await link.SendAsync(@"read root\sys\_name", ct);
-                    bool ok = ResponseParser.NonMeterRecords(resp)
-                        .Any(r => NodeRecord.TryParse(r, out var nr) && nr.Path == @"root\sys\_name");
+                    bool ok = await LinkProbe.VerifyAsync(link, ct);
                     if (ok)
                     {
                         Log.Info("PERF connect open+settle={0}ms probes={1}ms attempts={2} port={3}",
