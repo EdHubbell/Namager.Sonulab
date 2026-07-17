@@ -23,29 +23,28 @@ static int? ArgAfter(string[] a, string flag)
     return i >= 0 && i + 1 < a.Length && int.TryParse(a[i + 1], out var v) ? v : null;
 }
 
-// Ports: `--port COMx` pins a port; otherwise auto-discover by probing every present COM port
-// (whichever answers `read root\sys\_name` is the pedal). Command flags like --restore carry their
-// own positional args, so we must NOT treat bare args as port names.
-string[] ports;
+// Ports: `--port COMx` pins a port; otherwise the provider auto-discovers by probing every
+// present COM port fresh at connect time (whichever answers `read root\sys\_name` is the pedal).
 int portFlag = Array.IndexOf(args, "--port");
-if (portFlag >= 0 && portFlag + 1 < args.Length)
-    ports = new[] { args[portFlag + 1] };
-else
-    ports = System.IO.Ports.SerialPort.GetPortNames();
-if (ports.Length == 0) { Console.WriteLine("RESULT: no COM ports present. Is the pedal plugged in via USB?"); return 1; }
+Func<IReadOnlyList<string>> portNames = portFlag >= 0 && portFlag + 1 < args.Length
+    ? () => new[] { args[portFlag + 1] }
+    : () => System.IO.Ports.SerialPort.GetPortNames();
 bool writeTest = Array.IndexOf(args, "--write-test") >= 0;
 bool reorderTest = Array.IndexOf(args, "--reorder-test") >= 0;
 
 var options = new SerialLinkOptions { OpenSettleMs = 1500, ProbeAttempts = 3 };
-var connector = new SonuConnector(() => new SystemSerialPort(), options);
+var providers = new List<ILinkProvider>
+{
+    new SerialLinkProvider(() => new SystemSerialPort(), options, portNames),
+};
 var checker = new CompatibilityChecker(FirmwareCatalog.Default);
 
-Console.WriteLine($"Connecting on [{string.Join(",", ports)}] @115200 ...");
-using var session = new DeviceSession(connector, checker);
-var state = await session.ConnectAsync(ports, new[] { 115200 });
+Console.WriteLine("Connecting (USB serial, auto-discover) ...");
+using var session = new DeviceSession(providers, checker);
+var state = await session.ConnectAsync();
 if (!state.Connected)
 {
-    Console.WriteLine($"RESULT: NOT CONNECTED — no StompStation answered on [{string.Join(", ", ports)}].");
+    Console.WriteLine("RESULT: NOT CONNECTED — no StompStation answered on any COM port.");
     Console.WriteLine("  Check: (1) VoidX-Control is CLOSED — it holds the COM port exclusively;");
     Console.WriteLine("         (2) the pedal is connected via USB (the CH340 'USB-SERIAL' port).");
     return 1;
