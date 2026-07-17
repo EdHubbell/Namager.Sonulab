@@ -15,6 +15,10 @@ public class FakePresetDevice : ISonuLink
     public Task OpenAsync(CancellationToken ct = default) { IsOpen = true; return Task.CompletedTask; }
     public void Close() => IsOpen = false;
 
+    /// <summary>Creates a port that responds to probe queries, suitable for SerialLinkProvider tests.</summary>
+    public ISerialPortStream CreatePort() =>
+        new FakeSerialPort { Responder = cmd => cmd == @"read root\sys\_name" ? "root\\sys\\_name:{\"value\":\"AMP Station\"}\r\n" : "" };
+
     public void SeedSlot(int index, string name, IEnumerable<string> lines)
     { _slots[index].Name = name; _slots[index].Lines = lines.ToList(); }
     public void SeedScalar(string path, string jsonValue) => _scalars[path] = jsonValue;
