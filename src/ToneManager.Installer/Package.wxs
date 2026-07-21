@@ -1,4 +1,5 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <!-- Per-user install: no admin/UAC, lands in %LOCALAPPDATA%\Programs\ToneManager.
        UpgradeCode is FOREVER - changing it breaks in-place upgrades for every user. -->
   <Package Name="ToneManager"
@@ -36,6 +37,26 @@
         <RemoveFolder Id="CleanupShortcut" Directory="ProgramMenuFolder" On="uninstall" />
       </Component>
     </StandardDirectory>
+
+    <!-- Install UI: Welcome -> Ready to install -> progress -> Finish with a "Launch ToneManager"
+         checkbox (checked by default). The dialog set's license + install-dir screens are skipped:
+         there is no EULA to show, and the per-user install location is fixed. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch ToneManager" />
+    <!-- Immediate exec from the UI sequence: runs as the interactive user (never elevated),
+         which is exactly right for a per-user app. No extension dependency. -->
+    <CustomAction Id="LaunchApplication"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]ToneManager.App.exe&quot;"
+                  Return="asyncNoWait" />
+    <UI>
+      <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+      <!-- Skip LicenseAgreementDlg and InstallDirDlg: Welcome jumps straight to VerifyReady. -->
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="99" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="99" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
 
   </Package>
 </Wix>
