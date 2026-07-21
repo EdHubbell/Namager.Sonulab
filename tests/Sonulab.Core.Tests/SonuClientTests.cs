@@ -61,4 +61,47 @@ public class SonuClientTests
         await client.SaveAsync(@"root\app\preset", "Test");
         Assert.Equal("Test", await client.ReadValueAsync(@"root\app\preset"));
     }
+
+    // ISonuLink returning a scripted sequence of raw responses (ignores the command), to model the
+    // WiFi empty-record quirk. Counts sends.
+    private sealed class ScriptedLink : ISonuLink
+    {
+        private readonly Queue<string> _resp;
+        public int Sends { get; private set; }
+        public ScriptedLink(params string[] responses) => _resp = new Queue<string>(responses);
+        public bool IsOpen => true;
+        public Task OpenAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public void Close() { }
+        public Task<string> SendAsync(string command, CancellationToken ct = default)
+        { Sends++; return Task.FromResult(_resp.Count > 0 ? _resp.Dequeue() : ""); }
+    }
+
+    [Fact] public async Task ReadList_retries_past_an_empty_record_response()
+    {
+        // WiFi quirk: the pedal intermittently answers with an empty record instead of the real
+        // response. The read must retry, not silently return an empty list (that surfaced as
+        // "no presets" and reorder verify failures over WiFi).
+        var link = new ScriptedLink("\r\n\0", "root\\presets:{\"value\":[\"A\",\"B\"]}\r\n\0");
+        var client = new SonuClient(link, readRetryAttempts: 4, readRetryDelayMs: 0);
+        var list = await client.ReadListAsync(@"root\presets");
+        Assert.Equal(new[] { "A", "B" }, list);
+        Assert.Equal(2, link.Sends);   // one empty, then the real one
+    }
+
+    [Fact] public async Task ReadValue_retries_past_an_empty_record_response()
+    {
+        var link = new ScriptedLink("\r\n\0", "\r\n\0", "root\\sys\\_name:{\"value\":\"AMP Station\"}\r\n\0");
+        var client = new SonuClient(link, readRetryAttempts: 4, readRetryDelayMs: 0);
+        Assert.Equal("AMP Station", await client.ReadValueAsync(@"root\sys\_name"));
+        Assert.Equal(3, link.Sends);
+    }
+
+    [Fact] public async Task Read_gives_up_and_returns_empty_after_the_retry_budget()
+    {
+        var link = new ScriptedLink("\r\n\0", "\r\n\0", "\r\n\0", "\r\n\0", "\r\n\0");
+        var client = new SonuClient(link, readRetryAttempts: 3, readRetryDelayMs: 0);
+        var list = await client.ReadListAsync(@"root\presets");
+        Assert.Empty(list);
+        Assert.Equal(3, link.Sends);   // exactly the budget, then stop
+    }
 }

@@ -24,8 +24,9 @@ public static class Logging
         var target = new FileTarget("file")
         {
             FileName = file,
-            // time | LEVEL | ShortLoggerName | message
-            Layout = "${time}|${level:uppercase=true:padding=-5}|${logger:shortName=true}|${message}",
+            // time | LEVEL | ShortLoggerName | message [ | exception type+message+method, when present]
+            Layout = "${time}|${level:uppercase=true:padding=-5}|${logger:shortName=true}|${message}"
+                   + "${onexception: | ${exception:format=type,message,method}}",
             KeepFileOpen = true,
             AutoFlush = true,   // flush each write so timings show up immediately
         };
