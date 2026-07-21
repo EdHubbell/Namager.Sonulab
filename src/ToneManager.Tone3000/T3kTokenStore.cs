@@ -11,7 +11,7 @@ public sealed class T3kTokenStore(string? path = null)
 {
     private readonly string _path = path ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "StompStationManager", "tone3000.token");
+        "ToneManager", "tone3000.token");
 
     public void Save(string refreshToken)
     {
