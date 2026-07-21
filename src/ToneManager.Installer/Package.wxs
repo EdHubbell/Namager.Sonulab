@@ -1,23 +1,23 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <!-- Per-user install: no admin/UAC, lands in %LOCALAPPDATA%\Programs\StompStationManager.
+  <!-- Per-user install: no admin/UAC, lands in %LOCALAPPDATA%\Programs\ToneManager.
        UpgradeCode is FOREVER - changing it breaks in-place upgrades for every user. -->
-  <Package Name="StompStation Manager"
+  <Package Name="ToneManager"
            Manufacturer="Ed Hubbell"
            Version="$(var.ProductVersion)"
            UpgradeCode="1431D009-A559-46D0-9568-BD9675EFC753"
            Scope="perUser"
            Language="1033">
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of StompStation Manager is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ToneManager is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="AppIcon" SourceFile="..\Sonulab.App\Assets\app-icon.ico" />
+    <Icon Id="AppIcon" SourceFile="..\ToneManager.App\Assets\app-icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/EdHubbell/StompStationManager" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/EdHubbell/ToneManager" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsDir" Name="Programs">
-        <Directory Id="INSTALLFOLDER" Name="StompStationManager">
+        <Directory Id="INSTALLFOLDER" Name="ToneManager">
           <!-- Everything dotnet publish emitted, subfolders included. -->
           <Files Include="$(var.PublishDir)\**" />
         </Directory>
@@ -27,11 +27,11 @@
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="StartMenuShortcut">
         <Shortcut Id="AppShortcut"
-                  Name="StompStation Manager"
-                  Target="[INSTALLFOLDER]Sonulab.App.exe"
+                  Name="ToneManager"
+                  Target="[INSTALLFOLDER]ToneManager.App.exe"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="AppIcon" />
-        <RegistryValue Root="HKCU" Key="Software\StompStationManager"
+        <RegistryValue Root="HKCU" Key="Software\ToneManager"
                        Name="installed" Type="integer" Value="1" KeyPath="yes" />
         <RemoveFolder Id="CleanupShortcut" Directory="ProgramMenuFolder" On="uninstall" />
       </Component>
