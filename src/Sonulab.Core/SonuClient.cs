@@ -45,20 +45,23 @@ public sealed class SonuClient
         }
     }
 
-    /// <summary>Sends a read command, retrying while the response yields no parseable record — the
-    /// WiFi pedal intermittently answers with an empty record ("\r\n\0") instead of the real response
-    /// (see the ctor's <c>readRetryAttempts</c>). Returns the last raw response (empty if the retry
-    /// budget is exhausted). Only for idempotent reads; writes/dwrites do NOT go through here.</summary>
-    private async Task<string> SendReadAsync(string command, CancellationToken ct)
+    /// <summary>Sends a read command, retrying while the response does not contain the record the
+    /// caller expects. Two WiFi quirks make this necessary (see the ctor's <c>readRetryAttempts</c>):
+    /// the pedal intermittently answers with an empty record ("\r\n\0"), and a late response to a
+    /// PREVIOUS command can arrive in its place (e.g. a rename ACK — a record for the right path with
+    /// the wrong shape), so "any parseable record" is not proof the answer arrived. Returns the last
+    /// raw response (unexpected/empty if the budget is exhausted). Only for idempotent reads;
+    /// writes/dwrites do NOT go through here.</summary>
+    private async Task<string> SendReadAsync(string command, Func<string, bool> hasExpected, CancellationToken ct)
     {
         string raw = "";
         for (int attempt = 1; attempt <= _readRetryAttempts; attempt++)
         {
             raw = await SendAsync(command, ct);
-            if (ResponseParser.NonMeterRecords(raw).Any()) return raw;
+            if (hasExpected(raw)) return raw;
             if (attempt < _readRetryAttempts)
             {
-                Log.Debug("empty response for '{0}' (attempt {1}/{2}) — retrying (WiFi empty-record quirk)",
+                Log.Debug("no expected record for '{0}' (attempt {1}/{2}) — retrying (WiFi empty/late-response quirk)",
                     command, attempt, _readRetryAttempts);
                 await Task.Delay(_readRetryDelayMs, ct);
             }
@@ -68,7 +71,8 @@ public sealed class SonuClient
 
     public async Task<string?> ReadValueAsync(string path, CancellationToken ct = default)
     {
-        var raw = await SendReadAsync(SonuCommands.Read(path), ct);
+        var raw = await SendReadAsync(SonuCommands.Read(path),
+            r => ResponseParser.NonMeterRecords(r).Any(rec => NodeRecord.TryParse(rec, out var nr) && nr.Path == path), ct);
         foreach (var rec in ResponseParser.NonMeterRecords(raw))
             if (NodeRecord.TryParse(rec, out var r) && r.Path == path)
                 return r.ValueString ?? r.ValueNumber?.ToString(CultureInfo.InvariantCulture);
@@ -77,17 +81,22 @@ public sealed class SonuClient
 
     public async Task<IReadOnlyList<string>> ReadListAsync(string path, CancellationToken ct = default)
     {
-        var raw = await SendReadAsync(SonuCommands.Read(path), ct);
+        static bool IsList(NodeRecord r) =>
+            r.Json.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Array;
+        var raw = await SendReadAsync(SonuCommands.Read(path),
+            r => ResponseParser.NonMeterRecords(r).Any(rec => NodeRecord.TryParse(rec, out var nr) && nr.Path == path && IsList(nr)), ct);
         foreach (var rec in ResponseParser.NonMeterRecords(raw))
-            if (NodeRecord.TryParse(rec, out var r) && r.Path == path &&
-                r.Json.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Array)
-                return v.EnumerateArray().Select(e => e.GetString() ?? "").ToList();
+            if (NodeRecord.TryParse(rec, out var r) && r.Path == path && IsList(r))
+                return r.Json.GetProperty("value").EnumerateArray().Select(e => e.GetString() ?? "").ToList();
         return Array.Empty<string>();
     }
 
     public async Task<IReadOnlyList<NodeRecord>> BrowseRecordsAsync(string path, CancellationToken ct = default)
     {
-        var raw = await SendReadAsync(SonuCommands.Browse(path), ct);
+        // Browse answers with many records of unpredictable paths — "at least one parseable record"
+        // is the strongest safe expectation here.
+        var raw = await SendReadAsync(SonuCommands.Browse(path),
+            r => ResponseParser.NonMeterRecords(r).Any(rec => NodeRecord.TryParse(rec, out _)), ct);
         var list = new List<NodeRecord>();
         foreach (var rec in ResponseParser.NonMeterRecords(raw))
             if (NodeRecord.TryParse(rec, out var r))

@@ -52,6 +52,27 @@ truncated by a mid-response idle gap; the reorder command was also unguarded and
     ~2.2s `rotate` path, not the 12.6s backup. WiFi blob-read speed (backup/duplicate/amp-IR dumps)
     is a separate potential optimization, out of scope for this crash fix.
 
+## Late-ACK desync fix (2026-07-21, post-v0.9.2 field reports: "no presets", failed slot-24 move)
+
+Root cause (wire-captured): the pedal ACKs every command but can answer **~300 ms+ late** during
+flash work; TCP has no meter heartbeat (serial does — which is why USB never showed this), so the
+old 300 ms first-byte timeout abandoned the response and every later command read its
+predecessor's ACK — off-by-one desync ("0/30 presets", "Reorder verify failed…", presets stranded
+as `__sstmp_*`). Fix: TCP first-byte timeout 300→2000 ms; abandoned responses are counted as
+*owed* and absorbed (pre-send drain + stale-skip in `TcpSonuLink`); `SonuClient` reads retry until
+the *expected* record appears (a stray ACK no longer satisfies a read). PROTOCOL.md §WiFi/TCP
+documents the quirk.
+
+- [x] **Causal reproduction:** with the timeout artificially tightened to 80 ms, the pre-fix code
+  desynced on cycle 1 (wire log: `ABANDONED` rename → `DRAIN 489B` containing the queued ACK +
+  stale list). Same 80 ms torture with the fix: **5/5 move cycles OK**, resync visibly absorbing
+  each late ACK, zero stranding.
+- [x] **Realistic:** 45 consecutive single-slot move cycles (`MoveStepAsync`, the app's up/down
+  path) over WiFi at default options — **45/45 OK, zero resync events**, `dumm` restored to
+  idx 23, 25/30 occupied throughout.
+- [ ] Ed: repeat the failing app scenario (move slot 24 down/up over WiFi; presets list populates
+  every connect).
+
 ## App (Ed)
 - [ ] Pedal on WiFi, USB unplugged → Connect → status ends "(WiFi)"; presets load
 - [ ] Preset select + parameter edit over WiFi (audible on pedal)

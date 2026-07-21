@@ -5,7 +5,7 @@ using Sonulab.Transport.Wifi.Tests;
 public class TcpSonuLinkTests
 {
     private static readonly TcpLinkOptions Fast = new()
-    { PollMs = 1, IdleGapMs = 30, MaxWaitMs = 500, FirstByteTimeoutMs = 40 };
+    { PollMs = 1, IdleGapMs = 30, MaxWaitMs = 500, FirstByteTimeoutMs = 40, ResyncQuietMs = 30 };
 
     private static (TcpSonuLink link, FakeTcpConn conn) Open()
     {
@@ -79,6 +79,40 @@ public class TcpSonuLinkTests
         var conn = new FakeTcpConn();
         var link = new TcpSonuLink(conn, "192.168.8.241", 8080, Fast);
         await Assert.ThrowsAsync<InvalidOperationException>(() => link.SendAsync("read root"));
+    }
+
+    [Fact]
+    public async Task Late_response_to_an_abandoned_command_is_skipped_not_returned_as_the_next_response()
+    {
+        // Field desync (live wire capture 2026-07-21): the pedal ACKs EVERY command, but during
+        // flash work (rename dwrite / save copy) the ACK can arrive after the first-byte timeout.
+        // The abandoned response then arrives with (or before) the NEXT command's response, and the
+        // old code returned it as that response — off-by-one desync ("Reorder verify failed",
+        // stranded __sstmp names). An owed response must be consumed, not returned.
+        var (link, conn) = Open();
+        var r1 = await link.SendAsync(@"dwrite root\presets:{""index"":23,""chunk"":-1}"); // silence -> abandoned
+        Assert.Equal("", r1);
+        // The late ACK arrives together with the next command's real response:
+        conn.RespondWith = _ => Encoding.ASCII.GetBytes(
+            "dwrite root\\presets:{\"index\":23,\"chunk\":-1}\0root\\presets:{\"value\":[\"A\"]}\0");
+        var r2 = await link.SendAsync(@"read root\presets");
+        Assert.DoesNotContain("chunk", r2);      // the stale ACK must NOT be returned
+        Assert.Contains("\"A\"", r2);            // the real response must be
+    }
+
+    [Fact]
+    public async Task Late_response_arriving_while_idle_is_drained_and_accounted()
+    {
+        // Same owed response, but it lands in the buffer BEFORE the next send. The pre-send drain
+        // must both discard it AND settle the debt — otherwise the skip logic would wrongly treat
+        // the next real response as stale.
+        var (link, conn) = Open();
+        var r1 = await link.SendAsync(@"write root\app\preset:{""value"":""x"",""save"":""save""}");
+        Assert.Equal("", r1);                                            // abandoned
+        conn.Feed("write root\\app\\preset:{\"done\":1}\0");             // late ACK arrives while idle
+        conn.RespondWith = _ => Encoding.ASCII.GetBytes("root\\presets:{\"value\":[\"B\"]}\0");
+        var r2 = await link.SendAsync(@"read root\presets");
+        Assert.Contains("\"B\"", r2);                                    // real response returned intact
     }
 
     [Fact]

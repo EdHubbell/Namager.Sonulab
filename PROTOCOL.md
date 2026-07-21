@@ -25,6 +25,19 @@ Reverse-engineered from a USBPcap capture (`SonulabCapture1.pcapng`) + static st
   streams `root\sys\_meters\…`. Meter filtering still cheap to keep for safety.
 - **First command after connect can return an empty record** (`\r\n\0`) — same class of quirk as
   the USB ESP32-reset-eats-first-command; handle with the existing probe-retry (ProbeAttempts).
+- **Late ACKs during flash work (CONFIRMED by wire capture 2026-07-21):** the device ACKs EVERY
+  command, but a rename `dwrite` or `save` can answer **~300 ms or later** while the ESP32 does
+  flash work. Over USB this is invisible — the continuous meter stream keeps a reader's timeout
+  logic fed until the ACK lands. Over TCP there is **no meter heartbeat**, so a reader with a short
+  first-byte timeout (the old 300 ms) abandons the response; it then arrives late and, if not
+  accounted for, is returned as the answer to the NEXT command — an **off-by-one desync cascade**
+  (captured live: a queued `dwrite …{"chunk":-1}` ACK + a stale preset list were drained before a
+  later read; symptoms were "0/30 presets", "Reorder verify failed", presets stranded under
+  `__sstmp_*` temp names). **Reader contract for TCP:** use a generous first-byte timeout (≥2 s —
+  it only needs to detect a dead peer, since slow is normal), and treat an abandoned response as
+  *owed*: count it, absorb it when it arrives (pre-send drain / stale-skip in the read loop), never
+  let it shift the stream. `TcpSonuLink` implements this; empty/late reads are additionally retried
+  at the `SonuClient` layer (reads are idempotent).
 - **mDNS discovery** (query `_http._tcp.local` PTR on `224.0.0.251:5353`):
   - Instance name: `voidx<deviceId>._http._tcp.local` where `deviceId` = `root\sys\_id`
     (observed `voidxc7e811051914272110b41dc7c558`).
