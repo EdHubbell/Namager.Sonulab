@@ -1,13 +1,13 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/Sonulab.App/Sonulab.App.csproj" />
+    <Project Path="src/ToneManager.App/ToneManager.App.csproj" />
     <Project Path="src/Sonulab.Core/Sonulab.Core.csproj" />
     <Project Path="src/Sonulab.Distill/Sonulab.Distill.csproj" />
     <Project Path="src/ToneManager.Tone3000/ToneManager.Tone3000.csproj" />
     <Project Path="src/Sonulab.Transport.Wifi/Sonulab.Transport.Wifi.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/Sonulab.App.Tests/Sonulab.App.Tests.csproj" />
+    <Project Path="tests/ToneManager.App.Tests/ToneManager.App.Tests.csproj" />
     <Project Path="tests/Sonulab.Core.Tests/Sonulab.Core.Tests.csproj" />
     <Project Path="tests/Sonulab.Distill.Tests/Sonulab.Distill.Tests.csproj" />
     <Project Path="tests/ToneManager.Tone3000.Tests/ToneManager.Tone3000.Tests.csproj" />

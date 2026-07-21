@@ -1,0 +1,96 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToneManager.App.ViewModels" xmlns:conv="using:ToneManager.App.Converters"
+             x:Class="ToneManager.App.Views.ParameterEditorView" x:DataType="vm:ParameterEditorViewModel">
+  <Grid>
+    <DockPanel IsEnabled="{Binding !IsLoading}">
+      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
+        <Button Content="Load" Command="{Binding LoadCommand}"/>
+        <Button Content="Save" Command="{Binding SaveCommand}"/>
+        <TextBlock Text="●" IsVisible="{Binding IsDirty}" Foreground="{DynamicResource Sonulab.WarningBrush}"
+                   VerticalAlignment="Center" ToolTip.Tip="Unsaved changes"/>
+      </StackPanel>
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding Blocks}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:BlockSectionViewModel">
+              <Expander IsExpanded="{Binding IsExpanded}" Margin="4,2"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <Expander.Header>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <PathIcon Data="{StaticResource Icon.Power}" Width="14" Height="14"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding Enabled, Converter={x:Static conv:NotNull.Instance}}"
+                              Foreground="{Binding Enabled, Converter={x:Static conv:EnabledToBrush.Instance}}"
+                              ToolTip.Tip="{Binding Enabled, Converter={x:Static conv:EnabledToTooltip.Instance}}"/>
+                    <TextBlock Text="{Binding Header}" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </Expander.Header>
+                <StackPanel>
+                  <ItemsControl ItemsSource="{Binding Fields}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:ParameterFieldViewModel">
+                        <Grid ColumnDefinitions="180,*" Margin="4,2">
+                          <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"
+                                     ToolTip.Tip="{Binding Label}" TextTrimming="CharacterEllipsis"/>
+                          <Panel Grid.Column="1">
+                            <StackPanel Orientation="Horizontal" Spacing="6"
+                                        IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Float}}">
+                              <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
+                              <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
+                                         VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
+                            </StackPanel>
+                            <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"
+                                      IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}"/>
+                            <TextBox Text="{Binding Text}" IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Str}}"/>
+                          </Panel>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <ItemsControl ItemsSource="{Binding SubGroups}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:SubGroupViewModel">
+                        <StackPanel Margin="12,4,0,0">
+                          <TextBlock Classes="section-label" Text="{Binding Header}" FontWeight="SemiBold" Margin="0,4,0,2"/>
+                          <ItemsControl ItemsSource="{Binding Fields}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:ParameterFieldViewModel">
+                                <Grid ColumnDefinitions="168,*" Margin="4,2">
+                                  <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"
+                                             ToolTip.Tip="{Binding Label}" TextTrimming="CharacterEllipsis"/>
+                                  <Panel Grid.Column="1">
+                                    <StackPanel Orientation="Horizontal" Spacing="6"
+                                                IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Float}}">
+                                      <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
+                                      <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
+                                                 VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
+                                    </StackPanel>
+                                    <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"
+                                              IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}"/>
+                                    <TextBox Text="{Binding Text}" IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Str}}"/>
+                                  </Panel>
+                                </Grid>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Expander>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </DockPanel>
+
+    <!-- Loading overlay: detail view is disabled + dimmed while a preset loads -->
+    <Border IsVisible="{Binding IsLoading}" Background="{DynamicResource Sonulab.ScrimBrush}">
+      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+        <ProgressBar IsIndeterminate="True" Width="140"/>
+        <TextBlock Text="Loading…" HorizontalAlignment="Center" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>
