@@ -116,6 +116,35 @@ public class TcpSonuLinkTests
     }
 
     [Fact]
+    public async Task A_response_that_never_arrives_does_not_permanently_wedge_the_link()
+    {
+        // Review finding: if the device EVER fails to answer (firmware drops a command), the owed
+        // count would stick — every later real response consumed as "stale", every read returning
+        // empty forever ("no presets" with no recovery but reconnect). After two consecutive
+        // cycles of consume-stale-then-find-nothing, the debt must be declared phantom and reset.
+        var (link, conn) = Open();
+        Assert.Equal("", await link.SendAsync(@"write root\app\x:{""value"":1}"));   // never answered
+        conn.RespondWith = _ => Encoding.ASCII.GetBytes("root\\presets:{\"value\":[\"A\"]}\0");
+        await link.SendAsync(@"read root\presets");        // real answer eaten as 'stale' (strike 1)
+        await link.SendAsync(@"read root\presets");        // eaten again (strike 2 -> self-heal)
+        var healed = await link.SendAsync(@"read root\presets");
+        Assert.Contains("\"A\"", healed);                  // link recovered without a reconnect
+    }
+
+    [Fact]
+    public async Task Reopening_the_link_clears_owed_response_debt()
+    {
+        // A fresh socket owes nothing: bytes from the old connection can't arrive on the new one.
+        var (link, conn) = Open();
+        Assert.Equal("", await link.SendAsync(@"write root\app\x:{""value"":1}"));   // abandoned -> debt
+        link.Close();
+        await link.OpenAsync();
+        conn.RespondWith = _ => Encoding.ASCII.GetBytes("root\\presets:{\"value\":[\"B\"]}\0");
+        var r = await link.SendAsync(@"read root\presets");
+        Assert.Contains("\"B\"", r);                       // not skipped as stale debt from the old socket
+    }
+
+    [Fact]
     public async Task Large_response_streamed_with_gap_longer_than_idlegap_is_not_truncated()
     {
         // Regression (field crash "Slot 23 is empty" over WiFi): a multi-record response — e.g. the

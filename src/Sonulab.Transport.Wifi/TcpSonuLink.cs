@@ -22,8 +22,18 @@ public sealed class TcpSonuLink : ISonuLink
     /// abandoning it must not desync the stream (live wire capture 2026-07-21: a late rename ACK was
     /// returned as the next read's response — "Reorder verify failed", stranded __sstmp names). Each
     /// abandoned command increments this; every stale NUL-terminated response consumed (in the pre-send
-    /// drain or the read loop) decrements it.</summary>
+    /// drain or the read loop) decrements it.
+    /// PRECONDITION: one command in flight at a time (SonuClient's gate enforces this) — this counter
+    /// is not synchronized and concurrent SendAsync calls would corrupt it AND interleave on the wire.</summary>
     private int _pending;
+
+    /// <summary>Self-heal for phantom debt: consecutive SendAsync calls that consumed a stale
+    /// response yet never found their own terminator. If the device ever genuinely drops a response
+    /// (violating the ACKs-everything invariant), <see cref="_pending"/> would otherwise stick and
+    /// every later REAL response would be eaten as stale — a permanent empty-read wedge. Two strikes
+    /// ⇒ the debt is declared phantom and reset (worst case one stale-as-real read slips through,
+    /// which the SonuClient expectation-aware retry then rejects).</summary>
+    private int _wedgeStrikes;
 
     public TcpSonuLink(ITcpConn conn, string host, int port, TcpLinkOptions? options = null)
     {
@@ -34,6 +44,7 @@ public sealed class TcpSonuLink : ISonuLink
 
     public async Task OpenAsync(CancellationToken ct = default)
     {
+        _pending = 0; _wedgeStrikes = 0;   // a fresh socket owes nothing — old-connection bytes can't arrive here
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(_options.ConnectTimeoutMs);
         await _conn.ConnectAsync(_host, _port, timeout.Token);
@@ -73,7 +84,9 @@ public sealed class TcpSonuLink : ISonuLink
 
         var sb = new StringBuilder();
         var sw = Stopwatch.StartNew();
-        bool sawData = false, sawNul = false;
+        bool sawOwn = false, sawNul = false;   // sawOwn: bytes of OUR response (stale drains don't count)
+        long ownClock = 0;                     // when we (re)started waiting for OUR response
+        int staleConsumed = 0;
 
         while (sw.ElapsedMilliseconds < _options.MaxWaitMs)
         {
@@ -83,7 +96,6 @@ public sealed class TcpSonuLink : ISonuLink
             {
                 var buf = new byte[avail];
                 int n = _conn.Receive(buf);
-                sawData = true;
                 int start = 0;
                 while (start < n)
                 {
@@ -94,15 +106,17 @@ public sealed class TcpSonuLink : ISonuLink
                     if (_pending > 0)
                     {
                         // A NUL while a response is owed terminates the PREVIOUS command's late
-                        // response — consume it and keep reading for ours.
-                        _pending--;
+                        // response — consume it, restart the wait for ours.
+                        _pending--; staleConsumed++;
                         Log.Warn("resync: consumed a late response ({0} chars) during '{1}'", sb.Length, command);
                         sb.Clear();
+                        ownClock = sw.ElapsedMilliseconds;
                         continue;
                     }
                     sawNul = true;   // OUR terminator — the device NUL-terminates every response
                     break;
                 }
+                sawOwn = sb.Length > 0;
                 if (sawNul) break;
             }
             else
@@ -110,25 +124,42 @@ public sealed class TcpSonuLink : ISonuLink
                 // The device NUL-terminates every response — that terminator is the authoritative
                 // end-of-response. Do NOT treat a mid-response idle gap as end-of-data: over TCP a
                 // large multi-record response can arrive in bursts with long gaps, and breaking on a
-                // gap truncated it (field crash "Slot N is empty"). Only the no-data case
-                // short-circuits; MaxWait remains the backstop.
-                if (!sawData && sw.ElapsedMilliseconds >= _options.FirstByteTimeoutMs) break;
+                // gap truncated it (field crash "Slot N is empty"). Only the no-own-data case
+                // short-circuits (clock restarts after each stale skip); MaxWait remains the backstop.
+                if (!sawOwn && sw.ElapsedMilliseconds - ownClock >= _options.FirstByteTimeoutMs) break;
                 await Task.Delay(_options.PollMs, ct);
             }
         }
 
-        if (!sawNul)
+        if (sawNul)
+        {
+            _wedgeStrikes = 0;
+        }
+        else
         {
             // Our response didn't (fully) arrive — the device now owes us one more. Record the debt
             // so the late arrival is consumed instead of desyncing the next command, and log it: a
             // silent short read is how both field failures presented.
             _pending++;
-            if (sawData)
+            if (staleConsumed > 0 && ++_wedgeStrikes >= 2)
+            {
+                // Two consecutive reads each ate a "stale" response yet never found their own: the
+                // owed response is almost certainly phantom (the device dropped a command — see
+                // _wedgeStrikes). Reset rather than wedge into permanent empty reads.
+                Log.Error("resync self-heal: {0} consecutive commands consumed a stale response without finding their own — " +
+                          "dropping phantom debt ({1} outstanding) ({2}:{3})", _wedgeStrikes, _pending, _host, _port);
+                _pending = 0; _wedgeStrikes = 0;
+            }
+            else if (sawOwn)
+            {
                 Log.Warn("TCP response for '{0}' had no NUL terminator within {1}ms ({2} chars) — likely truncated ({3}:{4})",
                     command, sw.ElapsedMilliseconds, sb.Length, _host, _port);
+            }
             else
+            {
                 Log.Debug("no response to '{0}' within {1}ms — response now owed ({2} outstanding)",
                     command, sw.ElapsedMilliseconds, _pending);
+            }
         }
         return sb.ToString();
     }
