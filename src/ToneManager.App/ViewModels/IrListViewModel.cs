@@ -7,6 +7,7 @@ namespace ToneManager.App.ViewModels;
 
 public partial class IrListViewModel : ObservableObject
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private readonly IrService _irs;
     private readonly bool _writes;
 
@@ -44,6 +45,14 @@ public partial class IrListViewModel : ObservableObject
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
         try { await work(); await ReloadAsync(); return true; }
         catch (IrServiceException ex) { ErrorMessage = ex.Message; return false; }
+        catch (Exception ex)
+        {
+            // Transport/unexpected failures (e.g. the WiFi link dying mid-session) must surface,
+            // never escape the [RelayCommand] (unhandled = process death — field crash class).
+            Log.Warn(ex, "IR operation failed: {0}", message);
+            ErrorMessage = $"Operation failed: {ex.Message}";
+            return false;
+        }
         finally { IsBusy = false; BusyMessage = ""; }
     }
 
@@ -54,7 +63,19 @@ public partial class IrListViewModel : ObservableObject
         foreach (var s in slots) Items.Add(new IrItemViewModel(s));
     }
 
-    [RelayCommand] private Task RefreshAsync() => CanRefresh ? ReloadAsync() : Task.CompletedTask;
+    [RelayCommand] private async Task RefreshAsync()
+    {
+        if (!CanRefresh) return;
+        IsBusy = true; BusyMessage = "Refreshing…"; ErrorMessage = null;
+        try { await ReloadAsync(); }
+        catch (Exception ex)
+        {
+            // Same crash-guard as amps/presets: a dead link must surface, not tear down the app.
+            Log.Warn(ex, "IR refresh failed");
+            ErrorMessage = $"Refresh failed: {ex.Message}";
+        }
+        finally { IsBusy = false; BusyMessage = ""; }
+    }
 
     [RelayCommand] private async Task DeleteAsync()
     {

@@ -10,6 +10,7 @@ namespace ToneManager.App.ViewModels;
 
 public partial class AmpListViewModel : ObservableObject
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private readonly AmpService _amps;
     private readonly bool _writes;
 
@@ -62,6 +63,15 @@ public partial class AmpListViewModel : ObservableObject
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
         try { await work(); await ReloadAsync(); return true; }
         catch (AmpServiceException ex) { ErrorMessage = ex.Message; return false; }
+        catch (Exception ex)
+        {
+            // Transport/unexpected failures (e.g. the WiFi link dying mid-session) must surface,
+            // never escape the [RelayCommand] — an unhandled rethrow on the UI thread killed the
+            // app in the field (v0.9.3 test build, amps refresh over WiFi).
+            Log.Warn(ex, "amp operation failed: {0}", message);
+            ErrorMessage = $"Operation failed: {ex.Message}";
+            return false;
+        }
         finally { IsBusy = false; BusyMessage = ""; }
     }
 
@@ -80,8 +90,15 @@ public partial class AmpListViewModel : ObservableObject
         // Wrap in the busy pattern so OnSelectedChanged's guard blocks a details read from
         // interleaving with a plain refresh (mirrors RunAsync, but not write-gated).
         if (!CanRefresh) return;
-        IsBusy = true; BusyMessage = "Refreshing…";
+        IsBusy = true; BusyMessage = "Refreshing…"; ErrorMessage = null;
         try { await ReloadAsync(); }
+        catch (Exception ex)
+        {
+            // Field crash (v0.9.3 test build): the WiFi link died and this command had no catch —
+            // AsyncRelayCommand rethrew on the UI thread and took the app down.
+            Log.Warn(ex, "amp refresh failed");
+            ErrorMessage = $"Refresh failed: {ex.Message}";
+        }
         finally { IsBusy = false; BusyMessage = ""; }
     }
 
