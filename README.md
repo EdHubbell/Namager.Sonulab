@@ -8,7 +8,7 @@ back up presets, fixing the slow VoidX-Control workflow.
 
 ## Install
 
-1. Grab the latest `.msi` from the [Releases page](https://github.com/EdHubbell/StompStationManager/releases/latest).
+1. Grab the latest `.msi` from the [Releases page](https://github.com/EdHubbell/ToneManager/releases/latest).
 2. Run it. Windows SmartScreen will warn that the app is unrecognized (the installer is
    unsigned) — click **More info → Run anyway**. Installation is per-user: no admin rights
    needed, and .NET does not need to be installed.
@@ -21,7 +21,7 @@ Updating: the app tells you when a new version is available; download and run th
 ## Feedback
 
 Use **Send Feedback** (bottom-left in the app). Your message — including the name and
-email you enter — is posted as a public [GitHub issue](https://github.com/EdHubbell/StompStationManager/issues)
+email you enter — is posted as a public [GitHub issue](https://github.com/EdHubbell/ToneManager/issues)
 so you can follow the discussion.
 
 ## Status
