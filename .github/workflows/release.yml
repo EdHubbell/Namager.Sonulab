@@ -27,12 +27,12 @@ jobs:
         run: dotnet publish src/ToneManager.App -c Release -r win-x64 --self-contained true -p:Version=$env:VERSION
 
       - name: Build installer
-        run: dotnet build src/Sonulab.Installer -c Release -p:ProductVersion=$env:VERSION
+        run: dotnet build src/ToneManager.Installer -c Release -p:ProductVersion=$env:VERSION
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: src/Sonulab.Installer/bin/**/*.msi
+          files: src/ToneManager.Installer/bin/**/*.msi
           generate_release_notes: true
           body: |
             ### Install

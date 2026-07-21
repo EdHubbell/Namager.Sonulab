@@ -1,4 +1,4 @@
-<!-- Deliberately NOT in Sonulab.slnx: packaging runs only in the release workflow or
+<!-- Deliberately NOT in ToneManager.slnx: packaging runs only in the release workflow or
      via an explicit local build (see step 3), never on plain solution builds. -->
 <Project Sdk="WixToolset.Sdk/6.0.1">
   <PropertyGroup>
@@ -9,9 +9,9 @@
     <!-- Must be absolute: WiX's Files/@Include harvesting resolves relative paths against the
          nested StandardDirectory hierarchy (it picked up "Programs" from ProgramsDir's Name),
          not the project directory, so a relative PublishDir silently harvests zero files. -->
-    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildProjectDirectory)\..\Sonulab.App\bin\Release\net10.0\win-x64\publish</PublishDir>
+    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildProjectDirectory)\..\ToneManager.App\bin\Release\net10.0\win-x64\publish</PublishDir>
     <DefineConstants>$(DefineConstants);ProductVersion=$(ProductVersion);PublishDir=$(PublishDir)</DefineConstants>
-    <OutputName>StompStationManager-$(ProductVersion)-x64</OutputName>
+    <OutputName>ToneManager-$(ProductVersion)-x64</OutputName>
     <!-- ICE38/ICE64 flag per-user (Scope=perUser) file components under LocalAppDataFolder as
          needing an HKCU registry KeyPath instead of a file KeyPath, and the user-profile
          directories as missing a RemoveFile entry. Both are well-known false positives for
