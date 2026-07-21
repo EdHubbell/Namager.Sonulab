@@ -169,13 +169,23 @@ public class MdnsMessagesTests
     [Fact]
     public void Truncated_txt_rdlen_returns_null()
     {
-        // Synthetic datagram: TXT record where rdlen is set so that a second string entry
-        // claims more bytes than remain in the rdata. The inner guard must catch this and return null.
+        // Synthetic datagram: TXT record where rdlen is set so that a second string entry's
+        // length byte makes it overrun the TXT record's OWN rdlen boundary (rdOff+rdlen) —
+        // but the claimed bytes still land WITHIN the overall datagram (d.Length), because the
+        // following A record's bytes occupy that space. This is deliberate: a datagram whose
+        // overrun also exceeds d.Length is NOT a genuine test of the rdlen guard at line ~88,
+        // because Encoding.UTF8.GetString would then throw ArgumentOutOfRangeException on its
+        // own (caught by the outer try/catch in TryParsePedal) — the same null would come back
+        // whether or not the guard exists. By keeping the overrun within d.Length, removing the
+        // guard here would NOT throw: GetString would succeed by reading into the A record's
+        // leading bytes, and the loop would exit (p advances past rdOff+rdlen), so this test
+        // only fails without the guard because of the guard's absence specifically.
+        //
         // First string: 0x08 + "id=voidx" (9 bytes total, valid — this ensures isVoidx=true)
-        // Second string: 0x64 (claims 100 bytes follow) + 0 bytes (rdlen only provides the length byte)
-        // rdlen=10 provides exactly the first 9 bytes + 1 byte for the second string's length byte.
-        // Without the inner guard, GetString(d, p+1, 100) would read 100 bytes past the TXT rdata,
-        // corrupting the parse. With the guard, we return null before attempting that read.
+        // Second string: length byte 0x05 (claims 5 bytes follow), but rdlen=10 only covers the
+        // first string (9 bytes) + this one length byte (1 byte) = 10 bytes — no room for the
+        // claimed 5 bytes within rdlen. Those 5 bytes DO exist further along in the datagram
+        // (start of the following A record's owner name), so d.Length is not exceeded.
         var srvRdata = new MemoryStream();
         srvRdata.WriteByte(0);
         srvRdata.WriteByte(0);
@@ -185,9 +195,9 @@ public class MdnsMessagesTests
         srvRdata.WriteByte(0x90); // port 8080
         srvRdata.Write(Encoding.ASCII.GetBytes("\x04test\x05local\x00")); // target: test.local
 
-        // TXT: [0x08, 'i', 'd', '=', 'v', 'o', 'i', 'd', 'x', 0x64]
-        // (9 bytes for id=voidx + 1 byte claiming 100 more = 10 bytes total)
-        var txtRdata = new byte[] { 0x08, 0x69, 0x64, 0x3D, 0x76, 0x6F, 0x69, 0x64, 0x78, 0x64 };
+        // TXT: [0x08, 'i', 'd', '=', 'v', 'o', 'i', 'd', 'x', 0x05]
+        // (9 bytes for id=voidx + 1 byte claiming 5 more = 10 bytes total, matching rdlen=10)
+        var txtRdata = new byte[] { 0x08, 0x69, 0x64, 0x3D, 0x76, 0x6F, 0x69, 0x64, 0x78, 0x05 };
 
         var aRdata = new byte[] { 0xC0, 0xA8, 0x08, 0xF1 }; // 192.168.8.241
 
@@ -197,7 +207,9 @@ public class MdnsMessagesTests
             ("test.local", 1, aRdata)
         );
 
-        // RED CHECK: Temporarily remove the inner guard to verify test catches it (see report).
+        // Non-vacuity: with the line-88 guard removed, GetString(d, p+1, 5) succeeds (those 5
+        // bytes exist — they're the start of the following A record's owner-name label), so this
+        // assertion FAILS without the guard. See task-4-fix-report.md for the recorded proof.
         Assert.Null(MdnsMessages.TryParsePedal(datagram));
     }
 }
