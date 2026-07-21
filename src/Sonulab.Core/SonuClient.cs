@@ -12,8 +12,20 @@ public sealed class SonuClient
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private readonly ISonuLink _link;
     private readonly SemaphoreSlim _gate = new(1, 1); // one command in flight
+    private readonly int _readRetryAttempts;
+    private readonly int _readRetryDelayMs;
 
-    public SonuClient(ISonuLink link) => _link = link;
+    /// <param name="readRetryAttempts">How many times a read (ReadValue/ReadList/BrowseRecords) is
+    /// attempted while the device answers with no parseable record. The WiFi/TCP pedal intermittently
+    /// returns an empty record ("\r\n\0") instead of the real response (the "empty-first-response"
+    /// quirk, which recurs mid-session); reads are idempotent so retrying is safe, and serial never
+    /// returns empty so this never triggers there.</param>
+    public SonuClient(ISonuLink link, int readRetryAttempts = 4, int readRetryDelayMs = 120)
+    {
+        _link = link;
+        _readRetryAttempts = Math.Max(1, readRetryAttempts);
+        _readRetryDelayMs = readRetryDelayMs;
+    }
 
     private async Task<string> SendAsync(string command, CancellationToken ct)
     {
@@ -33,9 +45,30 @@ public sealed class SonuClient
         }
     }
 
+    /// <summary>Sends a read command, retrying while the response yields no parseable record — the
+    /// WiFi pedal intermittently answers with an empty record ("\r\n\0") instead of the real response
+    /// (see the ctor's <c>readRetryAttempts</c>). Returns the last raw response (empty if the retry
+    /// budget is exhausted). Only for idempotent reads; writes/dwrites do NOT go through here.</summary>
+    private async Task<string> SendReadAsync(string command, CancellationToken ct)
+    {
+        string raw = "";
+        for (int attempt = 1; attempt <= _readRetryAttempts; attempt++)
+        {
+            raw = await SendAsync(command, ct);
+            if (ResponseParser.NonMeterRecords(raw).Any()) return raw;
+            if (attempt < _readRetryAttempts)
+            {
+                Log.Debug("empty response for '{0}' (attempt {1}/{2}) — retrying (WiFi empty-record quirk)",
+                    command, attempt, _readRetryAttempts);
+                await Task.Delay(_readRetryDelayMs, ct);
+            }
+        }
+        return raw;
+    }
+
     public async Task<string?> ReadValueAsync(string path, CancellationToken ct = default)
     {
-        var raw = await SendAsync(SonuCommands.Read(path), ct);
+        var raw = await SendReadAsync(SonuCommands.Read(path), ct);
         foreach (var rec in ResponseParser.NonMeterRecords(raw))
             if (NodeRecord.TryParse(rec, out var r) && r.Path == path)
                 return r.ValueString ?? r.ValueNumber?.ToString(CultureInfo.InvariantCulture);
@@ -44,7 +77,7 @@ public sealed class SonuClient
 
     public async Task<IReadOnlyList<string>> ReadListAsync(string path, CancellationToken ct = default)
     {
-        var raw = await SendAsync(SonuCommands.Read(path), ct);
+        var raw = await SendReadAsync(SonuCommands.Read(path), ct);
         foreach (var rec in ResponseParser.NonMeterRecords(raw))
             if (NodeRecord.TryParse(rec, out var r) && r.Path == path &&
                 r.Json.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Array)
@@ -54,7 +87,7 @@ public sealed class SonuClient
 
     public async Task<IReadOnlyList<NodeRecord>> BrowseRecordsAsync(string path, CancellationToken ct = default)
     {
-        var raw = await SendAsync(SonuCommands.Browse(path), ct);
+        var raw = await SendReadAsync(SonuCommands.Browse(path), ct);
         var list = new List<NodeRecord>();
         foreach (var rec in ResponseParser.NonMeterRecords(raw))
             if (NodeRecord.TryParse(rec, out var r))
