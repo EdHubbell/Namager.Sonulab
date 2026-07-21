@@ -41,9 +41,16 @@ truncated by a mid-response idle gap; the reorder command was also unguarded and
 - [x] Latency sane: a full connect (mDNS + compat's several reads + list) ran ~9.3 s end-to-end;
   device commands break on the NUL terminator (a no-NUL response would hit MaxWait=2500 ms each,
   which would make compat+list take ~15 s+ — it does not), confirming responses are NUL-terminated.
-- [ ] **Live WiFi reorder (a WRITE) — pending Ed's spot-check:** move a preset down one slot, then
-  back up, over WiFi; confirm it completes and (with the crash-guard) never tears down the app.
-  Not run here because it writes to the pedal.
+- [x] **Live WiFi reorder (a WRITE)** via `HwCheck --wifi --reorder-test` (guarded, backup+rollback):
+  moved idx 0 → idx 2 and back, **RESULT: REORDER-TEST PASS**, order restored, no crash.
+  - Timing (instrumented run): `compat=492ms`, `rotate(select+save)=~2.2s`, and the dominant cost was
+    `backed up 3 slots in ~12.6s` — the reorder-*test* uses the safety `MoveAsync` path that reads
+    each preset's full 8192-byte blob (64 chunk-reads/slot) for rollback; that's inherent WiFi
+    blob-read latency, not the fix. **Zero no-NUL warnings** → no command hit MaxWait, so the
+    NUL-authoritative change introduces no latency regression.
+  - NOTE: the app's single-slot up/down move uses the lean `MoveStepAsync` (no blob backup) — the
+    ~2.2s `rotate` path, not the 12.6s backup. WiFi blob-read speed (backup/duplicate/amp-IR dumps)
+    is a separate potential optimization, out of scope for this crash fix.
 
 ## App (Ed)
 - [ ] Pedal on WiFi, USB unplugged → Connect → status ends "(WiFi)"; presets load
