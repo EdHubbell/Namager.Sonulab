@@ -7,6 +7,7 @@ namespace ToneManager.App.ViewModels;
 
 public partial class PresetListViewModel : ObservableObject
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private readonly DeviceRepository _repo;
     private readonly ReorderService _reorder;
     private readonly bool _writes;
@@ -18,12 +19,30 @@ public partial class PresetListViewModel : ObservableObject
     [ObservableProperty] private PresetItemViewModel? _selected;
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private string _busyMessage = "";
+    /// <summary>Last device-operation failure, shown to the user. Null when the last op succeeded.</summary>
+    [ObservableProperty] private string? _errorMessage;
 
     private async Task<bool> RunAsync(string message, Func<Task> work)
     {
         if (!_writes) return false;
-        IsBusy = true; BusyMessage = message;
-        try { await work(); await ReloadAsync(); return true; }
+        IsBusy = true; BusyMessage = message; ErrorMessage = null;
+        try
+        {
+            await work();
+            await ReloadAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // A device/reorder failure must NEVER crash the app. It did in the field (v0.9.1): an
+            // unhandled exception out of a [RelayCommand] is rethrown by AsyncRelayCommand on the UI
+            // thread and tears down the process. Surface it, resync the list, and stay alive.
+            Log.Warn(ex, "preset operation failed: {0}", message);
+            ErrorMessage = $"Operation failed: {ex.Message}";
+            try { await ReloadAsync(); }
+            catch (Exception reloadEx) { Log.Warn(reloadEx, "reload after a failed operation also failed"); }
+            return false;
+        }
         finally { IsBusy = false; BusyMessage = ""; }
     }
 
