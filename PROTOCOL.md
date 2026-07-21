@@ -38,7 +38,11 @@ Reverse-engineered from a USBPcap capture (`SonulabCapture1.pcapng`) + static st
 ## Wire framing
 - **Commands (host -> device): NUL-terminated (`\x00`) ASCII**, e.g. `read root\sys\_name\0`.
 - **Responses / streamed data (device -> host): CRLF-separated `path:{"value":…}` records** —
-  identical to the `.pst` preset file layout. (NOT NUL-terminated.)
+  identical to the `.pst` preset file layout. Records within a response are CRLF-*separated* (not
+  NUL-separated), but the **whole response ends with a single NUL terminator** — see the WiFi/TCP
+  section above and the dwrite-ACK note below ("the response's NUL terminator"). That terminating
+  NUL is the authoritative end-of-response for readers (an idle gap is not; over TCP a bursty large
+  response can gap mid-stream, so relying on a gap truncates it).
 - No length prefix on the app layer, no checksum. Payloads must contain **no embedded zero bytes**.
 - BLE characteristics: host->device on ATT handle `0x0010`, device->host (notify) on `0x0012`.
   Over USB serial (CH340) the same bytes ride bulk OUT `0x02` / IN `0x82`.

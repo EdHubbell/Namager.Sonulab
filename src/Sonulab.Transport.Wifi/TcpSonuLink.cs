@@ -10,6 +10,7 @@ namespace Sonulab.Transport.Wifi;
 /// first-command-empty quirk is handled by the caller's probe retry (PROTOCOL.md §WiFi/TCP).</summary>
 public sealed class TcpSonuLink : ISonuLink
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private static readonly byte[] Nul = { 0 };
     private readonly ITcpConn _conn;
     private readonly string _host;
@@ -47,7 +48,7 @@ public sealed class TcpSonuLink : ISonuLink
 
         var sb = new StringBuilder();
         var sw = Stopwatch.StartNew();
-        bool sawData = false;
+        bool sawData = false, sawNul = false;
 
         while (sw.ElapsedMilliseconds < _options.MaxWaitMs)
         {
@@ -59,7 +60,7 @@ public sealed class TcpSonuLink : ISonuLink
                 int n = _conn.Receive(buf);
                 sb.Append(Encoding.ASCII.GetString(buf, 0, n));
                 sawData = true;
-                if (Array.IndexOf(buf, (byte)0, 0, n) >= 0) break;   // device NUL-terminates responses
+                if (Array.IndexOf(buf, (byte)0, 0, n) >= 0) { sawNul = true; break; }   // device NUL-terminates responses
             }
             else
             {
@@ -73,6 +74,12 @@ public sealed class TcpSonuLink : ISonuLink
                 await Task.Delay(_options.PollMs, ct);
             }
         }
+        // Data arrived but no NUL within MaxWait: the response is almost certainly truncated. Don't
+        // fail silently (that's how the field crash presented — a short read read as an empty slot);
+        // log it so a recurrence under worse network conditions is diagnosable from the log alone.
+        if (sawData && !sawNul)
+            Log.Warn("TCP response for '{0}' had no NUL terminator within {1}ms ({2} chars) — likely truncated ({3}:{4})",
+                command, sw.ElapsedMilliseconds, sb.Length, _host, _port);
         return sb.ToString();
     }
 }
