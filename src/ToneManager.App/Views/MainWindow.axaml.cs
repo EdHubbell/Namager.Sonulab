@@ -11,7 +11,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = $"StompStation Manager v{AppInfo.Version}";
+        Title = $"ToneManager v{AppInfo.Version}";
         NavList.SelectionChanged += OnNavSelectionChanged;
         DataContextChanged += (_, _) =>
         {

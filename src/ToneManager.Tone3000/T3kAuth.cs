@@ -92,7 +92,7 @@ public sealed class T3kAuth(
         var q = ctx.Request.QueryString;
         string? code = q["code"];
         bool ok = code is not null && q["state"] == state;
-        var page = ok ? "<html><body>Signed in — you can close this tab and return to StompStation Manager.</body></html>"
+        var page = ok ? "<html><body>Signed in — you can close this tab and return to ToneManager.</body></html>"
                       : "<html><body>Sign-in failed.</body></html>";
         var bytes = Encoding.UTF8.GetBytes(page);
         ctx.Response.ContentType = "text/html";
