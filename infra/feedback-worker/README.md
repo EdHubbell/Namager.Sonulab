@@ -2,7 +2,7 @@
 
 Receives `{ name, email, message, appVersion, os, website }` POSTs from the app's
 Send Feedback dialog and creates a GitHub issue labeled `user-feedback` on
-`EdHubbell/StompStationManager`. `website` is a honeypot — always empty from the real app.
+`EdHubbell/ToneManager`. `website` is a honeypot — always empty from the real app.
 
 **This worker is deployed manually, never by CI.**
 
@@ -10,14 +10,14 @@ Send Feedback dialog and creates a GitHub issue labeled `user-feedback` on
 
 1. **Create the fine-grained GitHub PAT**
    github.com → Settings → Developer settings → Fine-grained tokens → Generate new token.
-   - Repository access: *Only select repositories* → `StompStationManager`
+   - Repository access: *Only select repositories* → `ToneManager`
    - Permissions: *Issues: Read and write*. Nothing else.
    - Expiration: 1 year (calendar a renewal reminder).
    Copy the token.
 
 2. **Create the issue label** (once):
    ```
-   gh label create user-feedback --repo EdHubbell/StompStationManager --color F9D0C4 --description "Submitted from the app's Send Feedback dialog"
+   gh label create user-feedback --repo EdHubbell/ToneManager --color F9D0C4 --description "Submitted from the app's Send Feedback dialog"
    ```
 
 3. **Deploy the worker** (needs Node; no install required):
@@ -27,15 +27,15 @@ Send Feedback dialog and creates a GitHub issue labeled `user-feedback` on
    npx wrangler deploy
    npx wrangler secret put GITHUB_TOKEN    # paste the PAT when prompted
    ```
-   `deploy` prints the live URL, e.g. `https://stompstation-feedback.<your-subdomain>.workers.dev`.
+   `deploy` prints the live URL, e.g. `https://tonemanager-feedback.<your-subdomain>.workers.dev`.
 
    Note: until the secret is set, the endpoint returns 502 — harmless, since nobody has the URL yet.
 
 4. **Sync the app**: if the printed URL differs from `FeedbackService.EndpointUrl`
-   (`src/Sonulab.App/Services/FeedbackService.cs`), update that constant and commit.
+   (`src/ToneManager.App/Services/FeedbackService.cs`), update that constant and commit.
 
 5. **Rate-limit backstop** (recommended): Cloudflare dashboard → Workers & Pages →
-   stompstation-feedback → Settings → add a rate limiting rule, e.g. 10 requests per
+   tonemanager-feedback → Settings → add a rate limiting rule, e.g. 10 requests per
    minute per IP. (The worker also self-limits to 5/hour/IP, best-effort.)
 
 ## Smoke tests
