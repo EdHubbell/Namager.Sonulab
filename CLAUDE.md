@@ -6,9 +6,9 @@ ESP32-S3, fw 2.5.1) over USB serial — list / select / edit / rename / delete /
 captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 
 ## Build / test / run
-- Build: `dotnet build`  · Test: `dotnet test` (all should pass; 464 tests)
+- Build: `dotnet build`  · Test: `dotnet test` (all should pass; 471 tests)
 - Run the app: `dotnet run --project src/ToneManager.App`  (needs VoidX-Control CLOSED — see gotchas)
-- Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot> | --preset-dwrite-probe]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin.
+- Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot> | --preset-dwrite-probe | --wifi [--ip <addr>]]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin. `--wifi` runs any mode over WiFi (mDNS auto-discovery; `--ip <addr>` pins the endpoint, skipping mDNS).
 
 ## Architecture
 - **`src/Sonulab.Core`** (no UI, fully unit-tested): `Protocol/` (SonuCommands, ResponseParser),
@@ -18,6 +18,11 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 - **`src/Sonulab.Distill`** (no UI, unit-tested): native C# port of the .nam→.vxamp
   distiller (WaveNet runner, WH fitter, vxamp codec, VxampMetadata (SSMD slot-metadata block)). Python `tools/distiller/` is the
   reference oracle; parity goldens via `tools/distiller/make_cs_fixtures.py`.
+- **`src/Sonulab.Transport.Wifi`** (no UI, unit-tested; vendor-specific, keeps `Sonulab.*`): WiFi/TCP
+  transport for the pedal — `TcpSonuLink` (`ISonuLink` over a persistent socket on port 8080, same wire
+  protocol as serial, behind an `ITcpConn` seam), a hand-rolled pure `MdnsMessages` parser (PTR
+  `_http._tcp.local`, filtered by TXT `id=voidx`; tested against real captured datagrams), `UdpMdnsQuerier`,
+  and `WifiLinkProvider` (an `ILinkProvider` — USB stays #1, WiFi is the auto fallback via `DeviceSession`).
 - **`src/ToneManager.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml` + Styles/SonulabTheme.axaml (Studio-warm palette tokens & style classes — use tokens, never hex literals in views).
@@ -40,6 +45,10 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 - **Avalonia 12 + built-in `FluentTheme`. Do NOT add FluentAvalonia** — it targets Avalonia 11 and
   crashes at runtime on 12. Icons are built-in `PathIcon` geometries, no third-party icon lib.
 - **VoidX-Control must be CLOSED** to use the pedal — it holds COM6 exclusively.
+- **USB→WiFi fallback:** connect tries USB first, then auto-discovers the pedal over WiFi (mDNS PTR
+  `_http._tcp.local` filtered by TXT `id=voidx`; TCP 8080, identical wire protocol) — see
+  `src/Sonulab.Transport.Wifi` and `docs/HARDWARE-VALIDATION-wifi.md`. VoidX holds only the COM port, so
+  WiFi coexists with it; the pedal answers mDNS intermittently (the querier re-sends every ~2 s).
 - **Opening the port resets the ESP32** (adaptive: OpenSettleMs=250 + up to 8 probe retries @150 ms;
   a true cold boot connects on attempt ~3). **Device names cap ~31 chars.**
 - **Device writes are destructive & need explicit user consent**; always back up first (BackupService;
