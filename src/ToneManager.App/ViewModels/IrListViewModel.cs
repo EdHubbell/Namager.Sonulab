@@ -164,6 +164,12 @@ public partial class IrListViewModel : ObservableObject
         catch (IrServiceException ex) { UploadError = ex.Message; }
         catch (IOException ex) { UploadError = ex.Message; }
         catch (UnauthorizedAccessException ex) { UploadError = ex.Message; }
+        catch (Exception ex)
+        {
+            // Transport failures (link dying mid-upload) must surface, never escape (crash class).
+            Log.Warn(ex, "IR upload failed");
+            UploadError = $"Upload failed: {ex.Message}";
+        }
         finally { IsUploading = false; }
     }
 
