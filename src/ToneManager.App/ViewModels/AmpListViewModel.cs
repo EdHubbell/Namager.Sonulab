@@ -318,6 +318,14 @@ public partial class AmpListViewModel : ObservableObject
         catch (AmpServiceException ex) { UploadError = ex.Message; }
         catch (IOException ex) { UploadError = ex.Message; }
         catch (UnauthorizedAccessException ex) { UploadError = ex.Message; }
+        catch (Exception ex)
+        {
+            // The longest-running device op is the MOST exposed to the link dying mid-session —
+            // a transport exception here escaped the [RelayCommand] and killed the app (review
+            // finding on the first crash-guard sweep). Surface it like every other failure.
+            Log.Warn(ex, "amp upload failed");
+            UploadError = $"Upload failed: {ex.Message}";
+        }
         finally
         {
             IsUploading = false; CanCancelUpload = false; IsUploadIndeterminate = false;
@@ -394,6 +402,16 @@ public partial class AmpListViewModel : ObservableObject
                                                               // which owns the pane now — don't touch it
             catch (AmpServiceException ex)
             { DetailsError = ex.Message; DetailsFields.Clear(); return; }
+            catch (Exception ex)
+            {
+                // Raw transport failure (e.g. the link dying mid-session). This task is awaited by
+                // SaveMetadataAsync's tail — an escape there is an unhandled UI-thread rethrow
+                // (field-crash class). Surface it like a service failure.
+                Log.Warn(ex, "amp details read failed");
+                DetailsError = $"Read failed: {ex.Message}";
+                DetailsFields.Clear();
+                return;
+            }
             finally { if (_detailsCts == cts) IsDetailsLoading = false; }
             // Superseded by a newer selection: don't let a stale read populate the cache.
             if (cts.IsCancellationRequested || Selected != item) return;
