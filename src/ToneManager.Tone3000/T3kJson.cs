@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Sonulab.Tone3000;
+namespace ToneManager.Tone3000;
 
 // ALL wire contracts live in this one file (spec §1: the API is v1-unstable; lenient
 // parsing everywhere - unknown fields ignored, missing optionals null). Field mapping

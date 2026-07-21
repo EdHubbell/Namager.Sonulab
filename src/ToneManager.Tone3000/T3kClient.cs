@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace Sonulab.Tone3000;
+namespace ToneManager.Tone3000;
 
 public interface IT3kClient
 {

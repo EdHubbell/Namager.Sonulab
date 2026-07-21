@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using Sonulab.Tone3000;
+using ToneManager.Tone3000;
 
 public class T3kAuthTests : IDisposable
 {

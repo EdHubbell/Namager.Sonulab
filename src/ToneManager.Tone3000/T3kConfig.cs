@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Sonulab.Tone3000;
+namespace ToneManager.Tone3000;
 
 /// <summary>App-side Tone3000 configuration. Deliberately has NO secret-key member:
 /// the t3k_cs_ credential is server-only and must be impossible to reach from app code
