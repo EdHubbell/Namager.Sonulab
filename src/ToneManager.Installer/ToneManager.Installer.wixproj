@@ -17,6 +17,13 @@
          directories as missing a RemoveFile entry. Both are well-known false positives for
          per-user MSIs that don't rely on Windows Installer self-repair/advertisement across
          multiple users of the same machine (see wixtoolset/issues#8633). -->
-    <SuppressIces>ICE38;ICE64</SuppressIces>
+    <!-- ICE91 joined the list with the WixUI addition: it warns that per-user files won't be
+         per-machine — this MSI is per-user BY DESIGN (Scope=perUser), same false-positive class. -->
+    <SuppressIces>ICE38;ICE64;ICE91</SuppressIces>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Standard WixUI dialog set (Welcome/VerifyReady/Progress/Exit) for the
+         end-of-install "Launch ToneManager" checkbox. -->
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.0.1" />
+  </ItemGroup>
 </Project>

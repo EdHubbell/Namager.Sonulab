@@ -33,3 +33,10 @@ Run after the first successful tag build (dry run: tag `v0.9.0`).
 - [ ] With v0.9.0 installed and v0.9.1 released: launch → banner "Version 0.9.1 is available."
 - [ ] Download opens the release page; Dismiss hides banner for the session
 - [ ] Delete the v0.9.0/v0.9.1 releases + tags after validation (keep the repo clean for v1.0.0)
+
+## Install UI (added post-v0.9.2: WixUI wizard + launch checkbox)
+- [ ] Double-click the .msi → Welcome → "Ready to install" (no license or install-dir screens) →
+      progress → Finish screen shows a **"Launch ToneManager" checkbox, checked by default**
+- [ ] Finish with the box checked → ToneManager launches (as the current user, not elevated)
+- [ ] Finish with the box unchecked → nothing launches
+- [ ] Upgrade-in-place over a previous version still walks the same wizard and the checkbox works
