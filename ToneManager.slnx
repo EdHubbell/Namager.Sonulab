@@ -3,14 +3,14 @@
     <Project Path="src/Sonulab.App/Sonulab.App.csproj" />
     <Project Path="src/Sonulab.Core/Sonulab.Core.csproj" />
     <Project Path="src/Sonulab.Distill/Sonulab.Distill.csproj" />
-    <Project Path="src/Sonulab.Tone3000/Sonulab.Tone3000.csproj" />
+    <Project Path="src/ToneManager.Tone3000/ToneManager.Tone3000.csproj" />
     <Project Path="src/Sonulab.Transport.Wifi/Sonulab.Transport.Wifi.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sonulab.App.Tests/Sonulab.App.Tests.csproj" />
     <Project Path="tests/Sonulab.Core.Tests/Sonulab.Core.Tests.csproj" />
     <Project Path="tests/Sonulab.Distill.Tests/Sonulab.Distill.Tests.csproj" />
-    <Project Path="tests/Sonulab.Tone3000.Tests/Sonulab.Tone3000.Tests.csproj" />
+    <Project Path="tests/ToneManager.Tone3000.Tests/ToneManager.Tone3000.Tests.csproj" />
     <Project Path="tests/Sonulab.Transport.Wifi.Tests/Sonulab.Transport.Wifi.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">

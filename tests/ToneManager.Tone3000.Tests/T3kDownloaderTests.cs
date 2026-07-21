@@ -1,5 +1,5 @@
 using System.Net;
-using Sonulab.Tone3000;
+using ToneManager.Tone3000;
 
 public class T3kDownloaderTests : IDisposable
 {

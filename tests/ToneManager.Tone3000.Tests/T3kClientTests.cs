@@ -1,6 +1,6 @@
 using System.Net;
 using System.Text;
-using Sonulab.Tone3000;
+using ToneManager.Tone3000;
 
 public class T3kClientTests
 {

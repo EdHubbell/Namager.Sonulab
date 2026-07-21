@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Sonulab.App.ViewModels"
-             xmlns:t3k="using:Sonulab.Tone3000"
+             xmlns:t3k="using:ToneManager.Tone3000"
              x:Class="Sonulab.App.Views.Tone3000View"
              x:DataType="vm:Tone3000ViewModel">
   <Panel>

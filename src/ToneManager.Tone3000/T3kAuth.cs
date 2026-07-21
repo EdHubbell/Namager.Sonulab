@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace Sonulab.Tone3000;
+namespace ToneManager.Tone3000;
 
 public interface IT3kAuth
 {

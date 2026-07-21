@@ -4,13 +4,13 @@ using Avalonia;
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Sonulab.Tone3000;
+using ToneManager.Tone3000;
 
 namespace Sonulab.App.ViewModels;
 
 public enum T3kViewMode { Search, Favorites, Downloaded }
 
-/// <summary>The Browse Tones ▸ Tone3000 tab. Consumes only the Sonulab.Tone3000 interfaces
+/// <summary>The Browse Tones ▸ Tone3000 tab. Consumes only the ToneManager.Tone3000 interfaces
 /// (all fakeable); works with no device connected — SendToPedal alone gates on
 /// IsDeviceReady, which MainWindowViewModel maintains.</summary>
 public partial class Tone3000ViewModel : ObservableObject

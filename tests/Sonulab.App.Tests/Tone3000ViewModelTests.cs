@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 using Sonulab.App.ViewModels;
-using Sonulab.Tone3000;
+using ToneManager.Tone3000;
 using Xunit;
 
 namespace Sonulab.App.Tests;
