@@ -10,13 +10,13 @@ Run after the first successful tag build (dry run: tag `v0.9.0`).
 ## Release pipeline (tag v0.9.0, push, watch Actions)
 - Release tags must be plain numeric `vX.Y.Z` (e.g. v0.9.0) — a prerelease suffix like `-rc1` fails the MSI build (ProductVersion must be numeric).
 - [ ] `git tag v0.9.0 && git push origin v0.9.0` → Release workflow goes green
-- [ ] Release page shows `StompStationManager-0.9.0-x64.msi` + SmartScreen note in body
+- [ ] Release page shows `ToneManager-0.9.0-x64.msi` + SmartScreen note in body
 
 ## Installer (on a machine or fresh Windows account, ideally NOT the dev box)
 - [ ] Download .msi from the release page; SmartScreen appears; More info → Run anyway works
 - [ ] Install completes with NO admin/UAC prompt
-- [ ] Start Menu entry "StompStation Manager" with the pedal icon; window/taskbar icon correct
-- [ ] Title bar shows "StompStation Manager v0.9.0"
+- [ ] Start Menu entry "ToneManager" with the pedal icon; window/taskbar icon correct
+- [ ] Title bar shows "ToneManager v0.9.0"
 - [ ] App connects to the pedal and lists presets (core function intact in packaged build)
 - [ ] Re-run same .msi → repair/no-op, not a second install
 - [ ] Settings → Apps shows one entry with icon; uninstall removes app folder + shortcut

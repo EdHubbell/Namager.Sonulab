@@ -13,7 +13,7 @@ evidence record; this document is the consolidated reference.
 |--------|---------------|--------|----------|
 | Header | 0 | 32 | Constant across all models |
 | Body | 32 | 8224 | XOR-obfuscated float32-LE weights / model tensors |
-| Padding | 8256 | 4032 | Zero bytes in VoidX-written slots. StompStation Manager stores its SSMD metadata block here (see src/Sonulab.Distill/VxampMetadata.cs); firmware ignores the region (validation pending — docs/HARDWARE-VALIDATION-amp-metadata.md). |
+| Padding | 8256 | 4032 | Zero bytes in VoidX-written slots. ToneManager stores its SSMD metadata block here (see src/Sonulab.Distill/VxampMetadata.cs); firmware ignores the region (validation pending — docs/HARDWARE-VALIDATION-amp-metadata.md). |
 
 - **Slot size:** 12288 B (`root\amp` slot; `size 12288`, `chunk 128`, 96 chunks).
 - **Payload size:** 8256 B (header + body).  The size field in the header encodes this.

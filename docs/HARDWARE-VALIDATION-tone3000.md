@@ -3,7 +3,7 @@
 **Spec:** docs/superpowers/specs/2026-07-07-tone3000-integration-design.md.
 Steps 1–6 need only internet + keys; steps 7–9 need the pedal (VoidX-Control closed).
 
-- [ ] 1. Launch with NO %APPDATA%\StompStationManager\tone3000.json → tab shows the
+- [ ] 1. Launch with NO %APPDATA%\ToneManager\tone3000.json → tab shows the
        "add your keys" card with the exact path. Restore the file afterwards.
 - [ ] 2. Sign in → browser opens tone3000.com authorize page → approve → app flips to
        "signed in as <username>". (First real PKCE round-trip — if the authorize page

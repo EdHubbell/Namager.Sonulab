@@ -1,4 +1,4 @@
-# CLAUDE.md — StompStation Manager
+# CLAUDE.md — ToneManager
 
 Desktop app (Avalonia / .NET 10) to manage a **Sonulab StompStation** guitar pedal ("AMP Station",
 ESP32-S3, fw 2.5.1) over USB serial — list / select / edit / rename / delete / duplicate / **reorder**
@@ -7,7 +7,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 
 ## Build / test / run
 - Build: `dotnet build`  · Test: `dotnet test` (all should pass; 312 tests)
-- Run the app: `dotnet run --project src/Sonulab.App`  (needs VoidX-Control CLOSED — see gotchas)
+- Run the app: `dotnet run --project src/ToneManager.App`  (needs VoidX-Control CLOSED — see gotchas)
 - Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot> | --preset-dwrite-probe]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin.
 
 ## Architecture
@@ -18,11 +18,11 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 - **`src/Sonulab.Distill`** (no UI, unit-tested): native C# port of the .nam→.vxamp
   distiller (WaveNet runner, WH fitter, vxamp codec, VxampMetadata (SSMD slot-metadata block)). Python `tools/distiller/` is the
   reference oracle; parity goldens via `tools/distiller/make_cs_fixtures.py`.
-- **`src/Sonulab.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
+- **`src/ToneManager.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml` + Styles/SonulabTheme.axaml (Studio-warm palette tokens & style classes — use tokens, never hex literals in views).
-- **`src/Sonulab.Tone3000`** (no UI, unit-tested): Tone3000 API integration — OAuth PKCE (T3kAuth, publishable key ONLY; the t3k_cs_ secret is never app-readable), DPAPI token store, typed client, downloader. Keys: %APPDATA%\StompStationManager\tone3000.json (gitignored; template tone3000.json.example). Contract record: docs/tone3000-api-findings.md.
-- **`tests/`** Sonulab.Core.Tests + Sonulab.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
+- **`src/ToneManager.Tone3000`** (no UI, unit-tested): Tone3000 API integration — OAuth PKCE (T3kAuth, publishable key ONLY; the t3k_cs_ secret is never app-readable), DPAPI token store, typed client, downloader. Keys: %APPDATA%\ToneManager\tone3000.json (gitignored; template tone3000.json.example). Contract record: docs/tone3000-api-findings.md.
+- **`tests/`** Sonulab.Core.Tests + ToneManager.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
   full preset/reorder logic be tested offline against realistic firmware behavior.
 
 ## Protocol essentials (full detail in PROTOCOL.md)
