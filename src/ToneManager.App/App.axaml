@@ -1,0 +1,46 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ToneManager.App.App"
+             xmlns:local="using:ToneManager.App"
+             RequestedThemeVariant="Default">
+
+    <Application.DataTemplates>
+        <local:ViewLocator/>
+    </Application.DataTemplates>
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://ToneManager.App/Icons.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <!-- Fluent accent-ramp override (spec §1.2): stock controls (selection,
+                 focus, progress, toggles) adopt the Studio-warm amber. Lives in
+                 Application.Resources so it's resolvable before any control loads. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="SystemAccentColor">#D9820F</Color>
+                    <Color x:Key="SystemAccentColorDark1">#B96A08</Color>
+                    <Color x:Key="SystemAccentColorDark2">#9A5606</Color>
+                    <Color x:Key="SystemAccentColorDark3">#7C4405</Color>
+                    <Color x:Key="SystemAccentColorLight1">#E8A04A</Color>
+                    <Color x:Key="SystemAccentColorLight2">#F0B76E</Color>
+                    <Color x:Key="SystemAccentColorLight3">#F7CE96</Color>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="SystemAccentColor">#B96A08</Color>
+                    <Color x:Key="SystemAccentColorDark1">#9A5606</Color>
+                    <Color x:Key="SystemAccentColorDark2">#7C4405</Color>
+                    <Color x:Key="SystemAccentColorDark3">#5E3304</Color>
+                    <Color x:Key="SystemAccentColorLight1">#D9820F</Color>
+                    <Color x:Key="SystemAccentColorLight2">#E8A04A</Color>
+                    <Color x:Key="SystemAccentColorLight3">#F0B76E</Color>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://ToneManager.App/Styles/SonulabTheme.axaml"/>
+    </Application.Styles>
+</Application>

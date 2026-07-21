@@ -24,7 +24,7 @@ jobs:
         run: dotnet test --nologo
 
       - name: Publish app (self-contained win-x64)
-        run: dotnet publish src/Sonulab.App -c Release -r win-x64 --self-contained true -p:Version=$env:VERSION
+        run: dotnet publish src/ToneManager.App -c Release -r win-x64 --self-contained true -p:Version=$env:VERSION
 
       - name: Build installer
         run: dotnet build src/Sonulab.Installer -c Release -p:ProductVersion=$env:VERSION
