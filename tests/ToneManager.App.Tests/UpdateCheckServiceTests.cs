@@ -19,23 +19,33 @@ public class UpdateCheckServiceTests
     // ---------- HTTP behavior via fake handler ----------
     private sealed class FakeHandler(HttpStatusCode status, string body) : HttpMessageHandler
     {
+        public HttpRequestMessage? LastRequest { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken ct) =>
-            Task.FromResult(new HttpResponseMessage(status)
+            HttpRequestMessage request, CancellationToken ct)
+        {
+            LastRequest = request;
+            return Task.FromResult(new HttpResponseMessage(status)
             { Content = new StringContent(body) });
+        }
     }
 
     private const string ReleaseJson =
-        """{"tag_name":"v2.5.0","html_url":"https://github.com/EdHubbell/StompStationManager/releases/tag/v2.5.0"}""";
+        """{"tag_name":"v2.5.0","html_url":"https://github.com/EdHubbell/ToneManager/releases/tag/v2.5.0"}""";
 
     [Fact]
     public async Task CheckAsync_returns_update_when_newer()
     {
-        var svc = new UpdateCheckService(new FakeHandler(HttpStatusCode.OK, ReleaseJson), "1.0.0");
+        var handler = new FakeHandler(HttpStatusCode.OK, ReleaseJson);
+        var svc = new UpdateCheckService(handler, "1.0.0");
         var info = await svc.CheckAsync();
         Assert.NotNull(info);
         Assert.Equal("2.5.0", info!.Version);
         Assert.Contains("/releases/tag/v2.5.0", info.Url);
+        Assert.Equal(
+            "https://api.github.com/repos/EdHubbell/ToneManager/releases/latest",
+            handler.LastRequest?.RequestUri?.ToString());
+        Assert.Equal("ToneManager", handler.LastRequest?.Headers.UserAgent?.ToString());
     }
 
     [Fact]
