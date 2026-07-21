@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sonulab.Core\Sonulab.Core.csproj" />
+    <ProjectReference Include="..\..\src\Sonulab.Transport.Wifi\Sonulab.Transport.Wifi.csproj" />
   </ItemGroup>
 </Project>

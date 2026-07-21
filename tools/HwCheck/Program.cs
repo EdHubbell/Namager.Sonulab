@@ -11,6 +11,7 @@
 //   dotnet run --project tools/HwCheck -- --upload-ir <irblob> <slotIndex> [--name <n>]  # guarded IR upload (backup+write+verify)
 //   dotnet run --project tools/HwCheck -- --delete-ir <slotIndex>              # guarded IR delete (backup+clear name)
 //   dotnet run --project tools/HwCheck -- --preset-dwrite-probe [--src <idx>] [--dst <idx>]  # guarded, timed re-test of preset dwrite
+//   dotnet run --project tools/HwCheck -- --wifi [--ip <addr>] [...]  # any mode over WiFi (mDNS discovery; --ip pins the endpoint)
 // Requires VoidX-Control CLOSED (it holds COM6).
 using Sonulab.Core.Connection;
 using Sonulab.Core.Model;
@@ -33,13 +34,28 @@ bool writeTest = Array.IndexOf(args, "--write-test") >= 0;
 bool reorderTest = Array.IndexOf(args, "--reorder-test") >= 0;
 
 var options = new SerialLinkOptions { OpenSettleMs = 1500, ProbeAttempts = 3 };
-var providers = new List<ILinkProvider>
-{
-    new SerialLinkProvider(() => new SystemSerialPort(), options, portNames),
-};
+
+bool useWifi = Array.IndexOf(args, "--wifi") >= 0;
+int ipFlag = Array.IndexOf(args, "--ip");
+string? pinnedIp = ipFlag >= 0 && ipFlag + 1 < args.Length ? args[ipFlag + 1] : null;
+
+var providers = useWifi
+    ? new List<ILinkProvider>
+    {
+        pinnedIp is not null
+            ? Sonulab.Transport.Wifi.WifiLinkProvider.ForKnownEndpoint(pinnedIp)
+            : new Sonulab.Transport.Wifi.WifiLinkProvider(
+                new Sonulab.Transport.Wifi.UdpMdnsQuerier(), TimeSpan.FromSeconds(6)),
+    }
+    : new List<ILinkProvider>
+    {
+        new SerialLinkProvider(() => new SystemSerialPort(), options, portNames),
+    };
 var checker = new CompatibilityChecker(FirmwareCatalog.Default);
 
-Console.WriteLine("Connecting (USB serial, auto-discover) ...");
+Console.WriteLine(useWifi
+    ? (pinnedIp is not null ? $"Connecting (WiFi, pinned {pinnedIp}:8080) ..." : "Connecting (WiFi, mDNS discovery) ...")
+    : "Connecting (USB serial, auto-discover) ...");
 using var session = new DeviceSession(providers, checker);
 var state = await session.ConnectAsync();
 if (!state.Connected)
@@ -47,6 +63,7 @@ if (!state.Connected)
     Console.WriteLine("RESULT: NOT CONNECTED — no StompStation answered on any COM port.");
     Console.WriteLine("  Check: (1) VoidX-Control is CLOSED — it holds the COM port exclusively;");
     Console.WriteLine("         (2) the pedal is connected via USB (the CH340 'USB-SERIAL' port).");
+    if (useWifi) Console.WriteLine("         (WiFi mode: pedal powered + on the same network; multicast/mDNS not blocked)");
     return 1;
 }
 
