@@ -16,10 +16,11 @@ public sealed class SonuClient
     private readonly int _readRetryDelayMs;
 
     /// <param name="readRetryAttempts">How many times a read (ReadValue/ReadList/BrowseRecords) is
-    /// attempted while the device answers with no parseable record. The WiFi/TCP pedal intermittently
-    /// returns an empty record ("\r\n\0") instead of the real response (the "empty-first-response"
-    /// quirk, which recurs mid-session); reads are idempotent so retrying is safe, and serial never
-    /// returns empty so this never triggers there.</param>
+    /// attempted while the response lacks the record the caller expects. The WiFi/TCP pedal
+    /// intermittently returns an empty record ("\r\n\0") or a late PREVIOUS response instead of the
+    /// real one; reads are idempotent so retrying is safe, and serial answers correctly on attempt 1
+    /// so this never triggers there. CAVEAT: reading a node that legitimately does not exist now
+    /// costs the full retry budget before returning null/empty — probe optional nodes sparingly.</param>
     public SonuClient(ISonuLink link, int readRetryAttempts = 4, int readRetryDelayMs = 120)
     {
         _link = link;
