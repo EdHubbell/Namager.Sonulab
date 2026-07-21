@@ -104,4 +104,29 @@ public class SonuClientTests
         Assert.Empty(list);
         Assert.Equal(3, link.Sends);   // exactly the budget, then stop
     }
+
+    [Fact] public async Task ReadList_retries_past_a_stale_ack_shaped_record()
+    {
+        // WiFi desync (wire capture 2026-07-21): a late rename ACK — a root\presets record with NO
+        // value array — can arrive in place of the real list. It parses as a record, so an
+        // any-record retry predicate is satisfied and the read silently returns an empty list
+        // ("0/30 presets", reorder verify failures). The retry must demand the EXPECTED record.
+        var link = new ScriptedLink(
+            "dwrite root\\presets:{\"index\":23,\"chunk\":-1}\r\n\0",         // stale ACK, wrong shape
+            "root\\presets:{\"value\":[\"A\",\"B\"]}\r\n\0");                  // the real list
+        var client = new SonuClient(link, readRetryAttempts: 4, readRetryDelayMs: 0);
+        var list = await client.ReadListAsync(@"root\presets");
+        Assert.Equal(new[] { "A", "B" }, list);
+        Assert.Equal(2, link.Sends);
+    }
+
+    [Fact] public async Task ReadValue_retries_past_a_record_for_a_different_path()
+    {
+        var link = new ScriptedLink(
+            "root\\presets:{\"value\":[\"A\"]}\r\n\0",                        // stale response, wrong path
+            "root\\sys\\_name:{\"value\":\"AMP Station\"}\r\n\0");
+        var client = new SonuClient(link, readRetryAttempts: 4, readRetryDelayMs: 0);
+        Assert.Equal("AMP Station", await client.ReadValueAsync(@"root\sys\_name"));
+        Assert.Equal(2, link.Sends);
+    }
 }
