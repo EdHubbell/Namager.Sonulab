@@ -15,6 +15,9 @@ back up presets, fixing the slow VoidX-Control workflow.
 3. Launch **ToneManager** from the Start Menu. Close VoidX-Control first — it
    holds the pedal's COM port.
 
+ToneManager connects over USB first and falls back to **WiFi** automatically when the pedal is on
+your network (same protocol, auto-discovered via mDNS) — handy when a cable or USB port lets you down.
+
 Updating: the app tells you when a new version is available; download and run the new
 `.msi` and it upgrades in place.
 
