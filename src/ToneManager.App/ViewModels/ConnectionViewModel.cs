@@ -29,7 +29,7 @@ public partial class ConnectionViewModel : ObservableObject
         {
             var state = await _session.ConnectAsync();
             IsConnected = state.Connected;
-            if (!state.Connected) { Status = "Disconnected (no device found)"; return; }
+            if (!state.Connected) { Status = "Disconnected (no device found on USB or WiFi)"; return; }
 
             WritesAllowed = state.Compatibility!.WritesAllowed;
             Status = $"{state.Device!.Name} {state.Device.Version} — {state.Compatibility!.Message} ({state.Transport})";

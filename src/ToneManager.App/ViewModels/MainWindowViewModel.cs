@@ -90,6 +90,10 @@ public partial class MainWindowViewModel : ObservableObject
             // Fresh port enumeration per connect: a pedal replugged onto a new COM number
             // is found without restarting the app.
             new SerialLinkProvider(() => new SystemSerialPort(), options),
+            // WiFi fallback: ~3s mDNS browse (query re-sent every 2s); returns null silently
+            // when no network / multicast blocked / no pedal on the LAN.
+            new Sonulab.Transport.Wifi.WifiLinkProvider(
+                new Sonulab.Transport.Wifi.UdpMdnsQuerier(), TimeSpan.FromSeconds(3)),
         };
         var session = new DeviceSession(providers, new CompatibilityChecker(FirmwareCatalog.Default));
 
