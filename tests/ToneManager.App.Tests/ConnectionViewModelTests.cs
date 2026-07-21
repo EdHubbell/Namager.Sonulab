@@ -55,4 +55,17 @@ public class ConnectionViewModelTests
         Assert.True(fired);
         Assert.NotNull(vm.Client);
     }
+
+    [Fact] public async Task Connect_when_no_device_found_sets_status()
+    {
+        var session = new DeviceSession(
+            new ILinkProvider[] { new FixedProvider("USB", null), new FixedProvider("WiFi", null) },
+            new CompatibilityChecker(FirmwareCatalog.Default));
+        var vm = new ConnectionViewModel(session);
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.False(vm.IsConnected);
+        Assert.Equal("Disconnected (no device found on USB or WiFi)", vm.Status);
+    }
 }
