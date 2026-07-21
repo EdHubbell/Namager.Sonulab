@@ -80,4 +80,23 @@ public class TcpSonuLinkTests
         var link = new TcpSonuLink(conn, "192.168.8.241", 8080, Fast);
         await Assert.ThrowsAsync<InvalidOperationException>(() => link.SendAsync("read root"));
     }
+
+    [Fact]
+    public async Task Large_response_streamed_with_gap_longer_than_idlegap_is_not_truncated()
+    {
+        // Regression (field crash "Slot 23 is empty" over WiFi): a multi-record response — e.g. the
+        // 30-slot preset list — can arrive over TCP in bursts separated by gaps LONGER than a serial
+        // link ever sees. The device NUL-terminates the whole response, so an idle gap must NOT be
+        // treated as end-of-data: an early idle-gap break dropped the tail, so trailing preset slots
+        // read as empty and the reorder threw. The NUL terminator is authoritative.
+        var (link, conn) = Open();                      // Fast: IdleGap=30, MaxWait=500
+        conn.RespondWith = _ => Encoding.ASCII.GetBytes(
+            "root\\presets\\0:{\"value\":\"A\"}\r\nroot\\presets\\1:{\"value\":\"B\"}\r\n");  // first burst, NO NUL yet
+        var task = link.SendAsync(@"read root\presets");
+        await Task.Delay(90);                           // 90ms > IdleGap 30 — old code breaks here and truncates
+        conn.Feed("root\\presets\\2:{\"value\":\"C\"}\0");   // tail + terminating NUL arrives late
+        var resp = await task;
+        Assert.Contains("\"A\"", resp);
+        Assert.Contains("\"C\"", resp);                 // the late tail must survive (fails on the idle-gap-break code)
+    }
 }

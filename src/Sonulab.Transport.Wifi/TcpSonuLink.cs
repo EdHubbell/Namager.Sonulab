@@ -47,7 +47,6 @@ public sealed class TcpSonuLink : ISonuLink
 
         var sb = new StringBuilder();
         var sw = Stopwatch.StartNew();
-        long lastData = 0;
         bool sawData = false;
 
         while (sw.ElapsedMilliseconds < _options.MaxWaitMs)
@@ -60,12 +59,16 @@ public sealed class TcpSonuLink : ISonuLink
                 int n = _conn.Receive(buf);
                 sb.Append(Encoding.ASCII.GetString(buf, 0, n));
                 sawData = true;
-                lastData = sw.ElapsedMilliseconds;
                 if (Array.IndexOf(buf, (byte)0, 0, n) >= 0) break;   // device NUL-terminates responses
             }
             else
             {
-                if (sawData && sw.ElapsedMilliseconds - lastData >= _options.IdleGapMs) break;
+                // The device NUL-terminates every response (handled above) — that terminator is the
+                // authoritative end-of-response. Do NOT treat a mid-response idle gap as end-of-data:
+                // over TCP a large multi-record response (e.g. the 30-slot preset list) can arrive in
+                // bursts with gaps far longer than a serial link produces, and breaking on such a gap
+                // truncated the response so trailing slots read as empty (field crash "Slot N is empty"
+                // over WiFi). Only the no-data case short-circuits; MaxWait remains the backstop.
                 if (!sawData && sw.ElapsedMilliseconds >= _options.FirstByteTimeoutMs) break;
                 await Task.Delay(_options.PollMs, ct);
             }

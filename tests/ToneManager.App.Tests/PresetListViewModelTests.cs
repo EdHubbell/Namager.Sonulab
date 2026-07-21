@@ -240,4 +240,18 @@ public class PresetListViewModelTests
         await vm.MoveUpCommand.ExecuteAsync(null);
         Assert.True(vm.Items[5].IsEmpty);                      // nothing moved
     }
+
+    [Fact] public async Task MoveItemDown_on_a_slot_the_device_reads_empty_surfaces_error_without_crashing()
+    {
+        // Field crash (v0.9.1, over WiFi): a truncated preset-list read made the reorder see an
+        // occupied slot as empty; MoveStepAsync threw and the unhandled exception crashed the app.
+        // The command must surface the failure and stay alive, never propagate the exception.
+        var (vm, _) = Make();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        // Device slot 5 is empty; a stale UI item claims it is occupied (mirrors the truncated read).
+        var stale = new PresetItemViewModel(new Sonulab.Core.Model.PresetSlot(5, "Ghost"), 30);
+        await vm.MoveItemDownCommand.ExecuteAsync(stale);      // must NOT throw
+        Assert.False(vm.IsBusy);
+        Assert.False(string.IsNullOrWhiteSpace(vm.ErrorMessage));
+    }
 }

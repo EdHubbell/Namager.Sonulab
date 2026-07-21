@@ -41,6 +41,12 @@
       <TextBlock Text="{Binding BusyMessage}" FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
     </StackPanel>
 
+    <!-- Last operation error (persists until the next successful operation) -->
+    <TextBlock DockPanel.Dock="Bottom" Margin="8,2" FontSize="11" TextWrapping="Wrap"
+               Foreground="{DynamicResource Sonulab.DangerBrush}"
+               Text="{Binding ErrorMessage}"
+               IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
     <!-- Preset list -->
     <ListBox x:Name="PresetList" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
              IsEnabled="{Binding !IsBusy}">

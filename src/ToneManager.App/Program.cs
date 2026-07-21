@@ -13,7 +13,7 @@ sealed class Program
     {
         var logPath = Logging.Configure();
         var log = NLog.LogManager.GetCurrentClassLogger();
-        log.Info("===== Sonulab started; logging to {0} =====", logPath);
+        log.Info("===== ToneManager started; logging to {0} =====", logPath);
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);

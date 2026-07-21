@@ -18,7 +18,7 @@ public static class Logging
     {
         var dir = Path.Combine(AppContext.BaseDirectory, "logs");
         Directory.CreateDirectory(dir);
-        var file = Path.Combine(dir, "sonulab.log");
+        var file = Path.Combine(dir, "tonemanager.log");
 
         var config = new LoggingConfiguration();
         var target = new FileTarget("file")
