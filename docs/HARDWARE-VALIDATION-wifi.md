@@ -31,6 +31,20 @@ writes were performed.
 - The pedal's WiFi credentials are visible over the read-only browse; **never commit them.** They are
   redacted here.
 
+## Post-fix re-validation (v0.9.2, 2026-07-21 — TcpSonuLink NUL-authoritative)
+
+Fixes the field crash "Slot 23 is empty" when reordering over WiFi (the preset-list read was
+truncated by a mid-response idle gap; the reorder command was also unguarded and crashed).
+
+- [x] `HwCheck --wifi` (mDNS) ×3 → each returns the **complete** 25/30 list including the trailing
+  slots (idx 22 "Dumble Ford copy", idx 23 "dumm", slot 30 "comp") — no truncation.
+- [x] Latency sane: a full connect (mDNS + compat's several reads + list) ran ~9.3 s end-to-end;
+  device commands break on the NUL terminator (a no-NUL response would hit MaxWait=2500 ms each,
+  which would make compat+list take ~15 s+ — it does not), confirming responses are NUL-terminated.
+- [ ] **Live WiFi reorder (a WRITE) — pending Ed's spot-check:** move a preset down one slot, then
+  back up, over WiFi; confirm it completes and (with the crash-guard) never tears down the app.
+  Not run here because it writes to the pedal.
+
 ## App (Ed)
 - [ ] Pedal on WiFi, USB unplugged → Connect → status ends "(WiFi)"; presets load
 - [ ] Preset select + parameter edit over WiFi (audible on pedal)

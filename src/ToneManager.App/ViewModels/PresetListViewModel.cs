@@ -37,6 +37,8 @@ public partial class PresetListViewModel : ObservableObject
             // A device/reorder failure must NEVER crash the app. It did in the field (v0.9.1): an
             // unhandled exception out of a [RelayCommand] is rethrown by AsyncRelayCommand on the UI
             // thread and tears down the process. Surface it, resync the list, and stay alive.
+            // (No CancellationToken is threaded into preset ops, so this won't swallow a genuine user
+            // cancellation; the broad catch is deliberate — guaranteeing a live UI outranks it.)
             Log.Warn(ex, "preset operation failed: {0}", message);
             ErrorMessage = $"Operation failed: {ex.Message}";
             try { await ReloadAsync(); }
