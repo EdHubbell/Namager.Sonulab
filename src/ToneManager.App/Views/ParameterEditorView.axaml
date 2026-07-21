@@ -8,6 +8,9 @@
         <Button Content="Save" Command="{Binding SaveCommand}"/>
         <TextBlock Text="●" IsVisible="{Binding IsDirty}" Foreground="{DynamicResource Sonulab.WarningBrush}"
                    VerticalAlignment="Center" ToolTip.Tip="Unsaved changes"/>
+        <TextBlock Text="{Binding ErrorMessage}" FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap"
+                   Foreground="{DynamicResource Sonulab.DangerBrush}"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
       </StackPanel>
       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <ItemsControl ItemsSource="{Binding Blocks}">

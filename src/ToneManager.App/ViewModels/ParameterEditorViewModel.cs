@@ -10,6 +10,8 @@ namespace ToneManager.App.ViewModels;
 
 public sealed partial class ParameterEditorViewModel : ObservableObject
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
+
     public static IReadOnlyList<string> Blocks_InScope { get; } = new[] { "gate", "exp", "comp", "amp", "eq", "ir", "delay", "reverb" };
 
     private readonly SonuClient _client;
@@ -27,6 +29,8 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     [ObservableProperty] private bool _isDirty;
     [ObservableProperty] private string _presetName = "";
     [ObservableProperty] private bool _isLoading;
+    /// <summary>Last device-operation failure, shown to the user. Null when the last op succeeded.</summary>
+    [ObservableProperty] private string? _errorMessage;
     private string? _loadedName;
 
     // Per-session expansion memory, keyed by block path (root\app\<block>) so it survives
@@ -38,6 +42,19 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
     [RelayCommand]
     private async Task LoadAsync()
+    {
+        // Crash-guard (field crash class, v0.9.3 test build): a device failure — e.g. the WiFi link
+        // dying mid-session — must surface as ErrorMessage, never escape the [RelayCommand].
+        ErrorMessage = null;
+        try { await LoadCoreAsync(); }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "parameter load failed");
+            ErrorMessage = $"Load failed: {ex.Message}";
+        }
+    }
+
+    private async Task LoadCoreAsync()
     {
         Blocks.Clear();
         var records = await _client.BrowseRecordsAsync(@"root\app");
@@ -117,13 +134,20 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     private async Task LoadForAsync(string presetName)
     {
         if (string.IsNullOrEmpty(presetName) || presetName == _loadedName) return;
-        IsLoading = true;
+        IsLoading = true; ErrorMessage = null;
         try
         {
             await _client.WriteAsync(@"root\app\preset", JsonString.Quote(presetName));   // select/activate on device
-            await LoadAsync();                                                          // browse + rebuild blocks
+            await LoadCoreAsync();                                                      // browse + rebuild blocks
             PresetName = presetName;
-            _loadedName = presetName;
+            _loadedName = presetName;   // only marked loaded on success — reselecting retries
+        }
+        catch (Exception ex)
+        {
+            // Fired on preset selection (PropertyChanged -> Execute) — an escape here is an
+            // unhandled UI-thread rethrow, i.e. process death. Surface and stay alive.
+            Log.Warn(ex, "parameter load-for '{0}' failed", presetName);
+            ErrorMessage = $"Load failed: {ex.Message}";
         }
         finally { IsLoading = false; }
     }
@@ -131,12 +155,22 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveAsync()
     {
-        foreach (var f in AllFields().Where(f => f.IsDirty))
-            await _client.WriteAsync(f.Path, f.ToJsonValue());
-        if (!string.IsNullOrEmpty(PresetName))
-            await _client.SaveAsync(@"root\app\preset", PresetName);
-        foreach (var f in AllFields()) f.MarkClean();
-        IsDirty = false;
+        ErrorMessage = null;
+        try
+        {
+            foreach (var f in AllFields().Where(f => f.IsDirty))
+                await _client.WriteAsync(f.Path, f.ToJsonValue());
+            if (!string.IsNullOrEmpty(PresetName))
+                await _client.SaveAsync(@"root\app\preset", PresetName);
+            foreach (var f in AllFields()) f.MarkClean();
+            IsDirty = false;
+        }
+        catch (Exception ex)
+        {
+            // Fields stay dirty on failure so the user can retry the save after reconnecting.
+            Log.Warn(ex, "parameter save failed");
+            ErrorMessage = $"Save failed: {ex.Message}";
+        }
     }
 
     private IEnumerable<ParameterFieldViewModel> AllFields() =>

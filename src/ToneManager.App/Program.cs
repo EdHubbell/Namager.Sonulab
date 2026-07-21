@@ -14,9 +14,24 @@ sealed class Program
         var logPath = Logging.Configure();
         var log = NLog.LogManager.GetCurrentClassLogger();
         log.Info("===== ToneManager started; logging to {0} =====", logPath);
+        // Last-resort diagnostics: crashes previously ONLY appeared in the Windows event log
+        // (nothing in tonemanager.log), which slowed the field-crash investigations. The real
+        // protection is the per-command guards in the ViewModels; these just guarantee a record.
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            log.Error(e.Exception, "unobserved task exception");
+            e.SetObserved();
+        };
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+        catch (Exception ex)
+        {
+            // The UI loop has already unwound — the app is going down. Log it where the user's
+            // logs live, then rethrow so the OS crash reporting (event log/WER) still fires.
+            log.Fatal(ex, "unhandled exception — application terminating");
+            throw;
         }
         finally
         {

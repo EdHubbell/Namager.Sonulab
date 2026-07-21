@@ -55,7 +55,19 @@ public partial class PresetListViewModel : ObservableObject
         foreach (var s in slots) Items.Add(new PresetItemViewModel(s, slots.Count));
     }
 
-    [RelayCommand] private Task RefreshAsync() => ReloadAsync();
+    [RelayCommand] private async Task RefreshAsync()
+    {
+        // NOT RunAsync: refresh must work in read-only mode (no _writes gate) — but it needs the
+        // same crash-guard: a dead link mid-session must surface, not tear down the app.
+        IsBusy = true; BusyMessage = "Refreshing…"; ErrorMessage = null;
+        try { await ReloadAsync(); }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "preset refresh failed");
+            ErrorMessage = $"Refresh failed: {ex.Message}";
+        }
+        finally { IsBusy = false; BusyMessage = ""; }
+    }
 
     [RelayCommand] private async Task MoveUpAsync()
     {
