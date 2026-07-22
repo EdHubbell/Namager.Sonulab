@@ -37,6 +37,8 @@ Run after the first successful tag build (dry run: tag `v0.9.0`).
 ## Install UI (added post-v0.9.2: WixUI wizard + launch checkbox)
 - [ ] Double-click the .msi → Welcome → "Ready to install" (no license or install-dir screens) →
       progress → Finish screen shows a **"Launch ToneManager" checkbox, checked by default**
+- [ ] Wizard shows ToneManager art: dark side panel with the pedal icon on Welcome/Finish, icon +
+      amber baseline in the top banner on the middle screens (not the gray WiX defaults)
 - [ ] Finish with the box checked → ToneManager launches (as the current user, not elevated)
 - [ ] Finish with the box unchecked → nothing launches
 - [ ] Upgrade-in-place over a previous version still walks the same wizard and the checkbox works

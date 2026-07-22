@@ -41,6 +41,10 @@
     <!-- Install UI: Welcome -> Ready to install -> progress -> Finish with a "Launch ToneManager"
          checkbox (checked by default). The dialog set's license + install-dir screens are skipped:
          there is no EULA to show, and the per-user install location is fixed. -->
+    <!-- ToneManager wizard art (studio-warm palette, generated from the app icon by
+         tools/icon/make-installer-art.ps1 — regenerate there, don't hand-edit the BMPs). -->
+    <WixVariable Id="WixUIBannerBmp" Value="Assets\banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="Assets\dialog.bmp" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch ToneManager" />
     <!-- Immediate exec from the UI sequence: runs as the interactive user (never elevated),
