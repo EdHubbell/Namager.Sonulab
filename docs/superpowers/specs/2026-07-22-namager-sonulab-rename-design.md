@@ -1,4 +1,4 @@
-# Design: ToneManager → Namager for Sonulab rename
+# Design: ToneManager → NAMager for Sonulab rename
 
 **Date:** 2026-07-22
 **Status:** Approved (design)
@@ -7,8 +7,9 @@ changes (no abstraction seams, no second vendor).
 
 ## Motivation
 
-The app is being renamed from **ToneManager** to **Namager** ("NAM" + "manager";
-namager.com is obtainable without trademark risk). Namager is a product *line*: one
+The app is being renamed from **ToneManager** to **NAMager** ("NAM" + "manager" —
+NAM is an acronym, so it stays capitalized in human-readable text; namager.com is
+obtainable without trademark risk). NAMager is a product *line*: one
 app per hardware manufacturer, each in its own repo (`Namager.<Vendor>`), installable
 side-by-side. Long term, the apps will share data (e.g. upload presets from one
 vendor's hardware, download to another's). This effort is the rename/rebrand only —
@@ -17,8 +18,13 @@ architecture remains a separate, later effort.
 
 ## Decisions (locked)
 
-- **Display name:** **"Namager for Sonulab"** — window title, installer, Start-menu
-  shortcut. Users may eventually install several Namager apps, so the vendor is
+- **Casing convention:** **"NAMager"** in all human-readable text (window title,
+  installer UI, shortcut, OAuth page, README/docs prose, release notes) — NAM is an
+  acronym. **`Namager`** in identifiers where filesystem/C#/URL conventions apply:
+  repo name, namespaces, project/folder names, exe name, `%APPDATA%` folder,
+  registry key, worker name, User-Agent.
+- **Display name:** **"NAMager for Sonulab"** — window title, installer, Start-menu
+  shortcut. Users may eventually install several NAMager apps, so the vendor is
   visible in the product name.
 - **App-layer projects/namespaces:** `Namager.App`, `Namager.Tone3000`,
   `Namager.Installer` (+ matching test projects). **Not** `Namager.Sonulab.*`: a
@@ -38,7 +44,7 @@ architecture remains a separate, later effort.
   token (vendor-neutral NAM marketplace) go at the **shared root** so future sibling
   apps inherit the login. No migration code from `%APPDATA%\ToneManager`; the user
   re-authenticates once.
-- **Installer identity:** **New UpgradeCode GUID** — clean break. "Namager for
+- **Installer identity:** **New UpgradeCode GUID** — clean break. "NAMager for
   Sonulab" installs beside an existing ToneManager install; the user manually
   uninstalls old ToneManager once. Future manufacturer apps each get their own GUID.
 - **Feedback worker:** Rename the Cloudflare worker (`namager-sonulab-feedback`, new
@@ -88,12 +94,12 @@ Mechanics (proven by the 2026-07-21 rename):
 
 ### 2. Product / branding strings
 
-- `Views/MainWindow.axaml.cs` — window title → `"Namager for Sonulab v{AppInfo.Version}"`
+- `Views/MainWindow.axaml.cs` — window title → `"NAMager for Sonulab v{AppInfo.Version}"`
 - `Namager.Tone3000/T3kAuth.cs` — OAuth success page → "…you can close this tab and
-  return to Namager."
-- `README.md` — title/prose → Namager for Sonulab; one-line "Renamed from ToneManager
+  return to NAMager."
+- `README.md` — title/prose → NAMager for Sonulab; one-line "Renamed from ToneManager
   on 2026-07-22" note (keep the earlier StompStationManager note for the trail).
-- `CLAUDE.md` — header + prose → Namager for Sonulab / Namager.Sonulab.
+- `CLAUDE.md` — header + prose → NAMager for Sonulab / Namager.Sonulab.
 - `docs/**` prose where it names the current product (low priority; historical
   spec/plan filenames stay as-is).
 - **Installer wizard art** — regenerate `banner.bmp`/`dialog.bmp` via
@@ -114,7 +120,7 @@ Mechanics (proven by the 2026-07-21 rename):
 ### 4. Feedback worker (rename worker + retarget repo)
 
 - `infra/feedback-worker/wrangler.toml` — `name = "namager-sonulab-feedback"`
-- `infra/feedback-worker/worker.js` — header comment → Namager;
+- `infra/feedback-worker/worker.js` — header comment → NAMager;
   `const REPO = 'EdHubbell/Namager.Sonulab'`;
   `'user-agent': 'namager-sonulab-feedback-worker'`
 - `Services/FeedbackService.cs` — `EndpointUrl` →
@@ -148,16 +154,16 @@ Mechanics (proven by the 2026-07-21 rename):
 ### 6. Installer (`src/Namager.Installer/Package.wxs` + `.wixproj`)
 
 - Project renamed to `Namager.Installer` (§1).
-- `Package Name` → `"Namager for Sonulab"`; **`UpgradeCode` → a freshly generated GUID**
+- `Package Name` → `"NAMager for Sonulab"`; **`UpgradeCode` → a freshly generated GUID**
   (clean break from ToneManager; this new GUID is then forever for this product).
-- `MajorUpgrade DowngradeErrorMessage` → "A newer version of Namager for Sonulab is
+- `MajorUpgrade DowngradeErrorMessage` → "A newer version of NAMager for Sonulab is
   already installed."
-- Shortcut `Name` → `"Namager for Sonulab"`; `Target` → `[INSTALLFOLDER]Namager.App.exe`.
+- Shortcut `Name` → `"NAMager for Sonulab"`; `Target` → `[INSTALLFOLDER]Namager.App.exe`.
 - `INSTALLFOLDER` `Name` → `"Namager.Sonulab"` (installs to
   `%LOCALAPPDATA%\Programs\Namager.Sonulab`).
 - `RegistryValue` `Key` → `Software\Namager.Sonulab`.
 - `ARPURLINFOABOUT` → `https://github.com/EdHubbell/Namager.Sonulab`.
-- Launch checkbox text → `"Launch Namager for Sonulab"`; `LaunchApplication`
+- Launch checkbox text → `"Launch NAMager for Sonulab"`; `LaunchApplication`
   `ExeCommand` → `Namager.App.exe`.
 - `Icon SourceFile` path → `..\Namager.App\Assets\app-icon.ico`; header comment updated.
 - Wizard art regenerated with the new name (§2).
@@ -188,7 +194,7 @@ Mechanics (proven by the 2026-07-21 rename):
 - `dotnet test` — all 471 tests green (renames don't change the count) after updating
   the single expectation in `UpdateCheckServiceTests`.
 - Feedback worker: manual post-deploy check (§4 step 7).
-- Manual smoke: launch the app → title reads `Namager for Sonulab v…`; labels resource
+- Manual smoke: launch the app → title reads `NAMager for Sonulab v…`; labels resource
   loads; Tone3000 re-auth lands in `%APPDATA%\Namager\`; installer builds, shows the
   new name + regenerated art, installs to `Programs\Namager.Sonulab`, and coexists
   with (until manually removed) the old ToneManager install.
