@@ -1,4 +1,4 @@
-# CLAUDE.md — ToneManager
+# CLAUDE.md — NAMager for Sonulab
 
 Desktop app (Avalonia / .NET 10) to manage a **Sonulab StompStation** guitar pedal ("AMP Station",
 ESP32-S3, fw 2.5.1) over USB serial — list / select / edit / rename / delete / duplicate / **reorder**
@@ -6,8 +6,8 @@ ESP32-S3, fw 2.5.1) over USB serial — list / select / edit / rename / delete /
 captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 
 ## Build / test / run
-- Build: `dotnet build`  · Test: `dotnet test` (all should pass; 471 tests)
-- Run the app: `dotnet run --project src/ToneManager.App`  (needs VoidX-Control CLOSED — see gotchas)
+- Build: `dotnet build`  · Test: `dotnet test` (all should pass; 490 tests)
+- Run the app: `dotnet run --project src/Namager.App`  (needs VoidX-Control CLOSED — see gotchas)
 - Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot> | --preset-dwrite-probe | --wifi [--ip <addr>]]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin. `--wifi` runs any mode over WiFi (mDNS auto-discovery; `--ip <addr>` pins the endpoint, skipping mDNS).
 
 ## Architecture
@@ -23,11 +23,11 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   protocol as serial, behind an `ITcpConn` seam), a hand-rolled pure `MdnsMessages` parser (PTR
   `_http._tcp.local`, filtered by TXT `id=voidx`; tested against real captured datagrams), `UdpMdnsQuerier`,
   and `WifiLinkProvider` (an `ILinkProvider` — USB stays #1, WiFi is the auto fallback via `DeviceSession`).
-- **`src/ToneManager.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
+- **`src/Namager.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml` + Styles/SonulabTheme.axaml (Studio-warm palette tokens & style classes — use tokens, never hex literals in views).
-- **`src/ToneManager.Tone3000`** (no UI, unit-tested): Tone3000 API integration — OAuth PKCE (T3kAuth, publishable key ONLY; the t3k_cs_ secret is never app-readable), DPAPI token store, typed client, downloader. Keys: %APPDATA%\ToneManager\tone3000.json (gitignored; template tone3000.json.example). Contract record: docs/tone3000-api-findings.md.
-- **`tests/`** Sonulab.Core.Tests + ToneManager.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
+- **`src/Namager.Tone3000`** (no UI, unit-tested): Tone3000 API integration — OAuth PKCE (T3kAuth, publishable key ONLY; the t3k_cs_ secret is never app-readable), DPAPI token store, typed client, downloader. Keys: %APPDATA%\Namager\tone3000.json (gitignored; template tone3000.json.example). Contract record: docs/tone3000-api-findings.md.
+- **`tests/`** Sonulab.Core.Tests + Namager.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
   full preset/reorder logic be tested offline against realistic firmware behavior.
 
 ## Protocol essentials (full detail in PROTOCOL.md)
