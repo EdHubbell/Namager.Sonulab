@@ -97,6 +97,10 @@ In `ConnectionViewModel.ConnectAsync`, after `state.Connected` is confirmed true
   name is reworded. A null or unrecognised value is sent as `unknown` rather than dropping the
   ping.
 - Dispatched fire-and-forget so a slow network never delays the connected UI.
+- **Dev builds never ping.** If `AppInfo.Version` contains `-` (local builds are `1.0.0-dev`),
+  the ping is skipped entirely. `UpdateCheckService.IsNewer` already uses this exact rule.
+  Without it the project's own author — who connects the pedal many times a day while
+  developing — would be a large and permanent fraction of the "active users" number.
 
 ### What the numbers mean (and don't)
 
@@ -217,11 +221,15 @@ All logic worth testing is pure and offline; no hardware and no network.
 - Failed connect → no ping.
 - Two successful connects in one run → still exactly one ping.
 
-**Worker**
-- A table test per row of the validation table in §4, including the GUID regex.
+- Dev-build guard: version `1.0.0-dev` → zero HTTP calls; `1.0.0` → one.
+
+**Worker** — the project has no JavaScript test toolchain, and the feedback worker was validated
+by hand. Rather than introduce one, `/ping` follows the same convention: a
+`docs/VALIDATION-usage-telemetry.md` checklist of exact `curl` commands, one per row of the §4
+validation table, plus:
 - Duplicate `(install_id, day)` → accepted (204) but adds no `pings` row and does not increment
   `active_days`.
-- `/` still behaves exactly as before (regression guard on the feedback route).
+- `/` still files a feedback issue exactly as before (regression guard on the feedback route).
 
 ## 9. Deployment sequence
 
