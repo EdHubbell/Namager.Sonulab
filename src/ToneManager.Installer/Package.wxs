@@ -12,7 +12,7 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of ToneManager is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="AppIcon" SourceFile="..\ToneManager.App\Assets\app-icon.ico" />
+    <Icon Id="AppIcon" SourceFile="..\Namager.App\Assets\app-icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/EdHubbell/ToneManager" />
 
@@ -29,7 +29,7 @@
       <Component Id="StartMenuShortcut">
         <Shortcut Id="AppShortcut"
                   Name="ToneManager"
-                  Target="[INSTALLFOLDER]ToneManager.App.exe"
+                  Target="[INSTALLFOLDER]Namager.App.exe"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="AppIcon" />
         <RegistryValue Root="HKCU" Key="Software\ToneManager"
@@ -51,7 +51,7 @@
          which is exactly right for a per-user app. No extension dependency. -->
     <CustomAction Id="LaunchApplication"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="&quot;[INSTALLFOLDER]ToneManager.App.exe&quot;"
+                  ExeCommand="&quot;[INSTALLFOLDER]Namager.App.exe&quot;"
                   Return="asyncNoWait" />
     <UI>
       <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />

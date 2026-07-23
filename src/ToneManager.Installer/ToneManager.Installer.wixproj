@@ -9,7 +9,7 @@
     <!-- Must be absolute: WiX's Files/@Include harvesting resolves relative paths against the
          nested StandardDirectory hierarchy (it picked up "Programs" from ProgramsDir's Name),
          not the project directory, so a relative PublishDir silently harvests zero files. -->
-    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildProjectDirectory)\..\ToneManager.App\bin\Release\net10.0\win-x64\publish</PublishDir>
+    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildProjectDirectory)\..\Namager.App\bin\Release\net10.0\win-x64\publish</PublishDir>
     <DefineConstants>$(DefineConstants);ProductVersion=$(ProductVersion);PublishDir=$(PublishDir)</DefineConstants>
     <OutputName>ToneManager-$(ProductVersion)-x64</OutputName>
     <!-- ICE38/ICE64 flag per-user (Scope=perUser) file components under LocalAppDataFolder as

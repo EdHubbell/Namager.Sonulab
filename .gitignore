@@ -28,3 +28,8 @@ tone3000.json
 
 # Feedback worker dev secrets (Cloudflare wrangler dev only)
 infra/feedback-worker/.dev.vars
+
+# Superpowers scratch (SDD ledger, briefs, brainstorm sessions)
+.superpowers/
+# Cloudflare wrangler local cache
+infra/feedback-worker/.wrangler/
