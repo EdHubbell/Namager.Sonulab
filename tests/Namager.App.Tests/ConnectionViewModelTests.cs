@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Namager.App.ViewModels;
 using Sonulab.Core.Connection;
 using Sonulab.Core.Transport;
@@ -69,13 +70,31 @@ public class ConnectionViewModelTests
         Assert.Equal("Disconnected (no device found on USB or WiFi)", vm.Status);
     }
 
+    // PingAsync is now fired-and-forgotten by ConnectAsync (it must never gate the Connect
+    // command), so tests that need to observe a ping cannot rely on the await completing it for
+    // them. The spy exposes a completion signal that positive tests await with a bounded
+    // timeout: a genuine regression (ping never called) then fails fast instead of hanging.
     private sealed class SpyUsagePing : Namager.App.Services.IUsagePingService
     {
         public List<(string Firmware, string? Transport)> Pings { get; } = new();
-        public Task PingAsync(string firmware, string? transport, CancellationToken ct = default)
+        private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // When set, PingAsync waits on this gate before recording — lets a test hold the ping
+        // open indefinitely (no real delay/sleep needed) to prove the caller didn't wait on it.
+        public TaskCompletionSource? Gate { get; set; }
+
+        public async Task PingAsync(string firmware, string? transport, CancellationToken ct = default)
         {
+            if (Gate is not null) await Gate.Task;
             Pings.Add((firmware, transport));
-            return Task.CompletedTask;
+            _completed.TrySetResult();
+        }
+
+        /// <summary>True if the ping completed within <paramref name="timeout"/>, false if it timed out.</summary>
+        public async Task<bool> WaitForPingAsync(TimeSpan timeout)
+        {
+            var winner = await Task.WhenAny(_completed.Task, Task.Delay(timeout));
+            return winner == _completed.Task;
         }
     }
 
@@ -86,6 +105,7 @@ public class ConnectionViewModelTests
 
         await vm.ConnectCommand.ExecuteAsync(null);
 
+        Assert.True(await spy.WaitForPingAsync(TimeSpan.FromSeconds(5)), "usage ping did not complete in time");
         Assert.Single(spy.Pings);
         Assert.Equal("2.5.1", spy.Pings[0].Firmware);
         Assert.Equal("USB", spy.Pings[0].Transport);
@@ -97,6 +117,8 @@ public class ConnectionViewModelTests
         var vm = new ConnectionViewModel(Session(), spy);
 
         await vm.ConnectCommand.ExecuteAsync(null);
+        Assert.True(await spy.WaitForPingAsync(TimeSpan.FromSeconds(5)), "usage ping did not complete in time");
+
         await vm.ConnectCommand.ExecuteAsync(null);
 
         Assert.Single(spy.Pings);
@@ -112,6 +134,11 @@ public class ConnectionViewModelTests
 
         await vm.ConnectCommand.ExecuteAsync(null);
 
+        // ConnectAsync returns before ever reaching the ping call on a failed connect, so no
+        // signal will ever arrive — this bounded wait is expected to time out. A short timeout
+        // keeps the "nothing happened" assertion honest (not just "checked too early") without
+        // making the suite slow.
+        Assert.False(await spy.WaitForPingAsync(TimeSpan.FromMilliseconds(200)), "ping fired on a failed connect");
         Assert.Empty(spy.Pings);
     }
 
@@ -120,5 +147,29 @@ public class ConnectionViewModelTests
         var vm = new ConnectionViewModel(Session());   // null usage service
         await vm.ConnectCommand.ExecuteAsync(null);
         Assert.True(vm.IsConnected);
+    }
+
+    [Fact] public async Task Connect_returns_promptly_even_when_usage_ping_is_slow()
+    {
+        // Reproduces the reported bug: with the ping awaited, ExecuteAsync would block for as
+        // long as PingAsync takes (up to its HTTP timeout when offline/unreachable), keeping the
+        // bound Connect button disabled. Hold the ping open via a gate the test controls (no
+        // real sleep, so this stays fast and non-flaky) and assert ExecuteAsync still returns
+        // quickly and the command is not left "running".
+        var spy = new SpyUsagePing { Gate = new TaskCompletionSource() };
+        var vm = new ConnectionViewModel(Session(), spy);
+
+        var sw = Stopwatch.StartNew();
+        await vm.ConnectCommand.ExecuteAsync(null);
+        sw.Stop();
+
+        Assert.True(sw.ElapsedMilliseconds < 1000,
+            $"ExecuteAsync took {sw.ElapsedMilliseconds}ms; it must not wait on the usage ping");
+        Assert.False(vm.ConnectCommand.IsRunning);
+        Assert.Empty(spy.Pings); // still gated — proves ExecuteAsync didn't wait for it
+
+        spy.Gate.SetResult(); // release the ping so its background task completes cleanly
+        Assert.True(await spy.WaitForPingAsync(TimeSpan.FromSeconds(5)), "usage ping did not complete after release");
+        Assert.Single(spy.Pings);
     }
 }

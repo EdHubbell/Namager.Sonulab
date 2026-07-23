@@ -42,12 +42,15 @@ public partial class ConnectionViewModel : ObservableObject
             Connected?.Invoke(this, EventArgs.Empty);
 
             // Anonymous usage ping: first successful connect per run, at most once per UTC day.
-            // Awaited so tests are deterministic; PingAsync itself never throws and returns
-            // immediately when the day is already recorded or this is a dev build.
+            // Fire-and-forget: ConnectAsync backs an AsyncRelayCommand, which disables the bound
+            // Connect button for as long as it runs. Telemetry must never delay or gate the
+            // connect flow (the pedal is already connected and usable at this point), so the
+            // ping is not awaited even though PingAsync itself never throws and can take up to
+            // its HTTP timeout when the network is unreachable.
             if (_usage is not null && !_usagePinged)
             {
                 _usagePinged = true;
-                await _usage.PingAsync(state.Device!.Version, state.Transport);
+                _ = _usage.PingAsync(state.Device!.Version, state.Transport);
             }
         }
         catch (Exception ex)
