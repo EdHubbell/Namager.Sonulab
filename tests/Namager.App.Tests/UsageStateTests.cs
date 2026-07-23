@@ -1,11 +1,17 @@
+using System.Globalization;
 using Namager.App.Services;
 using Xunit;
 
-public class UsageStateTests
+public class UsageStateTests : IDisposable
 {
-    // Each test gets its own throwaway file path; nothing touches the real %APPDATA%.
-    private static string TempPath() =>
-        Path.Combine(Path.GetTempPath(), $"usage-test-{Guid.NewGuid():N}.json");
+    // Every test's throwaway files live under one scoped temp directory; nothing touches the
+    // real %APPDATA%, and the directory is removed after each test.
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"usage-test-{Guid.NewGuid():N}");
+    public UsageStateTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() => Directory.Delete(_dir, true);
+
+    private string TempPath() =>
+        Path.Combine(_dir, $"usage-{Guid.NewGuid():N}.json");
 
     [Fact]
     public void Load_on_first_run_mints_a_guid()
@@ -60,6 +66,20 @@ public class UsageStateTests
     public void ShouldPing_is_true_when_never_pinged()
         => Assert.True(new UsageState(Guid.NewGuid().ToString(), null)
                        .ShouldPing(new DateOnly(2026, 7, 23)));
+
+    [Fact]
+    public void ShouldPing_uses_invariant_dates_under_a_non_gregorian_locale()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("th-TH");
+            var state = new UsageState(Guid.NewGuid().ToString(), "2026-07-23");
+            Assert.False(state.ShouldPing(new DateOnly(2026, 7, 23)));
+            Assert.True(state.ShouldPing(new DateOnly(2026, 7, 24)));
+        }
+        finally { CultureInfo.CurrentCulture = original; }
+    }
 
     [Fact]
     public void Save_to_an_unwritable_path_does_not_throw()

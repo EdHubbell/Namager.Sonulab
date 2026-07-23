@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -35,7 +36,7 @@ public sealed record UsageState(
     /// <summary>True when we have not yet pinged on this UTC day. The date is passed in so the
     /// gate is testable without a clock.</summary>
     public bool ShouldPing(DateOnly todayUtc)
-        => LastPingUtc != todayUtc.ToString("yyyy-MM-dd");
+        => LastPingUtc != todayUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>Never throws. A failed write just means the day gate doesn't stick — the app
     /// pings again next launch, which is harmless (the worker de-duplicates by day anyway).</summary>
