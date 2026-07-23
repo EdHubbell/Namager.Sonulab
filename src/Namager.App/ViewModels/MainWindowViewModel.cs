@@ -109,7 +109,8 @@ public partial class MainWindowViewModel : ObservableObject
             var presets = new PresetListViewModel(
                 _connection.Repository!,
                 _connection.Reorder!,
-                _connection.WritesAllowed);
+                _connection.WritesAllowed,
+                Status);
             var editor = new ParameterEditorViewModel(_connection.Client!);
             // Selecting a preset activates + loads it into the editor (dedup is handled in LoadForAsync).
             presets.PropertyChanged += (_, e) =>

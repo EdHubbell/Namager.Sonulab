@@ -11,9 +11,11 @@ public partial class PresetListViewModel : ObservableObject
     private readonly DeviceRepository _repo;
     private readonly ReorderService _reorder;
     private readonly bool _writes;
+    private readonly Namager.App.Services.IStatusService _status;
 
-    public PresetListViewModel(DeviceRepository repo, ReorderService reorder, bool writesAllowed)
-    { _repo = repo; _reorder = reorder; _writes = writesAllowed; }
+    public PresetListViewModel(DeviceRepository repo, ReorderService reorder, bool writesAllowed,
+                               Namager.App.Services.IStatusService? status = null)
+    { _repo = repo; _reorder = reorder; _writes = writesAllowed; _status = status ?? Namager.App.Services.NullStatusService.Instance; }
 
     public ObservableCollection<PresetItemViewModel> Items { get; } = new();
     [ObservableProperty] private PresetItemViewModel? _selected;
@@ -22,14 +24,16 @@ public partial class PresetListViewModel : ObservableObject
     /// <summary>Last device-operation failure, shown to the user. Null when the last op succeeded.</summary>
     [ObservableProperty] private string? _errorMessage;
 
-    private async Task<bool> RunAsync(string message, Func<Task> work)
+    private async Task<bool> RunAsync(string message, string success, Func<Task> work)
     {
         if (!_writes) return false;
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
+        using var op = _status.BeginOperation(message);
         try
         {
             await work();
             await ReloadAsync();
+            _status.Success(success);
             return true;
         }
         catch (Exception ex)
@@ -41,6 +45,7 @@ public partial class PresetListViewModel : ObservableObject
             // cancellation; the broad catch is deliberate — guaranteeing a live UI outranks it.)
             Log.Warn(ex, "preset operation failed: {0}", message);
             ErrorMessage = $"Operation failed: {ex.Message}";
+            _status.Failure($"Failed: {ex.Message}");
             try { await ReloadAsync(); }
             catch (Exception reloadEx) { Log.Warn(reloadEx, "reload after a failed operation also failed"); }
             return false;
@@ -59,12 +64,14 @@ public partial class PresetListViewModel : ObservableObject
     {
         // NOT RunAsync: refresh must work in read-only mode (no _writes gate) — but it needs the
         // same crash-guard: a dead link mid-session must surface, not tear down the app.
-        IsBusy = true; BusyMessage = "Refreshing…"; ErrorMessage = null;
+        IsBusy = true; BusyMessage = "Reading presets…"; ErrorMessage = null;
+        using var op = _status.BeginOperation("Reading presets…");
         try { await ReloadAsync(); }
         catch (Exception ex)
         {
             Log.Warn(ex, "preset refresh failed");
             ErrorMessage = $"Refresh failed: {ex.Message}";
+            _status.Failure($"Refresh failed: {ex.Message}");
         }
         finally { IsBusy = false; BusyMessage = ""; }
     }
@@ -74,7 +81,7 @@ public partial class PresetListViewModel : ObservableObject
         if (Selected is { IsEmpty: false, Index: > 0 } s)
         {
             int dest = s.Index - 1;
-            if (await RunAsync($"Moving slot {s.DisplaySlot} up…", () => _reorder.MoveStepAsync(s.Index, up: true)) && dest < Items.Count)
+            if (await RunAsync($"Moving slot {s.DisplaySlot} up…", $"Moved '{s.Name}' up", () => _reorder.MoveStepAsync(s.Index, up: true)) && dest < Items.Count)
                 Selected = Items[dest];
         }
     }
@@ -84,7 +91,7 @@ public partial class PresetListViewModel : ObservableObject
         if (Selected is { IsEmpty: false } s && s.Index < Items.Count - 1)
         {
             int dest = s.Index + 1;
-            if (await RunAsync($"Moving slot {s.DisplaySlot} down…", () => _reorder.MoveStepAsync(s.Index, up: false)) && dest < Items.Count)
+            if (await RunAsync($"Moving slot {s.DisplaySlot} down…", $"Moved '{s.Name}' down", () => _reorder.MoveStepAsync(s.Index, up: false)) && dest < Items.Count)
                 Selected = Items[dest];
         }
     }
@@ -93,7 +100,7 @@ public partial class PresetListViewModel : ObservableObject
     {
         if (item is not { IsEmpty: false } s || s.Index <= 0) return;
         int dest = s.Index - 1;
-        if (await RunAsync($"Moving '{s.Name}' up…", () => _reorder.MoveStepAsync(s.Index, up: true)) && dest < Items.Count)
+        if (await RunAsync($"Moving '{s.Name}' up…", $"Moved '{s.Name}' up", () => _reorder.MoveStepAsync(s.Index, up: true)) && dest < Items.Count)
             Selected = Items[dest];
     }
 
@@ -101,7 +108,7 @@ public partial class PresetListViewModel : ObservableObject
     {
         if (item is not { IsEmpty: false } s || s.Index >= DeviceRepository.SlotCount - 1) return;
         int dest = s.Index + 1;
-        if (await RunAsync($"Moving '{s.Name}' down…", () => _reorder.MoveStepAsync(s.Index, up: false)) && dest < Items.Count)
+        if (await RunAsync($"Moving '{s.Name}' down…", $"Moved '{s.Name}' down", () => _reorder.MoveStepAsync(s.Index, up: false)) && dest < Items.Count)
             Selected = Items[dest];
     }
 
@@ -110,12 +117,12 @@ public partial class PresetListViewModel : ObservableObject
         if (Selected is not { IsEmpty: false } s) return;
         int dest = Items.FirstOrDefault(i => i.IsEmpty)?.Index ?? -1;
         if (dest < 0) return;
-        await RunAsync($"Duplicating '{s.Name}'…", () => _repo.DuplicateAsync(s.Index, dest, s.Name + " copy"));
+        await RunAsync($"Duplicating '{s.Name}'…", $"Duplicated '{s.Name}'", () => _repo.DuplicateAsync(s.Index, dest, s.Name + " copy"));
     }
 
     [RelayCommand] private async Task DeleteAsync()
     {
-        if (Selected is { IsEmpty: false } s) await RunAsync($"Deleting '{s.Name}'…", () => _repo.DeleteAsync(s.Index));
+        if (Selected is { IsEmpty: false } s) await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _repo.DeleteAsync(s.Index));
     }
 
     [RelayCommand] private async Task CommitRenameAsync(PresetItemViewModel? item)
@@ -125,7 +132,7 @@ public partial class PresetListViewModel : ObservableObject
         if (name.Length == 0 || name == s.Name) { s.IsEditing = false; return; }
         // RunAsync reloads the list (recreating items) on success; on a gated/failed write it does not,
         // so clear the edit flag ourselves in that case.
-        if (!await RunAsync($"Renaming '{s.Name}'…", () => _repo.RenameAsync(s.Index, name)))
+        if (!await RunAsync($"Renaming '{s.Name}'…", $"Renamed to '{name}'", () => _repo.RenameAsync(s.Index, name)))
             s.IsEditing = false;
     }
 }

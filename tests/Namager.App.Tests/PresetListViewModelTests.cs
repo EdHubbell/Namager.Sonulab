@@ -54,6 +54,37 @@ public class PresetListViewModelTests
         Assert.True(vm.Items[2].IsEmpty);
     }
 
+    [Fact] public async Task Delete_reports_success_to_status()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var status = new FakeStatusService();
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true, status: status);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+
+        await vm.DeleteCommand.ExecuteAsync(null);
+
+        Assert.Contains(status.Succeeded, m => m.Contains("Deleted") && m.Contains("A"));
+        Assert.Empty(status.Failed);
+    }
+
+    [Fact] public async Task Refresh_reports_reading_presets()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var status = new FakeStatusService();
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true, status: status);
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Contains("Reading presets…", status.Begun);
+    }
+
     [Fact] public async Task Writes_are_gated_when_not_allowed()
     {
         var dev = new FakePresetDevice();
