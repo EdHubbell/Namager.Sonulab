@@ -13,6 +13,7 @@ public partial class AmpListViewModel : ObservableObject
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private readonly AmpService _amps;
     private readonly bool _writes;
+    private readonly Namager.App.Services.IStatusService _status;
 
     /// <summary>Distillation seam — Sonulab.Distill.Distiller.DistillAsync in the app,
     /// a fake in tests. Returns the fidelity ShapeErr (lower is better).</summary>
@@ -26,9 +27,11 @@ public partial class AmpListViewModel : ObservableObject
     private CancellationTokenSource? _uploadCts;
 
     public AmpListViewModel(AmpService amps, bool writesAllowed,
+        Namager.App.Services.IStatusService? status = null,
         DistillRunner? distill = null, string? distilledDir = null, Action<Action>? dispatch = null)
     {
         _amps = amps; _writes = writesAllowed;
+        _status = status ?? Namager.App.Services.NullStatusService.Instance;
         _distill = distill ?? Sonulab.Distill.Distiller.DistillAsync;
         _distilledDir = distilledDir ?? Path.Combine("NAMFiles", "Distilled");
         _dispatch = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a));
@@ -51,7 +54,7 @@ public partial class AmpListViewModel : ObservableObject
 
     /// <summary>Busy-gated write helper (mirrors PresetListViewModel.RunAsync) with an
     /// error channel: amp operations throw AmpServiceException on guarded-write failures.</summary>
-    private async Task<bool> RunAsync(string message, Func<Task> work)
+    private async Task<bool> RunAsync(string message, string success, Func<Task> work)
     {
         if (!_writes || IsUploading) return false;
         // Drain any in-flight details read before a write burst starts: a full-slot dread
@@ -61,8 +64,9 @@ public partial class AmpListViewModel : ObservableObject
         if (DetailsLoadTask is { } detailsLoad)
         { try { await detailsLoad; } catch { /* cancelled/superseded read */ } }
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
-        try { await work(); await ReloadAsync(); return true; }
-        catch (AmpServiceException ex) { ErrorMessage = ex.Message; return false; }
+        using var op = _status.BeginOperation(message);
+        try { await work(); await ReloadAsync(); _status.Success(success); return true; }
+        catch (AmpServiceException ex) { ErrorMessage = ex.Message; _status.Failure(ex.Message); return false; }
         catch (Exception ex)
         {
             // Transport/unexpected failures (e.g. the WiFi link dying mid-session) must surface,
@@ -70,6 +74,7 @@ public partial class AmpListViewModel : ObservableObject
             // app in the field (v0.9.3 test build, amps refresh over WiFi).
             Log.Warn(ex, "amp operation failed: {0}", message);
             ErrorMessage = $"Operation failed: {ex.Message}";
+            _status.Failure($"Failed: {ex.Message}");
             return false;
         }
         finally { IsBusy = false; BusyMessage = ""; }
@@ -90,7 +95,8 @@ public partial class AmpListViewModel : ObservableObject
         // Wrap in the busy pattern so OnSelectedChanged's guard blocks a details read from
         // interleaving with a plain refresh (mirrors RunAsync, but not write-gated).
         if (!CanRefresh) return;
-        IsBusy = true; BusyMessage = "Refreshing…"; ErrorMessage = null;
+        IsBusy = true; BusyMessage = "Reading amps…"; ErrorMessage = null;
+        using var op = _status.BeginOperation("Reading amps…");
         try { await ReloadAsync(); }
         catch (Exception ex)
         {
@@ -98,6 +104,7 @@ public partial class AmpListViewModel : ObservableObject
             // AsyncRelayCommand rethrew on the UI thread and took the app down.
             Log.Warn(ex, "amp refresh failed");
             ErrorMessage = $"Refresh failed: {ex.Message}";
+            _status.Failure($"Refresh failed: {ex.Message}");
         }
         finally { IsBusy = false; BusyMessage = ""; }
     }
@@ -105,7 +112,7 @@ public partial class AmpListViewModel : ObservableObject
     [RelayCommand] private async Task DeleteAsync()
     {
         if (Selected is { IsEmpty: false } s)
-            await RunAsync($"Deleting '{s.Name}'…", () => _amps.DeleteAmpAsync(s.Index));
+            await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _amps.DeleteAmpAsync(s.Index));
     }
 
     [RelayCommand] private async Task CommitRenameAsync(AmpItemViewModel? item)
@@ -113,7 +120,7 @@ public partial class AmpListViewModel : ObservableObject
         if (item is not { IsEditing: true } s) return;      // Escape-then-LostFocus won't re-commit
         var name = (s.EditName ?? "").Trim();
         if (name.Length == 0 || name == s.Name) { s.IsEditing = false; return; }
-        if (!await RunAsync($"Renaming '{s.Name}'…", () => _amps.RenameAmpAsync(s.Index, name)))
+        if (!await RunAsync($"Renaming '{s.Name}'…", $"Renamed to '{name}'", () => _amps.RenameAmpAsync(s.Index, name)))
             s.IsEditing = false;                            // gated/failed write: leave edit mode ourselves
     }
 
@@ -268,6 +275,7 @@ public partial class AmpListViewModel : ObservableObject
         UploadError = null;
         IsUploading = true;
         _uploadCts = new CancellationTokenSource();
+        using var op = _status.BeginOperation($"Uploading '{name}'…");
         try
         {
             double? shapeErr = null;
@@ -312,12 +320,15 @@ public partial class AmpListViewModel : ObservableObject
             Selected = Items.FirstOrDefault(i => i.Index == slot);
             DetailsLoadTask = LoadDetailsCoreAsync(Selected);
             await DetailsLoadTask;
+
+            IsUploadPanelOpen = false;                               // #5: auto-close into the detail view
+            _status.Success($"Uploaded '{name}' to slot {slot + 1}");
         }
         catch (OperationCanceledException) { UploadError = "Cancelled."; }
-        catch (Sonulab.Distill.DistillException ex) { UploadError = ex.Message; }
-        catch (AmpServiceException ex) { UploadError = ex.Message; }
-        catch (IOException ex) { UploadError = ex.Message; }
-        catch (UnauthorizedAccessException ex) { UploadError = ex.Message; }
+        catch (Sonulab.Distill.DistillException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
+        catch (AmpServiceException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
+        catch (IOException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
+        catch (UnauthorizedAccessException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
         catch (Exception ex)
         {
             // The longest-running device op is the MOST exposed to the link dying mid-session —
@@ -325,6 +336,7 @@ public partial class AmpListViewModel : ObservableObject
             // finding on the first crash-guard sweep). Surface it like every other failure.
             Log.Warn(ex, "amp upload failed");
             UploadError = $"Upload failed: {ex.Message}";
+            _status.Failure($"Upload failed: {ex.Message}");
         }
         finally
         {
@@ -537,7 +549,7 @@ public partial class AmpListViewModel : ObservableObject
         if (Selected is not { IsEmpty: false } s) return;
         int index = s.Index;
         var name = s.Name;
-        if (await RunAsync($"Saving metadata for '{name}'…", async () =>
+        if (await RunAsync($"Saving metadata for '{name}'…", $"Saved metadata for '{name}'", async () =>
             {
                 var bytes = await _amps.ReadAmpAsync(index);   // device truth, length-validated
                 // Integrity guards before flashing anything back: the vxamp header is a fixed

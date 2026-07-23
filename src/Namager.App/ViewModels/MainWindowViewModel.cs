@@ -124,7 +124,7 @@ public partial class MainWindowViewModel : ObservableObject
 
             var ampService = new AmpService(
                 _connection.Client!, System.IO.Path.Combine("docs", "backups"));
-            var amps = new AmpListViewModel(ampService, _connection.WritesAllowed);
+            var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status);
             Amps = amps;
 
             var irService = new IrService(_connection.Client!, System.IO.Path.Combine("docs", "backups"));

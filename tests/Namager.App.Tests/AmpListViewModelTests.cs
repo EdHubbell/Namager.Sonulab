@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
+using Namager.App.Services;
 using Namager.App.ViewModels;
 using Sonulab.Core;
 using Sonulab.Core.Services;
@@ -103,12 +104,27 @@ public class AmpListViewModelTests : IDisposable
         Assert.Contains("ASCII", vm.ErrorMessage);
     }
 
+    [Fact] public async Task Delete_reports_success_to_status()
+    {
+        var dev = new FakeAmpDevice();
+        dev.SeedAmp(0, "Clean", RealisticBlob(1));
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        var status = new FakeStatusService();
+        var vm = new AmpListViewModel(svc, writesAllowed: true, status: status);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Contains(status.Succeeded, m => m.Contains("Deleted"));
+    }
+
     // ---- upload flow (Task 6) ----
 
     private sealed record UploadHarness(AmpListViewModel Vm, FakeAmpDevice Dev, List<string> DistillCalls, string DistilledDir);
 
     private UploadHarness MakeUpload(
-        AmpListViewModel.DistillRunner? distill = null, bool writes = true, int seedCount = 2)
+        AmpListViewModel.DistillRunner? distill = null, bool writes = true, int seedCount = 2,
+        IStatusService? status = null)
     {
         var dev = new FakeAmpDevice();
         for (int i = 0; i < seedCount; i++)
@@ -124,7 +140,8 @@ public class AmpListViewModelTests : IDisposable
             File.WriteAllBytes(outPath, Enumerable.Repeat((byte)0xD1, 12288).ToArray());
             return Task.FromResult(0.25);
         });
-        var vm = new AmpListViewModel(svc, writes, runner, distilledDir, dispatch: a => a());
+        var vm = new AmpListViewModel(svc, writes, status: status,
+            distill: runner, distilledDir: distilledDir, dispatch: a => a());
         return new UploadHarness(vm, dev, calls, distilledDir);
     }
 
@@ -181,10 +198,29 @@ public class AmpListViewModelTests : IDisposable
         Assert.EndsWith(Path.Combine(h.DistilledDir, "Plexi.vxamp"), h.DistillCalls[0].Split('|')[1]);
         Assert.Equal("Plexi", h.Dev.SlotNames[2]);          // first empty slot
         Assert.Equal(0xD1, h.Dev.SlotBlobs[2]![0]);         // distilled bytes, not source bytes
-        Assert.True(h.Vm.IsUploadPanelOpen);                // stays open to show the Done state
+        Assert.False(h.Vm.IsUploadPanelOpen);                // #5: auto-closed into the detail view
         Assert.StartsWith("Done", h.Vm.UploadStatus);
         Assert.Equal(2, h.Vm.Selected?.Index);              // new amp selected
         Assert.Null(h.Vm.UploadError);
+    }
+
+    [Fact]
+    public async Task StartUpload_reports_success_and_auto_closes_the_panel()
+    {
+        var status = new FakeStatusService();
+        var h = MakeUpload(status: status);
+        await h.Vm.RefreshCommand.ExecuteAsync(null);
+        h.Vm.BeginUploadCommand.Execute(TempFile("Plexi.nam"));
+        await h.Vm.StartUploadCommand.ExecuteAsync(null);
+        Assert.Single(h.DistillCalls);
+        Assert.EndsWith(Path.Combine(h.DistilledDir, "Plexi.vxamp"), h.DistillCalls[0].Split('|')[1]);
+        Assert.Equal("Plexi", h.Dev.SlotNames[2]);          // first empty slot
+        Assert.Equal(0xD1, h.Dev.SlotBlobs[2]![0]);         // distilled bytes, not source bytes
+        Assert.False(h.Vm.IsUploadPanelOpen);               // #5: auto-closed on success
+        Assert.StartsWith("Done", h.Vm.UploadStatus);
+        Assert.Equal(2, h.Vm.Selected?.Index);              // new amp selected
+        Assert.Null(h.Vm.UploadError);
+        Assert.Contains(status.Succeeded, m => m.Contains("Uploaded"));
     }
 
     [Fact]
