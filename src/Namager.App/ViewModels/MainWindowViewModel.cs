@@ -97,7 +97,7 @@ public partial class MainWindowViewModel : ObservableObject
         };
         var session = new DeviceSession(providers, new CompatibilityChecker(FirmwareCatalog.Default));
 
-        _connection = new ConnectionViewModel(session);
+        _connection = new ConnectionViewModel(session, new UsagePingService());
         _connection.Connected += (_, _) =>
         {
             _ampsLoaded = _irsLoaded = false;

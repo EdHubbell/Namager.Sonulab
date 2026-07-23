@@ -68,4 +68,57 @@ public class ConnectionViewModelTests
         Assert.False(vm.IsConnected);
         Assert.Equal("Disconnected (no device found on USB or WiFi)", vm.Status);
     }
+
+    private sealed class SpyUsagePing : Namager.App.Services.IUsagePingService
+    {
+        public List<(string Firmware, string? Transport)> Pings { get; } = new();
+        public Task PingAsync(string firmware, string? transport, CancellationToken ct = default)
+        {
+            Pings.Add((firmware, transport));
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact] public async Task Connect_pings_usage_once_with_firmware_and_transport()
+    {
+        var spy = new SpyUsagePing();
+        var vm = new ConnectionViewModel(Session(), spy);
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.Single(spy.Pings);
+        Assert.Equal("2.5.1", spy.Pings[0].Firmware);
+        Assert.Equal("USB", spy.Pings[0].Transport);
+    }
+
+    [Fact] public async Task Reconnecting_in_the_same_run_does_not_ping_again()
+    {
+        var spy = new SpyUsagePing();
+        var vm = new ConnectionViewModel(Session(), spy);
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.Single(spy.Pings);
+    }
+
+    [Fact] public async Task Failed_connect_does_not_ping()
+    {
+        var spy = new SpyUsagePing();
+        var session = new DeviceSession(
+            new ILinkProvider[] { new FixedProvider("USB", null), new FixedProvider("WiFi", null) },
+            new CompatibilityChecker(FirmwareCatalog.Default));
+        var vm = new ConnectionViewModel(session, spy);
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.Empty(spy.Pings);
+    }
+
+    [Fact] public async Task Connect_without_a_usage_service_still_works()
+    {
+        var vm = new ConnectionViewModel(Session());   // null usage service
+        await vm.ConnectCommand.ExecuteAsync(null);
+        Assert.True(vm.IsConnected);
+    }
 }
