@@ -11,8 +11,20 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const hits = new Map();
 const MAX_PER_HOUR = 5;
 
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TRANSPORTS = new Set(['usb', 'wifi', 'unknown']);
+const pingHits = new Map();
+const PING_MAX_PER_HOUR = 20;
+
 export default {
   async fetch(request, env) {
+    const { pathname } = new URL(request.url);
+    // "/" must keep behaving exactly as before: installed copies of the app POST feedback there.
+    return pathname === '/ping' ? handlePing(request, env) : handleFeedback(request, env);
+  },
+};
+
+async function handleFeedback(request, env) {
     if (request.method !== 'POST')
       return new Response('method not allowed', { status: 405 });
     if (!(request.headers.get('content-type') || '').includes('application/json'))
@@ -65,5 +77,65 @@ export default {
 
     // Never leak GitHub response details (or the token's existence) to callers.
     return new Response(null, { status: gh.status === 201 ? 201 : 502 });
-  },
-};
+}
+
+async function handlePing(request, env) {
+  if (request.method !== 'POST')
+    return new Response('method not allowed', { status: 405 });
+  if (!(request.headers.get('content-type') || '').includes('application/json'))
+    return new Response('unsupported content type', { status: 415 });
+
+  let p;
+  try { p = await request.json(); } catch { return new Response('bad json', { status: 400 }); }
+  if (!p || typeof p !== 'object') return new Response('bad json', { status: 400 });
+
+  // A strict GUID check keeps the table hard to pollute with invented or enumerated IDs.
+  if (typeof p.installId !== 'string' || !GUID_RE.test(p.installId))
+    return new Response('invalid installId', { status: 400 });
+  for (const field of ['appVersion', 'fw']) {
+    if (typeof p[field] !== 'string' || !p[field].trim() || p[field].length > 20)
+      return new Response(`invalid ${field}`, { status: 400 });
+  }
+  if (typeof p.transport !== 'string' || !TRANSPORTS.has(p.transport))
+    return new Response('invalid transport', { status: 400 });
+
+  // IP is used for rate limiting ONLY and is never written to D1 (PRIVACY.md).
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  const now = Date.now();
+  const recent = (pingHits.get(ip) || []).filter(t => now - t < 3600_000);
+  if (recent.length >= PING_MAX_PER_HOUR)
+    return new Response('rate limited', { status: 429 });
+  pingHits.set(ip, [...recent, now]);
+
+  const day = new Date(now).toISOString().slice(0, 10);
+  const id = p.installId.toLowerCase();
+
+  try {
+    // INSERT OR IGNORE: a duplicate (install_id, day) is accepted but changes nothing.
+    const ins = await env.USAGE_DB.prepare(
+      `INSERT OR IGNORE INTO pings (install_id, day, app_version, fw_version, transport)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(id, day, p.appVersion, p.fw, p.transport).run();
+
+    // active_days increments ONLY when the pings insert actually added a row, so a replayed
+    // request cannot inflate retention numbers without a matching pings row.
+    const isNewDay = ins.meta.changes > 0;
+
+    await env.USAGE_DB.prepare(
+      `INSERT INTO installs
+         (install_id, first_seen, last_seen, active_days, app_version, fw_version, last_transport)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(install_id) DO UPDATE SET
+         last_seen      = excluded.last_seen,
+         active_days    = active_days + ?,
+         app_version    = excluded.app_version,
+         fw_version     = excluded.fw_version,
+         last_transport = excluded.last_transport`
+    ).bind(id, day, day, isNewDay ? 1 : 0, p.appVersion, p.fw, p.transport, isNewDay ? 1 : 0).run();
+  } catch {
+    // Never leak database errors to the client; the ping is disposable.
+    return new Response(null, { status: 502 });
+  }
+
+  return new Response(null, { status: 204 });
+}

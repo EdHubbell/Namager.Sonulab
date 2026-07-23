@@ -1,3 +1,9 @@
 name = "namager-sonulab-feedback"
 main = "worker.js"
 compatibility_date = "2026-07-01"
+
+# Usage telemetry store. database_id is filled in by `wrangler d1 create` (Step 6).
+[[d1_databases]]
+binding = "USAGE_DB"
+database_name = "namager-usage"
+database_id = "REPLACE_AFTER_D1_CREATE"
