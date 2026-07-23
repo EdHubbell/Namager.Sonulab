@@ -45,6 +45,16 @@ public sealed class UsagePingService : IUsagePingService
         _ => "unknown",
     };
 
+    /// <summary>The worker rejects blank or oversized `fw` values with 400, and a rejected ping
+    /// is never retried into a recorded day — so a device whose firmware read comes back null or
+    /// empty (CompatibilityChecker builds it as `... ?? ""`, and DeviceSession still reports
+    /// Connected: true) would otherwise make that install permanently invisible. Map a blank
+    /// value to "unknown" and cap length at the worker's 20-character limit instead.</summary>
+    private static string SanitizeFirmware(string firmware) =>
+        string.IsNullOrWhiteSpace(firmware) ? "unknown"
+        : firmware.Length > 20 ? firmware[..20]
+        : firmware;
+
     public async Task PingAsync(string firmware, string? transport, CancellationToken ct = default)
     {
         // Dev builds never ping: the author connects the pedal many times a day and would
@@ -61,7 +71,7 @@ public sealed class UsagePingService : IUsagePingService
             {
                 installId = state.InstallId,
                 appVersion = _appVersion,
-                fw = firmware,
+                fw = SanitizeFirmware(firmware),
                 transport = NormalizeTransport(transport),
             }, ct);
 

@@ -143,6 +143,62 @@ public class UsagePingServiceTests : IDisposable
             UsageState.Load(path).LastPingUtc);
     }
 
+    // ---------- firmware sanitization ----------
+    // The worker rejects blank or oversized `fw` values with 400 (VALIDATION-usage-telemetry.md
+    // cases 8/9), and a rejected ping is never retried into a recorded day — so a device whose
+    // firmware read comes back null/empty (CompatibilityChecker builds it as `... ?? ""`) would
+    // otherwise make that install permanently invisible.
+    [Fact]
+    public async Task PingAsync_sends_unknown_for_empty_firmware()
+    {
+        var handler = new FakeHandler();
+        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", TempPath());
+
+        await svc.PingAsync("", "USB");
+
+        using var doc = JsonDocument.Parse(handler.Bodies[0]);
+        Assert.Equal("unknown", doc.RootElement.GetProperty("fw").GetString());
+    }
+
+    [Fact]
+    public async Task PingAsync_sends_unknown_for_whitespace_only_firmware()
+    {
+        var handler = new FakeHandler();
+        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", TempPath());
+
+        await svc.PingAsync("   ", "USB");
+
+        using var doc = JsonDocument.Parse(handler.Bodies[0]);
+        Assert.Equal("unknown", doc.RootElement.GetProperty("fw").GetString());
+    }
+
+    [Fact]
+    public async Task PingAsync_truncates_oversized_firmware_to_twenty_chars()
+    {
+        var handler = new FakeHandler();
+        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", TempPath());
+        var thirtyChars = new string('x', 30);
+
+        await svc.PingAsync(thirtyChars, "USB");
+
+        using var doc = JsonDocument.Parse(handler.Bodies[0]);
+        var sent = doc.RootElement.GetProperty("fw").GetString();
+        Assert.Equal(20, sent!.Length);
+        Assert.Equal(thirtyChars[..20], sent);
+    }
+
+    [Fact]
+    public async Task PingAsync_leaves_a_normal_firmware_value_unchanged()
+    {
+        var handler = new FakeHandler();
+        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", TempPath());
+
+        await svc.PingAsync("2.5.1", "USB");
+
+        using var doc = JsonDocument.Parse(handler.Bodies[0]);
+        Assert.Equal("2.5.1", doc.RootElement.GetProperty("fw").GetString());
+    }
+
     // ---------- dev builds ----------
     [Fact]
     public async Task PingAsync_is_a_no_op_for_dev_builds()

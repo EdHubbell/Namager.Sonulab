@@ -24,7 +24,11 @@ public sealed record UsageState(
         try
         {
             var state = JsonSerializer.Deserialize<UsageState>(File.ReadAllText(path ?? DefaultPath));
-            if (state is not null && Guid.TryParse(state.InstallId, out _)) return state;
+            // Guid.TryParse accepts N/B/P/X formats too, but the worker's installId check is a
+            // strict 8-4-4-4-12 regex, so normalize to the canonical hyphenated lowercase "D"
+            // format here rather than passing through whatever was on disk.
+            if (state is not null && Guid.TryParse(state.InstallId, out var guid))
+                return state with { InstallId = guid.ToString() };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException
                                        or ArgumentException or NotSupportedException)

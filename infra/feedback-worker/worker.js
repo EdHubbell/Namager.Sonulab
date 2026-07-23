@@ -16,6 +16,12 @@ const TRANSPORTS = new Set(['usb', 'wifi', 'unknown']);
 const pingHits = new Map();
 const PING_MAX_PER_HOUR = 20;
 
+// Both rate-limit maps below are keyed by IP and live for the isolate's lifetime. Without this
+// cap, an isolate that serves many distinct IPs (telemetry volume in particular) grows the map
+// forever, since a key was previously only ever pruned/overwritten, never removed. Chosen
+// arbitrarily high enough to never affect real traffic; it only guards against unbounded growth.
+const RATE_MAP_MAX_ENTRIES = 10000;
+
 export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
@@ -49,9 +55,14 @@ async function handleFeedback(request, env) {
     const ip = request.headers.get('cf-connecting-ip') || 'unknown';
     const now = Date.now();
     const recent = (hits.get(ip) || []).filter(t => now - t < 3600_000);
+    // Write the pruned list back (or drop the key entirely once it's empty) before checking the
+    // limit, so an IP that goes quiet for an hour is evicted on its next request instead of the
+    // map holding a stale entry for it forever.
+    if (recent.length === 0) hits.delete(ip); else hits.set(ip, recent);
     if (recent.length >= MAX_PER_HOUR)
       return new Response('rate limited', { status: 429 });
     hits.set(ip, [...recent, now]);
+    if (hits.size > RATE_MAP_MAX_ENTRIES) hits.clear();
 
     const title = `Feedback: ${f.message.trim().slice(0, 60)}`;
     const body = [
@@ -103,35 +114,46 @@ async function handlePing(request, env) {
   const ip = request.headers.get('cf-connecting-ip') || 'unknown';
   const now = Date.now();
   const recent = (pingHits.get(ip) || []).filter(t => now - t < 3600_000);
+  // Same eviction hygiene as the feedback route's `hits` map above: drop the key once its list
+  // is empty instead of letting quiet IPs linger for the isolate's whole lifetime.
+  if (recent.length === 0) pingHits.delete(ip); else pingHits.set(ip, recent);
   if (recent.length >= PING_MAX_PER_HOUR)
     return new Response('rate limited', { status: 429 });
   pingHits.set(ip, [...recent, now]);
+  if (pingHits.size > RATE_MAP_MAX_ENTRIES) pingHits.clear();
 
   const day = new Date(now).toISOString().slice(0, 10);
   const id = p.installId.toLowerCase();
 
   try {
-    // INSERT OR IGNORE: a duplicate (install_id, day) is accepted but changes nothing.
-    const ins = await env.USAGE_DB.prepare(
-      `INSERT OR IGNORE INTO pings (install_id, day, app_version, fw_version, transport)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(id, day, p.appVersion, p.fw, p.transport).run();
-
-    // active_days increments ONLY when the pings insert actually added a row, so a replayed
-    // request cannot inflate retention numbers without a matching pings row.
-    const isNewDay = ins.meta.changes > 0;
-
-    await env.USAGE_DB.prepare(
-      `INSERT INTO installs
-         (install_id, first_seen, last_seen, active_days, app_version, fw_version, last_transport)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(install_id) DO UPDATE SET
-         last_seen      = excluded.last_seen,
-         active_days    = active_days + ?,
-         app_version    = excluded.app_version,
-         fw_version     = excluded.fw_version,
-         last_transport = excluded.last_transport`
-    ).bind(id, day, day, isNewDay ? 1 : 0, p.appVersion, p.fw, p.transport, isNewDay ? 1 : 0).run();
+    // Both statements run as one batch (D1 batches are an implicit transaction), so the pings
+    // insert and the installs upsert either both land or both roll back — no window where one
+    // succeeds and the other doesn't.
+    //
+    // active_days is derived as (SELECT COUNT(*) FROM pings WHERE install_id = ?) rather than
+    // incremented, so it is correct by construction: replaying the same day's ping is harmless
+    // (INSERT OR IGNORE keeps pings unchanged, so the COUNT is unchanged), and there is no
+    // dependency on D1's INSERT OR IGNORE change-count semantics. It is also self-healing: if an
+    // install row is ever out of sync with pings (e.g. from data prior to this fix), the very
+    // next ping recomputes active_days from the source of truth instead of drifting further.
+    await env.USAGE_DB.batch([
+      env.USAGE_DB.prepare(
+        `INSERT OR IGNORE INTO pings (install_id, day, app_version, fw_version, transport)
+         VALUES (?, ?, ?, ?, ?)`
+      ).bind(id, day, p.appVersion, p.fw, p.transport),
+      env.USAGE_DB.prepare(
+        `INSERT INTO installs (install_id, first_seen, last_seen, active_days,
+                               app_version, fw_version, last_transport)
+         VALUES (?, ?, ?, (SELECT COUNT(*) FROM pings WHERE install_id = ?), ?, ?, ?)
+         ON CONFLICT(install_id) DO UPDATE SET
+           first_seen     = MIN(installs.first_seen, excluded.first_seen),
+           last_seen      = MAX(installs.last_seen,  excluded.last_seen),
+           active_days    = excluded.active_days,
+           app_version    = excluded.app_version,
+           fw_version     = excluded.fw_version,
+           last_transport = excluded.last_transport`
+      ).bind(id, day, day, id, p.appVersion, p.fw, p.transport),
+    ]);
   } catch {
     // Never leak database errors to the client; the ping is disposable.
     return new Response(null, { status: 502 });

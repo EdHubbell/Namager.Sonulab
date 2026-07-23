@@ -1,6 +1,6 @@
 # Privacy
 
-NAMager talks to the internet in three places. This page lists all of them.
+Here is every network call the app makes.
 
 ## 1. Anonymous usage ping
 
@@ -38,7 +38,7 @@ The Send Feedback dialog posts the name, email, and message **you type**, plus y
 and OS, and creates a **public** GitHub issue. Don't put anything in it you wouldn't post
 publicly.
 
-## Tone3000
+## 4. Tone3000
 
 If you sign in to Tone3000, that's between you and Tone3000 under their privacy policy. Your
 token is stored locally, encrypted with Windows DPAPI.
