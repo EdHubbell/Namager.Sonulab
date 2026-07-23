@@ -1,0 +1,113 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Namager.App.ViewModels"
+             xmlns:conv="using:Namager.App.Converters"
+             xmlns:behaviors="using:Namager.App.Behaviors"
+             x:Class="Namager.App.Views.IrListView"
+             x:DataType="vm:IrListViewModel">
+  <DockPanel MaxWidth="560" HorizontalAlignment="Left">
+
+    <!-- Command bar -->
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="8,6,8,4">
+      <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
+        <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
+      </Button>
+      <Button x:Name="UploadWavButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Convert a .wav and upload it to an empty slot">
+        <TextBlock Text="Upload .wav…"/>
+      </Button>
+      <Button x:Name="UploadIrblobButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Upload an already-converted .irblob to an empty slot">
+        <TextBlock Text="Upload .irblob…"/>
+      </Button>
+      <Button Command="{Binding DeleteCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete (backs up first)">
+        <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
+      </Button>
+    </StackPanel>
+
+    <!-- Blocked / error messages -->
+    <TextBlock DockPanel.Dock="Top" Margin="8,0" FontSize="11" Foreground="{DynamicResource Sonulab.WarningBrush}"
+               Text="{Binding UploadBlockedMessage}"
+               IsVisible="{Binding UploadBlockedMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    <TextBlock DockPanel.Dock="Top" Margin="8,0" FontSize="11" Foreground="{DynamicResource Sonulab.DangerBrush}"
+               Text="{Binding ErrorMessage}" TextWrapping="Wrap"
+               IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+    <!-- Upload panel (inline, bottom) -->
+    <Border Classes="card" DockPanel.Dock="Bottom" Margin="8,4"
+            IsVisible="{Binding IsUploadPanelOpen}">
+      <StackPanel Spacing="6">
+        <TextBlock Text="{Binding UploadSourceFileName}" FontWeight="SemiBold"/>
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto" >
+          <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" Margin="0,0,8,0"/>
+          <TextBox Grid.Column="1" Text="{Binding UploadName}" MaxLength="31"
+                   IsEnabled="{Binding !IsUploading}"/>
+          <TextBlock Grid.Column="2" Text="Slot" VerticalAlignment="Center" Margin="12,0,8,0"/>
+          <ComboBox Grid.Column="3" MinWidth="90"
+                    ItemsSource="{Binding EmptySlots}"
+                    SelectedItem="{Binding SelectedEmptySlot}"
+                    IsEnabled="{Binding !IsUploading}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="x:Int32">
+                <TextBlock Text="{Binding Converter={x:Static conv:IndexToSlotNumber.Instance}}"/>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </Grid>
+        <ProgressBar Height="6" Minimum="0" Maximum="1"
+                     Value="{Binding UploadProgressValue}"
+                     IsVisible="{Binding IsUploading}"/>
+        <TextBlock Text="{Binding UploadStatus}" FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
+        <TextBlock Text="{Binding UploadError}" FontSize="11" Foreground="{DynamicResource Sonulab.DangerBrush}" TextWrapping="Wrap"
+                   IsVisible="{Binding UploadError, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="Start" Command="{Binding StartUploadCommand}" IsEnabled="{Binding !IsUploading}"/>
+          <Button Content="Close" Command="{Binding CloseUploadPanelCommand}" IsEnabled="{Binding !IsUploading}"/>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- Busy indicator -->
+    <StackPanel DockPanel.Dock="Bottom" Margin="8,2" IsVisible="{Binding IsBusy}" Spacing="4">
+      <ProgressBar IsIndeterminate="True" Height="4"/>
+      <TextBlock Text="{Binding BusyMessage}" FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
+    </StackPanel>
+
+    <!-- IR list -->
+    <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
+             IsEnabled="{Binding !IsBusy}">
+      <ListBox.KeyBindings>
+        <KeyBinding Gesture="F2" Command="{Binding Selected.BeginRenameCommand}"/>
+      </ListBox.KeyBindings>
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="vm:IrItemViewModel">
+          <DockPanel>
+            <DockPanel.ContextMenu>
+              <ContextMenu>
+                <MenuItem Header="Rename" Command="{Binding BeginRenameCommand}"/>
+              </ContextMenu>
+            </DockPanel.ContextMenu>
+            <TextBlock Classes="slot-number" Text="{Binding DisplaySlot, StringFormat='{}{0:00}'}"
+                       Width="28" VerticalAlignment="Center"/>
+            <Panel VerticalAlignment="Center" Margin="8,0,0,0">
+              <TextBlock VerticalAlignment="Center" IsVisible="{Binding !IsEditing}"
+                         Opacity="{Binding IsEmpty, Converter={x:Static conv:BoolToOpacity.Instance}}"
+                         FontStyle="{Binding IsEmpty, Converter={x:Static conv:BoolToItalic.Instance}}"
+                         Text="{Binding Name}"/>
+              <TextBox IsVisible="{Binding IsEditing}" Text="{Binding EditName}" MaxLength="31"
+                       Padding="2,0" VerticalAlignment="Center"
+                       behaviors:EditBoxBehavior.FocusOnVisible="{Binding IsEditing}"
+                       LostFocus="OnEditBoxLostFocus">
+                <TextBox.KeyBindings>
+                  <KeyBinding Gesture="Enter"
+                              Command="{Binding $parent[ListBox].((vm:IrListViewModel)DataContext).CommitRenameCommand}"
+                              CommandParameter="{Binding}"/>
+                  <KeyBinding Gesture="Escape" Command="{Binding CancelRenameCommand}"/>
+                </TextBox.KeyBindings>
+              </TextBox>
+            </Panel>
+          </DockPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+  </DockPanel>
+</UserControl>

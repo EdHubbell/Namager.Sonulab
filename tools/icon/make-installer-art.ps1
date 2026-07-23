@@ -4,7 +4,7 @@
 #   src/ToneManager.Installer/Assets/dialog.bmp  (493x312 - WixUIDialogBmp, welcome/finish)
 # Requires ImageMagick 7+ on PATH (dev machine only - the .bmp files are committed).
 # MSI dialogs need classic 24-bit BMPs: compose with alpha, then strip it (BMP3 + -alpha off).
-$assets = Join-Path $PSScriptRoot "..\..\src\ToneManager.App\Assets"
+$assets = Join-Path $PSScriptRoot "..\..\src\Namager.App\Assets"
 $out = Join-Path $PSScriptRoot "..\..\src\ToneManager.Installer\Assets"
 New-Item -ItemType Directory -Force $out | Out-Null
 $ico = Join-Path $assets "app-icon.ico"   # frame 0 = 256px
