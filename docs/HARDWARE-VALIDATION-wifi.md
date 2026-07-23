@@ -4,7 +4,7 @@ Live bench results are under "Bench (verified)". Ed's remaining GUI checks are u
 
 ## Bench (verified 2026-07-21, pedal "AMP Station" fw 2.5.1 on "Duke Park Mesh")
 
-Run read-only via `HwCheck --wifi` (mDNS auto-discovery) from `C:\Development\ToneManager`. No device
+Run read-only via `HwCheck --wifi` (mDNS auto-discovery) from `C:\Development\Namager\Namager.Sonulab`. No device
 writes were performed.
 
 - [x] `HwCheck --wifi` (mDNS) → **CONNECTED** `name='AMP Station' ver=2.5.1 arch=ESP32S3
