@@ -3,7 +3,12 @@ using Namager.Tone3000;
 public class T3kTokenStoreTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"t3ktok-{Guid.NewGuid():N}.token");
-    public void Dispose() { if (File.Exists(_path)) File.Delete(_path); }
+    private readonly string _legacy = Path.Combine(Path.GetTempPath(), $"t3ktok-legacy-{Guid.NewGuid():N}.token");
+    public void Dispose()
+    {
+        if (File.Exists(_path)) File.Delete(_path);
+        if (File.Exists(_legacy)) File.Delete(_legacy);
+    }
 
     [Fact]
     public void Roundtrips_a_token()
@@ -42,5 +47,31 @@ public class T3kTokenStoreTests : IDisposable
         store.Clear();
         Assert.Null(store.Load());
         store.Clear();                                       // no throw on second clear
+    }
+
+    [Fact]
+    public void Loads_the_legacy_token_when_the_current_one_is_absent()
+    {
+        // The config-dir move must not silently sign out an install that was signed in.
+        new T3kTokenStore(_legacy).Save("rt_from_legacy");
+        Assert.Equal("rt_from_legacy", new T3kTokenStore(_path, _legacy).Load());
+    }
+
+    [Fact]
+    public void Current_token_wins_over_legacy()
+    {
+        new T3kTokenStore(_legacy).Save("rt_from_legacy");
+        new T3kTokenStore(_path).Save("rt_current");
+        Assert.Equal("rt_current", new T3kTokenStore(_path, _legacy).Load());
+    }
+
+    [Fact]
+    public void Clear_removes_the_legacy_token_too()
+    {
+        // Otherwise sign-out would be undone by the fallback on the next start.
+        new T3kTokenStore(_legacy).Save("rt_from_legacy");
+        var store = new T3kTokenStore(_path, _legacy);
+        store.Clear();
+        Assert.Null(store.Load());
     }
 }

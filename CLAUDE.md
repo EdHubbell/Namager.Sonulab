@@ -26,7 +26,10 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 - **`src/Namager.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml` + Styles/SonulabTheme.axaml (Studio-warm palette tokens & style classes — use tokens, never hex literals in views).
-- **`src/Namager.Tone3000`** (no UI, unit-tested): Tone3000 API integration — OAuth PKCE (T3kAuth, publishable key ONLY; the t3k_cs_ secret is never app-readable), DPAPI token store, typed client, downloader. Keys: %APPDATA%\Namager\tone3000.json (gitignored; template tone3000.json.example). Contract record: docs/tone3000-api-findings.md.
+- **`src/Namager.Tone3000`** (no UI, unit-tested): Tone3000 API integration — OAuth PKCE (T3kAuth, publishable key ONLY; the t3k_cs_ secret is never app-readable), DPAPI token store, typed client, downloader. Keys: the publishable key (OAuth client_id, public by design under PKCE) is compiled in as
+  `T3kConfig.EmbeddedPublishableKey` so shipped builds sign in with no setup; %APPDATA%\Namager\tone3000.json
+  overrides it, and the pre-rename %APPDATA%\StompStationManager dir is still read as a fallback
+  (config + token). The t3k_cs_ secret is never in the build (gitignored; template tone3000.json.example). Contract record: docs/tone3000-api-findings.md.
 - **`tests/`** Sonulab.Core.Tests + Namager.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
   full preset/reorder logic be tested offline against realistic firmware behavior.
 
