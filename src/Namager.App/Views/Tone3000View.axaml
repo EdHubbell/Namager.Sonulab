@@ -155,6 +155,9 @@
               </StackPanel>
               <Border Classes="rule"/>
               <TextBlock Classes="section-label" Text="MODELS"/>
+              <TextBlock Text="No A2 models for this tone." FontSize="12"
+                         Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                         IsVisible="{Binding NoModelsForSelection}"/>
               <ItemsControl ItemsSource="{Binding SelectedModels}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="t3k:T3kModel">

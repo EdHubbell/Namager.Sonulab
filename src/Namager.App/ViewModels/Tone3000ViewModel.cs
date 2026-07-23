@@ -60,6 +60,10 @@ public partial class Tone3000ViewModel : ObservableObject
     public ObservableCollection<T3kTone> Results { get; } = new();
     public ObservableCollection<T3kModel> SelectedModels { get; } = new();
 
+    /// <summary>True when a tone is selected but has no A2 models (we fetch A2 only —
+    /// see T3kClient.GetModelsAsync). Drives the "No A2 models for this tone." note.</summary>
+    [ObservableProperty] private bool _noModelsForSelection;
+
     /// <summary>Handoff to MainWindowViewModel: local file path, SSMD notes, SSMD url, isIr.</summary>
     public event Action<string, string?, string?, bool>? SendToPedalRequested;
 
@@ -190,11 +194,17 @@ public partial class Tone3000ViewModel : ObservableObject
     {
         int gen = ++_loadGeneration;                          // shares the counter with LoadAsync
         SelectedModels.Clear();
+        NoModelsForSelection = false;                         // reset while (re)loading
         if (tone is null || _client is null) return;
         try
         {
             var models = await _client.GetModelsAsync(tone.Id);
-            _dispatch(() => { if (gen != _loadGeneration) return; foreach (var m in models) SelectedModels.Add(m); });
+            _dispatch(() =>
+            {
+                if (gen != _loadGeneration) return;
+                foreach (var m in models) SelectedModels.Add(m);
+                NoModelsForSelection = models.Count == 0;      // A2-only fetch came back empty
+            });
         }
         catch (T3kException ex)
         {
