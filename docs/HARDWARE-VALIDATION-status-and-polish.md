@@ -4,7 +4,8 @@ Run with the pedal connected (USB, VoidX-Control CLOSED). Check each item.
 
 ## Status bar (#4, #6)
 - [ ] At rest before connecting, the bottom bar reads "Not connected".
-- [ ] Clicking Connect: the button shows the busy state ("Connecting…" + spinner) and is disabled; the bar shows "Connecting…", then "Reading presets…", then settles to the device summary (name + version + transport).
+- [ ] Clicking Connect: the mouse cursor becomes a wait/hourglass while connecting (the button stays a stable width — no in-button spinner); the bar shows "Connecting…", then "Reading presets…", then settles to the device summary (name + version + transport).
+- [ ] Once connected, the Connect button is disabled (greyed) — clicking it again does nothing. It must NOT re-open the transport (that reset the pedal and wedged it). Reconnecting after a drop requires restarting the app.
 - [ ] Visiting the Amps tab for the first time shows "Reading amps…" in the bar; the IRs tab shows "Reading IRs…".
 - [ ] Saving a preset shows "✓ Saved" briefly (~4s), then the bar returns to the device summary.
 - [ ] A preset move/duplicate/delete/rename shows "✓ Moved/Duplicated/Deleted/Renamed …".

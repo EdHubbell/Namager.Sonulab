@@ -136,11 +136,13 @@ public sealed class StatusKindToBrush : IValueConverter
     public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
 }
 
-/// <summary>bool (command running) -> connect button label.</summary>
-public sealed class ConnectLabel : IValueConverter
+/// <summary>bool (connect in progress) -> mouse cursor: true => Wait (hourglass), false => default arrow.
+/// Bound to the window Cursor so waiting for a connection shows the busy cursor.</summary>
+public sealed class BoolToWaitCursor : IValueConverter
 {
-    public static readonly ConnectLabel Instance = new();
+    public static readonly BoolToWaitCursor Instance = new();
+    private static readonly Avalonia.Input.Cursor Wait = new(Avalonia.Input.StandardCursorType.Wait);
     public object? Convert(object? value, Type _, object? __, CultureInfo ___) =>
-        value is true ? "Connecting…" : "Connect";
+        value is true ? Wait : Avalonia.Input.Cursor.Default;
     public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
 }

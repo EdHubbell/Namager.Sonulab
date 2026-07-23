@@ -124,6 +124,33 @@ public class ConnectionViewModelTests
         Assert.Single(spy.Pings);
     }
 
+    // Reconnecting while already connected re-opened the transport (which resets the ESP32) and built a
+    // second, conflicting session — wedging the pedal until a power cycle. Connect must be disabled once
+    // connected, and must no-op if executed anyway.
+    [Fact] public async Task Connect_is_disabled_once_connected()
+    {
+        var vm = new ConnectionViewModel(Session());
+        Assert.True(vm.ConnectCommand.CanExecute(null));     // enabled before connecting
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsConnected);
+        Assert.False(vm.ConnectCommand.CanExecute(null));    // disabled once connected — no reconnect wedge
+    }
+
+    [Fact] public async Task Connect_while_already_connected_is_a_noop()
+    {
+        var vm = new ConnectionViewModel(Session());
+        await vm.ConnectCommand.ExecuteAsync(null);
+        var clientAfterFirst = vm.Client;
+        int connectedRaised = 0; vm.Connected += (_, _) => connectedRaised++;
+
+        await vm.ConnectCommand.ExecuteAsync(null);          // ExecuteAsync bypasses CanExecute — the belt guard must catch it
+
+        Assert.Same(clientAfterFirst, vm.Client);            // no new session was built
+        Assert.Equal(0, connectedRaised);                    // Connected not re-raised
+    }
+
     [Fact] public async Task Failed_connect_does_not_ping()
     {
         var spy = new SpyUsagePing();

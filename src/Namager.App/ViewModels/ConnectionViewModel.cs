@@ -29,9 +29,16 @@ public partial class ConnectionViewModel : ObservableObject
     public SonuClient? Client { get; private set; }
     public event EventHandler? Connected;
 
-    [RelayCommand]
+    /// <summary>Connect is only offered while disconnected. Re-opening the transport on an already-live
+    /// session resets the ESP32 and builds a second, conflicting link — which wedged the pedal until a
+    /// power cycle. Reconnecting after a drop requires restarting the app.</summary>
+    private bool CanConnect => !IsConnected;
+    partial void OnIsConnectedChanged(bool value) => ConnectCommand.NotifyCanExecuteChanged();
+
+    [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task ConnectAsync()
     {
+        if (IsConnected) return;   // belt: ExecuteAsync bypasses CanExecute, so guard the reconnect here too
         using var op = _statusService.BeginOperation("Connecting…");
         try
         {

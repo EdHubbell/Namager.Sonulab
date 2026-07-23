@@ -6,6 +6,7 @@
         x:DataType="vm:MainWindowViewModel"
         Width="1100" Height="700"
         MinWidth="800" MinHeight="500"
+        Cursor="{Binding Connection.ConnectCommand.IsRunning, Converter={x:Static conv:BoolToWaitCursor.Instance}}"
         Icon="avares://Namager.App/Assets/app-icon.ico">
 
   <Design.DataContext>
@@ -23,12 +24,8 @@
         <Button Classes="accent-outline" Command="{Binding Connection.ConnectCommand}"
                 ToolTip.Tip="Connect to StompStation">
           <StackPanel Orientation="Horizontal">
-            <PathIcon Data="{StaticResource Icon.Power}" Width="16" Height="16"
-                      IsVisible="{Binding !Connection.ConnectCommand.IsRunning}"/>
-            <ProgressBar Width="16" Height="16" IsIndeterminate="True"
-                         IsVisible="{Binding Connection.ConnectCommand.IsRunning}"/>
-            <TextBlock Margin="6,0,0,0" VerticalAlignment="Center"
-                       Text="{Binding Connection.ConnectCommand.IsRunning, Converter={x:Static conv:ConnectLabel.Instance}}"/>
+            <PathIcon Data="{StaticResource Icon.Power}" Width="16" Height="16"/>
+            <TextBlock Text="Connect" Margin="6,0,0,0" VerticalAlignment="Center"/>
           </StackPanel>
         </Button>
 
