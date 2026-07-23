@@ -10,11 +10,15 @@ public partial class ConnectionViewModel : ObservableObject
 {
     private readonly DeviceSession _session;
     private readonly Namager.App.Services.IUsagePingService? _usage;
+    // Named _statusService (not _status) to avoid clashing with the [ObservableProperty] backing
+    // field for the Status string property below.
+    private readonly Namager.App.Services.IStatusService _statusService;
     private bool _usagePinged;   // first successful connect of this app run only
 
     public ConnectionViewModel(DeviceSession session,
-                               Namager.App.Services.IUsagePingService? usage = null)
-    { _session = session; _usage = usage; }
+                               Namager.App.Services.IUsagePingService? usage = null,
+                               Namager.App.Services.IStatusService? status = null)
+    { _session = session; _usage = usage; _statusService = status ?? Namager.App.Services.NullStatusService.Instance; }
 
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private bool _writesAllowed;
@@ -28,17 +32,25 @@ public partial class ConnectionViewModel : ObservableObject
     [RelayCommand]
     private async Task ConnectAsync()
     {
+        using var op = _statusService.BeginOperation("Connecting…");
         try
         {
             var state = await _session.ConnectAsync();
             IsConnected = state.Connected;
-            if (!state.Connected) { Status = "Disconnected (no device found on USB or WiFi)"; return; }
+            if (!state.Connected)
+            {
+                Status = "Disconnected (no device found on USB or WiFi)";
+                _statusService.Failure("No device found on USB or WiFi");
+                return;
+            }
 
             WritesAllowed = state.Compatibility!.WritesAllowed;
             Status = $"{state.Device!.Name} {state.Device.Version} — {state.Compatibility!.Message} ({state.Transport})";
             Client = _session.Client;
             Repository = new DeviceRepository(_session.Client!);
             Reorder = new ReorderService(Repository);
+            // Idle summary the bar shows once connect + initial reads finish.
+            _statusService.SetIdleSummary($"{state.Device!.Name} {state.Device.Version} ({state.Transport})");
             Connected?.Invoke(this, EventArgs.Empty);
 
             // Anonymous usage ping: first successful connect per run, at most once per UTC day.
@@ -57,6 +69,7 @@ public partial class ConnectionViewModel : ObservableObject
         {
             IsConnected = false;
             Status = $"Error: {ex.Message}";
+            _statusService.Failure($"Connect failed: {ex.Message}");
         }
     }
 }

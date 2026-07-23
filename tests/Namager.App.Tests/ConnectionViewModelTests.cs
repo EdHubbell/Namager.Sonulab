@@ -142,6 +142,32 @@ public class ConnectionViewModelTests
         Assert.Empty(spy.Pings);
     }
 
+    [Fact] public async Task Connect_reports_connecting_and_sets_idle_summary()
+    {
+        var status = new FakeStatusService();
+        var vm = new ConnectionViewModel(Session(), status: status);
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.Contains("Connecting…", status.Begun);
+        Assert.Contains(status.IdleSummaries, s => s.Contains("AMP Station"));
+        Assert.Empty(status.Failed);
+    }
+
+    [Fact] public async Task Failed_connect_reports_failure_to_status()
+    {
+        var status = new FakeStatusService();
+        var session = new DeviceSession(
+            new ILinkProvider[] { new FixedProvider("USB", null), new FixedProvider("WiFi", null) },
+            new CompatibilityChecker(FirmwareCatalog.Default));
+        var vm = new ConnectionViewModel(session, status: status);
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.Contains("Connecting…", status.Begun);
+        Assert.Single(status.Failed);
+    }
+
     [Fact] public async Task Connect_without_a_usage_service_still_works()
     {
         var vm = new ConnectionViewModel(Session());   // null usage service
