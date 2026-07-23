@@ -1,6 +1,6 @@
 {
   "_readme": [
-    "Tone3000 API keys. Copy this file to %APPDATA%\\StompStationManager\\tone3000.json",
+    "Tone3000 API keys. Copy this file to %APPDATA%\\Namager\\tone3000.json",
     "and fill in your keys from your tone3000.com developer registration.",
     "publishable_key (t3k_pk_...): the OAuth client_id. REQUIRED for sign-in.",
     "secret_key (t3k_cs_...): OPTIONAL. The app NEVER reads it - it exists only for the",

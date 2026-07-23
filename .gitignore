@@ -22,7 +22,7 @@ __pycache__/
 # Corpus-derived goldens for Sonulab.Distill parity tests (regenerate via make_cs_fixtures.py --corpus)
 tests/Sonulab.Distill.Tests/goldens-corpus/
 
-# Tone3000 API keys - the real file lives in %APPDATA%\StompStationManager\ and must
+# Tone3000 API keys - the real file lives in %APPDATA%\Namager\ and must
 # never be committed; only tone3000.json.example belongs in the repo.
 tone3000.json
 
