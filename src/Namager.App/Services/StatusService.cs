@@ -61,14 +61,34 @@ public sealed partial class StatusService : ObservableObject, IStatusService
         return new Scope(this, op);
     }
 
-    public void Success(string message) { CancelRevert(); _terminal = (StatusKind.Success, message); Recompute(); ScheduleRevert(); }
+    public void Success(string message)
+    {
+        CancelRevert();
+        _terminal = (StatusKind.Success, message);
+        Recompute();
+        // Only start the countdown once the success message is actually visible
+        // (the stack is empty). If an operation is still open, End() schedules
+        // the revert once that operation's scope disposes and the stack drains.
+        if (_stack.Count == 0) ScheduleRevert();
+    }
+
     public void Failure(string message) { CancelRevert(); _terminal = (StatusKind.Error, message); Recompute(); }
     public void Dismiss() { CancelRevert(); _terminal = null; Recompute(); }
     public void SetIdleSummary(string summary) { _idleSummary = summary; if (_stack.Count == 0 && _terminal is null) Recompute(); }
 
     private void ReportProgress(Op op, double p) { op.Progress = System.Math.Clamp(p, 0, 1); if (Top == op) Recompute(); }
     private void ReportMessage(Op op, string m) { op.Message = m; if (Top == op) Recompute(); }
-    private void End(Op op) { _stack.Remove(op); Recompute(); }
+
+    private void End(Op op)
+    {
+        _stack.Remove(op);
+        Recompute();
+        // The stack just drained while a success terminal was pending (set via
+        // Success() while an op was still open) — the message is visible now,
+        // so start its countdown, unless one is already scheduled.
+        if (_stack.Count == 0 && _terminal?.Kind == StatusKind.Success && _revertCts is null)
+            ScheduleRevert();
+    }
 
     private void Recompute()
     {
@@ -99,13 +119,33 @@ public sealed partial class StatusService : ObservableObject, IStatusService
 
     private async System.Threading.Tasks.Task RevertAfterDelay(System.Threading.CancellationTokenSource cts)
     {
-        try { await _delay(SuccessDuration, cts.Token); }
-        catch (System.OperationCanceledException) { return; }
-        if (cts.IsCancellationRequested) return;
-        if (_terminal?.Kind == StatusKind.Success) { _terminal = null; Recompute(); }
+        try
+        {
+            try { await _delay(SuccessDuration, cts.Token); }
+            catch (System.OperationCanceledException) { return; }
+            if (cts.IsCancellationRequested) return;
+            if (_terminal?.Kind == StatusKind.Success)
+            {
+                _terminal = null;
+                if (System.Object.ReferenceEquals(_revertCts, cts)) _revertCts = null;
+                Recompute();
+            }
+        }
+        finally
+        {
+            // Safe even if CancelRevert() already disposed this same instance —
+            // CancellationTokenSource.Dispose() is idempotent.
+            cts.Dispose();
+        }
     }
 
-    private void CancelRevert() { _revertCts?.Cancel(); _revertCts = null; }
+    private void CancelRevert()
+    {
+        if (_revertCts is null) return;
+        _revertCts.Cancel();
+        _revertCts.Dispose();
+        _revertCts = null;
+    }
 
     private sealed class Scope(StatusService svc, Op op) : IOperationScope
     {

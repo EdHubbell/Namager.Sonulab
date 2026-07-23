@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Namager.App.Services;
 using Xunit;
 
@@ -102,5 +103,39 @@ public class StatusServiceTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await firstRevert)
                 .ContinueWith(_ => { });             // tolerate either cancelled or already-completed
         Assert.Equal(StatusKind.Idle, svc.Kind);
+    }
+
+    [Fact] public async Task Success_before_scope_dispose_is_not_lost()
+    {
+        var (svc, gate) = MakeControlled();
+        svc.SetIdleSummary("Ready");
+        var op = svc.BeginOperation("Saving…");
+        svc.Success("Saved");                         // terminal set while op is still open
+        // Op is still open, so it must still win (Top of stack), and no countdown
+        // may start yet — the success message isn't visible yet.
+        Assert.Equal(StatusKind.Busy, svc.Kind);
+        Assert.Equal("Saving…", svc.Message);
+        Assert.Null(svc.PendingRevert);
+
+        op.Dispose();                                 // success message becomes visible now
+        Assert.Equal(StatusKind.Success, svc.Kind);
+        Assert.Equal("Saved", svc.Message);
+        Assert.NotNull(svc.PendingRevert);             // countdown starts only now
+
+        gate.SetResult();                              // let the revert delay complete
+        await svc.PendingRevert!;
+        Assert.Equal(StatusKind.Idle, svc.Kind);
+    }
+
+    [Fact] public void Changing_state_raises_property_changed()
+    {
+        var svc = new StatusService();
+        var raised = new List<string>();
+        svc.PropertyChanged += (_, e) => raised.Add(e.PropertyName ?? "");
+
+        using (svc.BeginOperation("Saving…")) { }
+
+        Assert.Contains(nameof(StatusService.Message), raised);
+        Assert.Contains(nameof(StatusService.Kind), raised);
     }
 }
