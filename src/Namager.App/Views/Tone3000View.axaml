@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Namager.App.ViewModels"
-             xmlns:t3k="using:ToneManager.Tone3000"
+             xmlns:t3k="using:Namager.Tone3000"
              x:Class="Namager.App.Views.Tone3000View"
              x:DataType="vm:Tone3000ViewModel">
   <Panel>
