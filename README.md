@@ -2,7 +2,7 @@
 
 A fast desktop app (Avalonia / .NET 10) to manage a **Sonulab StompStation** ("AMP Station",
 ESP32-S3) guitar pedal over USB serial - list, reorder, duplicate, rename, delete, edit, and
-back up presets, fixing the slow VoidX-Control workflow. Includes integration with Tone3000, 
+back up presets - Improvements from the slow VoidX-Control workflow. Includes integration with Tone3000, 
 so you can download tones from the largest online NAM sharing community.  
 
 Users can also add notes to their amp models, and those notes are stored on the pedal. 
@@ -21,20 +21,20 @@ Users can also add notes to their amp models, and those notes are stored on the 
 4. Launch **NAMager for Sonulab** from the Start Menu. Make sure VoidX-Control isn't running - The pedal can only talk to one app at a time over COM.
 
 NAMager connects over USB first and falls back to WiFi automatically when the pedal is on
-your network (same protocol, auto-discovered via mDNS) — handy when a cable or USB port lets you down.
+your network (same protocol, auto-discovered via mDNS) - handy when a cable or USB port lets you down.
 But really, best to stick with a USB connection. WiFi might have been an overreach for compatibility sake. It's still buggy.
 
 Updating: the app tells you when a new version is available; download and run the new
 `.msi` and it upgrades in place.
 
-### Other OS
+### Other Operating Systems
 
 Let's just see if we get use from the OS with the largest user base before expanding to others. Putting it on macOS means paying
-$100 a year to Job's descendants. Linux is achievable, but I don't have a test box at the moment.  
+$100 a year to Jobs' descendants. Linux is achievable, but I don't have a test box at the moment.  
 
 ## Feedback
 
-Use **Send Feedback** (bottom-left in the app). Your message — including the name and
+Use **Send Feedback** (bottom-left in the app). Your message - including the name and
 email you enter — is posted as a public [GitHub issue](https://github.com/EdHubbell/Namager.Sonulab/issues)
 so you can follow the discussion.
 
@@ -85,7 +85,7 @@ makes it impossible to run NAMager.
 
 ### Will this work with StompStation Pro?
 
-No, I don't have one of those. Sonulab can send me one if you want that. I have a pedal steel gig I need to practice for, and the StompStation fits that use case nicely. 
+No, I don't have one of those. Sonulab can send me one if you want that. I have a pedal steel gig I need to practice for, and the StompStation fits that use case nicely. My feet are already too busy with the pedals that are *on* the instrument. 
 
 
 # Weedy Details
