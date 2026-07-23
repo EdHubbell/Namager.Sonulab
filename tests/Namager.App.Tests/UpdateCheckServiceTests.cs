@@ -31,7 +31,7 @@ public class UpdateCheckServiceTests
     }
 
     private const string ReleaseJson =
-        """{"tag_name":"v2.5.0","html_url":"https://github.com/EdHubbell/ToneManager/releases/tag/v2.5.0"}""";
+        """{"tag_name":"v2.5.0","html_url":"https://github.com/EdHubbell/Namager.Sonulab/releases/tag/v2.5.0"}""";
 
     [Fact]
     public async Task CheckAsync_returns_update_when_newer()
@@ -43,9 +43,9 @@ public class UpdateCheckServiceTests
         Assert.Equal("2.5.0", info!.Version);
         Assert.Contains("/releases/tag/v2.5.0", info.Url);
         Assert.Equal(
-            "https://api.github.com/repos/EdHubbell/ToneManager/releases/latest",
+            "https://api.github.com/repos/EdHubbell/Namager.Sonulab/releases/latest",
             handler.LastRequest?.RequestUri?.ToString());
-        Assert.Equal("ToneManager", handler.LastRequest?.Headers.UserAgent?.ToString());
+        Assert.Equal("Namager.Sonulab", handler.LastRequest?.Headers.UserAgent?.ToString());
     }
 
     [Fact]

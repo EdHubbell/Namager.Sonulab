@@ -16,7 +16,7 @@ public interface IUpdateCheckService
 public sealed class UpdateCheckService : IUpdateCheckService
 {
     private const string LatestReleaseUrl =
-        "https://api.github.com/repos/EdHubbell/ToneManager/releases/latest";
+        "https://api.github.com/repos/EdHubbell/Namager.Sonulab/releases/latest";
 
     private readonly HttpClient _http;
     private readonly string _currentVersion;
@@ -25,7 +25,7 @@ public sealed class UpdateCheckService : IUpdateCheckService
     {
         _http = handler is null ? new HttpClient() : new HttpClient(handler);
         _http.Timeout = TimeSpan.FromSeconds(10);
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("ToneManager");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("Namager.Sonulab");
         _currentVersion = currentVersion ?? AppInfo.Version;
     }
 
