@@ -27,12 +27,12 @@ jobs:
         run: dotnet publish src/Namager.App -c Release -r win-x64 --self-contained true -p:Version=$env:VERSION
 
       - name: Build installer
-        run: dotnet build src/ToneManager.Installer -c Release -p:ProductVersion=$env:VERSION
+        run: dotnet build src/Namager.Installer -c Release -p:ProductVersion=$env:VERSION
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: src/ToneManager.Installer/bin/**/*.msi
+          files: src/Namager.Installer/bin/**/*.msi
           generate_release_notes: true
           body: |
             ### Install

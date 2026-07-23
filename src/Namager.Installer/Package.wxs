@@ -1,24 +1,24 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
-  <!-- Per-user install: no admin/UAC, lands in %LOCALAPPDATA%\Programs\ToneManager.
-       UpgradeCode is FOREVER - changing it breaks in-place upgrades for every user. -->
-  <Package Name="ToneManager"
+  <!-- Per-user install: no admin/UAC, lands in %LOCALAPPDATA%\Programs\Namager.Sonulab.
+       UpgradeCode is FOREVER - changing it breaks in-place upgrades for every user. (Changed once, deliberately, at the 2026-07-22 NAMager rename: new product identity, clean break from ToneManager.) -->
+  <Package Name="NAMager for Sonulab"
            Manufacturer="Ed Hubbell"
            Version="$(var.ProductVersion)"
-           UpgradeCode="1431D009-A559-46D0-9568-BD9675EFC753"
+           UpgradeCode="47160B31-CC00-4023-887A-13478CB150D9"
            Scope="perUser"
            Language="1033">
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of ToneManager is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of NAMager for Sonulab is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="AppIcon" SourceFile="..\Namager.App\Assets\app-icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/EdHubbell/ToneManager" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/EdHubbell/Namager.Sonulab" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsDir" Name="Programs">
-        <Directory Id="INSTALLFOLDER" Name="ToneManager">
+        <Directory Id="INSTALLFOLDER" Name="Namager.Sonulab">
           <!-- Everything dotnet publish emitted, subfolders included. -->
           <Files Include="$(var.PublishDir)\**" />
         </Directory>
@@ -28,25 +28,25 @@
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="StartMenuShortcut">
         <Shortcut Id="AppShortcut"
-                  Name="ToneManager"
+                  Name="NAMager for Sonulab"
                   Target="[INSTALLFOLDER]Namager.App.exe"
                   WorkingDirectory="INSTALLFOLDER"
                   Icon="AppIcon" />
-        <RegistryValue Root="HKCU" Key="Software\ToneManager"
+        <RegistryValue Root="HKCU" Key="Software\Namager.Sonulab"
                        Name="installed" Type="integer" Value="1" KeyPath="yes" />
         <RemoveFolder Id="CleanupShortcut" Directory="ProgramMenuFolder" On="uninstall" />
       </Component>
     </StandardDirectory>
 
-    <!-- Install UI: Welcome -> Ready to install -> progress -> Finish with a "Launch ToneManager"
+    <!-- Install UI: Welcome -> Ready to install -> progress -> Finish with a "Launch NAMager for Sonulab"
          checkbox (checked by default). The dialog set's license + install-dir screens are skipped:
          there is no EULA to show, and the per-user install location is fixed. -->
-    <!-- ToneManager wizard art (studio-warm palette, generated from the app icon by
+    <!-- NAMager wizard art (studio-warm palette, generated from the app icon by
          tools/icon/make-installer-art.ps1 — regenerate there, don't hand-edit the BMPs). -->
     <WixVariable Id="WixUIBannerBmp" Value="Assets\banner.bmp" />
     <WixVariable Id="WixUIDialogBmp" Value="Assets\dialog.bmp" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
-    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch ToneManager" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch NAMager for Sonulab" />
     <!-- Immediate exec from the UI sequence: runs as the interactive user (never elevated),
          which is exactly right for a per-user app. No extension dependency. -->
     <CustomAction Id="LaunchApplication"
