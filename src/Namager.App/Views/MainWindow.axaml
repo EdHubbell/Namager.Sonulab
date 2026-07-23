@@ -72,13 +72,13 @@
             </ListBoxItem>
             <ListBoxItem>
               <StackPanel Orientation="Horizontal" Spacing="8">
-                <PathIcon Data="{StaticResource Icon.Power}" Width="16" Height="16"/>
+                <PathIcon Data="{StaticResource Icon.Amp}" Width="16" Height="16"/>
                 <TextBlock Text="Amps" VerticalAlignment="Center"/>
               </StackPanel>
             </ListBoxItem>
             <ListBoxItem>
               <StackPanel Orientation="Horizontal" Spacing="8">
-                <PathIcon Data="{StaticResource Icon.List}" Width="16" Height="16"/>
+                <PathIcon Data="{StaticResource Icon.Ir}" Width="16" Height="16"/>
                 <TextBlock Text="IRs" VerticalAlignment="Center"/>
               </StackPanel>
             </ListBoxItem>
@@ -87,7 +87,7 @@
             </ListBoxItem>
             <ListBoxItem>
               <StackPanel Orientation="Horizontal" Spacing="8">
-                <PathIcon Data="{StaticResource Icon.List}" Width="16" Height="16"/>
+                <PathIcon Data="{StaticResource Icon.Web}" Width="16" Height="16"/>
                 <TextBlock Text="Tone3000" VerticalAlignment="Center"/>
               </StackPanel>
             </ListBoxItem>
