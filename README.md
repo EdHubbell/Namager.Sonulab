@@ -1,13 +1,12 @@
 # NAMager for Sonulab
 
-> Renamed from StompStationManager on 2026-07-21.
-> Renamed from ToneManager on 2026-07-22. NAMager = NAM + manager; one NAMager app per hardware manufacturer.
-
 A fast desktop app (Avalonia / .NET 10) to manage a **Sonulab StompStation** ("AMP Station",
-ESP32-S3) guitar pedal over USB serial — list, reorder, duplicate, rename, delete, edit, and
+ESP32-S3) guitar pedal over USB serial - list, reorder, duplicate, rename, delete, edit, and
 back up presets, fixing the slow VoidX-Control workflow.
 
 ## Install
+
+### Windows
 
 1. Grab the latest `.msi` from the [Releases page](https://github.com/EdHubbell/Namager.Sonulab/releases/latest).
 2. Run it. Windows SmartScreen will warn that the app is unrecognized (the installer is
@@ -18,6 +17,7 @@ back up presets, fixing the slow VoidX-Control workflow.
 
 NAMager connects over USB first and falls back to **WiFi** automatically when the pedal is on
 your network (same protocol, auto-discovered via mDNS) — handy when a cable or USB port lets you down.
+But really, best to stick with a USB connection. **WiFi** might have been an overreach for compatibility sake.
 
 Updating: the app tells you when a new version is available; download and run the new
 `.msi` and it upgrades in place.
@@ -28,9 +28,47 @@ Use **Send Feedback** (bottom-left in the app). Your message — including the n
 email you enter — is posted as a public [GitHub issue](https://github.com/EdHubbell/Namager.Sonulab/issues)
 so you can follow the discussion.
 
+
+## FAQ
+
+### Why?
+
+Ed got a StompStation to use with his pedal steel guitar. The hardware performance was great - Running direct 
+into a PA speaker is really convenient, and trying out different tones using NAM is fun. 
+
+On the other hand, using the VoidX app that ships with the StompStation is not fun. There are no controls to change what slot 
+the presets are in. It's kind of a pain to view the list of NAM amps and IR files on your pedal. 
+The overall UI is difficult to navigate. 
+
+For most of us, the StompStation is a toy that we want to enjoy playing with *while making music*. 
+
+NAMager helps you work with your pedal faster, so you spend more time playing tones and less time 
+managing them. 
+
+And NAMager sounds like how a 3 year old would say manager. So that's fun. 
+
+
+## Did you just vibe code this app with AI
+
+Absolutely. I'm writing this by hand, tho. Some of it, anyway. 
+
+
+### Isn't the VoidX upload format proprietary?
+
+Yes, but AI reverse engineered it. Sounds good to me. If you don't like what it uploads, you can go back to using VoidX. There are no problems switching 
+back and forth between apps, at least with firmware version v5.2.1. It is possible that Sonulab could change the firmware in such a way that 
+makes it impossible to run NAMager. 
+
+
+### Will this work with StompStation Pro?
+
+No, I don't have one of those. Tell Sonulab to send me one if you want that. 
+
+
+# Weedy Details
+
 ## Status
-Reverse-engineering / Phase 0 complete; implementation planning next. The full control protocol
-has been mapped and validated against real hardware.
+Reverse-engineering / Phase 0 complete.
 
 ## Docs
 - [`PROTOCOL.md`](PROTOCOL.md) — the VoidX wire protocol (verbs, framing, slot model, write paths).
