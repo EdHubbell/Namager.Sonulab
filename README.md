@@ -1,6 +1,7 @@
-# ToneManager
+# NAMager for Sonulab
 
 > Renamed from StompStationManager on 2026-07-21.
+> Renamed from ToneManager on 2026-07-22. NAMager = NAM + manager; one NAMager app per hardware manufacturer.
 
 A fast desktop app (Avalonia / .NET 10) to manage a **Sonulab StompStation** ("AMP Station",
 ESP32-S3) guitar pedal over USB serial — list, reorder, duplicate, rename, delete, edit, and
@@ -8,14 +9,14 @@ back up presets, fixing the slow VoidX-Control workflow.
 
 ## Install
 
-1. Grab the latest `.msi` from the [Releases page](https://github.com/EdHubbell/ToneManager/releases/latest).
+1. Grab the latest `.msi` from the [Releases page](https://github.com/EdHubbell/Namager.Sonulab/releases/latest).
 2. Run it. Windows SmartScreen will warn that the app is unrecognized (the installer is
    unsigned) — click **More info → Run anyway**. Installation is per-user: no admin rights
    needed, and .NET does not need to be installed.
-3. Launch **ToneManager** from the Start Menu. Close VoidX-Control first — it
+3. Launch **NAMager for Sonulab** from the Start Menu. Close VoidX-Control first — it
    holds the pedal's COM port.
 
-ToneManager connects over USB first and falls back to **WiFi** automatically when the pedal is on
+NAMager connects over USB first and falls back to **WiFi** automatically when the pedal is on
 your network (same protocol, auto-discovered via mDNS) — handy when a cable or USB port lets you down.
 
 Updating: the app tells you when a new version is available; download and run the new
@@ -24,7 +25,7 @@ Updating: the app tells you when a new version is available; download and run th
 ## Feedback
 
 Use **Send Feedback** (bottom-left in the app). Your message — including the name and
-email you enter — is posted as a public [GitHub issue](https://github.com/EdHubbell/ToneManager/issues)
+email you enter — is posted as a public [GitHub issue](https://github.com/EdHubbell/Namager.Sonulab/issues)
 so you can follow the discussion.
 
 ## Status

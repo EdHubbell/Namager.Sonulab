@@ -10,13 +10,13 @@ Run after the first successful tag build (dry run: tag `v0.9.0`).
 ## Release pipeline (tag v0.9.0, push, watch Actions)
 - Release tags must be plain numeric `vX.Y.Z` (e.g. v0.9.0) — a prerelease suffix like `-rc1` fails the MSI build (ProductVersion must be numeric).
 - [ ] `git tag v0.9.0 && git push origin v0.9.0` → Release workflow goes green
-- [ ] Release page shows `ToneManager-0.9.0-x64.msi` + SmartScreen note in body
+- [ ] Release page shows `Namager.Sonulab-0.9.0-x64.msi` + SmartScreen note in body
 
 ## Installer (on a machine or fresh Windows account, ideally NOT the dev box)
 - [ ] Download .msi from the release page; SmartScreen appears; More info → Run anyway works
 - [ ] Install completes with NO admin/UAC prompt
-- [ ] Start Menu entry "ToneManager" with the pedal icon; window/taskbar icon correct
-- [ ] Title bar shows "ToneManager v0.9.0"
+- [ ] Start Menu entry "NAMager for Sonulab" with the pedal icon; window/taskbar icon correct
+- [ ] Title bar shows "NAMager for Sonulab v0.9.0"
 - [ ] App connects to the pedal and lists presets (core function intact in packaged build)
 - [ ] Re-run same .msi → repair/no-op, not a second install
 - [ ] Settings → Apps shows one entry with icon; uninstall removes app folder + shortcut
@@ -36,9 +36,9 @@ Run after the first successful tag build (dry run: tag `v0.9.0`).
 
 ## Install UI (added post-v0.9.2: WixUI wizard + launch checkbox)
 - [ ] Double-click the .msi → Welcome → "Ready to install" (no license or install-dir screens) →
-      progress → Finish screen shows a **"Launch ToneManager" checkbox, checked by default**
-- [ ] Wizard shows ToneManager art: dark side panel with the pedal icon on Welcome/Finish, icon +
+      progress → Finish screen shows a **"Launch NAMager for Sonulab" checkbox, checked by default**
+- [ ] Wizard shows NAMager-branded art: dark side panel with the pedal icon on Welcome/Finish, icon +
       amber baseline in the top banner on the middle screens (not the gray WiX defaults)
-- [ ] Finish with the box checked → ToneManager launches (as the current user, not elevated)
+- [ ] Finish with the box checked → NAMager for Sonulab launches (as the current user, not elevated)
 - [ ] Finish with the box unchecked → nothing launches
 - [ ] Upgrade-in-place over a previous version still walks the same wizard and the checkbox works
