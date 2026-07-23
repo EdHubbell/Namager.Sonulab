@@ -1,0 +1,79 @@
+using Namager.App.Services;
+using Xunit;
+
+public class UsageStateTests
+{
+    // Each test gets its own throwaway file path; nothing touches the real %APPDATA%.
+    private static string TempPath() =>
+        Path.Combine(Path.GetTempPath(), $"usage-test-{Guid.NewGuid():N}.json");
+
+    [Fact]
+    public void Load_on_first_run_mints_a_guid()
+    {
+        var state = UsageState.Load(TempPath());
+        Assert.True(Guid.TryParse(state.InstallId, out _));
+        Assert.Null(state.LastPingUtc);
+    }
+
+    [Fact]
+    public void InstallId_is_stable_across_save_and_reload()
+    {
+        var path = TempPath();
+        var first = UsageState.Load(path);
+        first.Save(path);
+        var second = UsageState.Load(path);
+        Assert.Equal(first.InstallId, second.InstallId);
+    }
+
+    [Fact]
+    public void LastPingUtc_round_trips()
+    {
+        var path = TempPath();
+        var state = UsageState.Load(path) with { LastPingUtc = "2026-07-23" };
+        state.Save(path);
+        Assert.Equal("2026-07-23", UsageState.Load(path).LastPingUtc);
+    }
+
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData("{}")]
+    [InlineData("null")]
+    [InlineData("{\"installId\":\"\"}")]
+    [InlineData("{\"installId\":\"not-a-guid\"}")]
+    public void Load_treats_corrupt_file_as_first_run(string contents)
+    {
+        var path = TempPath();
+        File.WriteAllText(path, contents);
+        var state = UsageState.Load(path);
+        Assert.True(Guid.TryParse(state.InstallId, out _));   // must not throw
+    }
+
+    [Fact]
+    public void ShouldPing_is_false_on_the_same_day_and_true_on_a_new_one()
+    {
+        var state = new UsageState(Guid.NewGuid().ToString(), "2026-07-23");
+        Assert.False(state.ShouldPing(new DateOnly(2026, 7, 23)));
+        Assert.True(state.ShouldPing(new DateOnly(2026, 7, 24)));
+    }
+
+    [Fact]
+    public void ShouldPing_is_true_when_never_pinged()
+        => Assert.True(new UsageState(Guid.NewGuid().ToString(), null)
+                       .ShouldPing(new DateOnly(2026, 7, 23)));
+
+    [Fact]
+    public void Save_to_an_unwritable_path_does_not_throw()
+    {
+        // A path whose parent is a file, not a directory - guaranteed to fail.
+        var file = TempPath();
+        File.WriteAllText(file, "x");
+        var state = UsageState.Load(TempPath());
+        state.Save(Path.Combine(file, "usage.json"));   // must not throw
+    }
+
+    [Fact]
+    public void DefaultPath_sits_next_to_the_tone3000_config()
+    {
+        Assert.EndsWith(Path.Combine("Namager", "usage.json"), UsageState.DefaultPath);
+    }
+}
