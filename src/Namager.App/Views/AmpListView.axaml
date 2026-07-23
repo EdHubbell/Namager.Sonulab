@@ -6,7 +6,7 @@
              xmlns:views="using:Namager.App.Views"
              x:Class="Namager.App.Views.AmpListView"
              x:DataType="vm:AmpListViewModel">
-  <Grid ColumnDefinitions="260,*">
+  <Grid ColumnDefinitions="360,*">
 
     <!-- ===== Left: command bar + slot list ===== -->
     <DockPanel Grid.Column="0">
@@ -23,11 +23,6 @@
         <Button Command="{Binding DeleteCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete (backs up first)">
           <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
         </Button>
-      </StackPanel>
-
-      <StackPanel DockPanel.Dock="Bottom" Margin="0,4,0,0" IsVisible="{Binding IsBusy}" Spacing="4">
-        <ProgressBar IsIndeterminate="True" Height="4"/>
-        <TextBlock Text="{Binding BusyMessage}" FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
       </StackPanel>
 
       <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}"
@@ -69,7 +64,7 @@
     </DockPanel>
 
     <!-- ===== Right: detail panel (upload form / details / placeholder) ===== -->
-    <views:AmpDetailPanel Grid.Column="1" Margin="12,0,0,0"/>
+    <views:AmpDetailPanel Grid.Column="1" Margin="16,34,0,0"/>
 
   </Grid>
 </UserControl>

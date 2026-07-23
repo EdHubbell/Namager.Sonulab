@@ -163,7 +163,8 @@
                   <DataTemplate x:DataType="t3k:T3kModel">
                     <Grid ColumnDefinitions="*,Auto" Margin="0,2">
                       <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center"
-                                 TextTrimming="CharacterEllipsis"/>
+                                 TextTrimming="CharacterEllipsis"
+                                 ToolTip.Tip="{Binding Name}"/>
                       <Button Grid.Column="1" Classes="accent-outline" Content="Send to pedal" FontSize="11"
                               IsEnabled="{Binding $parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).IsDeviceReady}"
                               ToolTip.Tip="Connect to the pedal (with writes allowed) to send tones"

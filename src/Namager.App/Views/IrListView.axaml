@@ -5,7 +5,7 @@
              xmlns:behaviors="using:Namager.App.Behaviors"
              x:Class="Namager.App.Views.IrListView"
              x:DataType="vm:IrListViewModel">
-  <DockPanel MaxWidth="560" HorizontalAlignment="Left">
+  <DockPanel MaxWidth="360" HorizontalAlignment="Left">
 
     <!-- Command bar -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="8,6,8,4">
@@ -64,12 +64,6 @@
         </StackPanel>
       </StackPanel>
     </Border>
-
-    <!-- Busy indicator -->
-    <StackPanel DockPanel.Dock="Bottom" Margin="8,2" IsVisible="{Binding IsBusy}" Spacing="4">
-      <ProgressBar IsIndeterminate="True" Height="4"/>
-      <TextBlock Text="{Binding BusyMessage}" FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
-    </StackPanel>
 
     <!-- IR list -->
     <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
