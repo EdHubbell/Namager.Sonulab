@@ -38,6 +38,8 @@ Use **Send Feedback** (bottom-left in the app). Your message — including the n
 email you enter — is posted as a public [GitHub issue](https://github.com/EdHubbell/Namager.Sonulab/issues)
 so you can follow the discussion.
 
+Or, you're reading this on GitHub. Just open an issue. 
+
 
 ## FAQ
 
