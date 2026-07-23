@@ -120,7 +120,7 @@ public class CrashGuardTests
         var link = new KillableLink(dev);
         await link.OpenAsync();
         var svc = new IrService(new SonuClient(link), Path.Combine(Path.GetTempPath(), $"cg-iu-{Guid.NewGuid():N}"), paceMs: 0, settleMs: 0);
-        var vm = new IrListViewModel(svc, writesAllowed: true, _ => Enumerable.Repeat((byte)0xC0, 4096).ToArray());
+        var vm = new IrListViewModel(svc, writesAllowed: true, convertWav: _ => Enumerable.Repeat((byte)0xC0, 4096).ToArray());
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.BeginUploadCommand.Execute(TempBlobFile("cg.wav", 4096));
         link.Dead = true;

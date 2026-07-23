@@ -20,7 +20,7 @@ public class IrListViewModelTests : IDisposable
         dev.OpenAsync().GetAwaiter().GetResult();
         var svc = new IrService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
         var converted = new List<string>();
-        var vm = new IrListViewModel(svc, writes, p => { converted.Add(p); return Enumerable.Repeat((byte)0xC0, 4096).ToArray(); });
+        var vm = new IrListViewModel(svc, writes, convertWav: p => { converted.Add(p); return Enumerable.Repeat((byte)0xC0, 4096).ToArray(); });
         return (vm, dev, converted);
     }
 
@@ -70,7 +70,7 @@ public class IrListViewModelTests : IDisposable
         var dev = new FakeIrDevice();
         dev.OpenAsync().GetAwaiter().GetResult();
         var svc = new IrService(new SonuClient(dev), _backupDir, 0, 0);
-        var vm = new IrListViewModel(svc, true, _ => throw new InvalidDataException("not audio"));
+        var vm = new IrListViewModel(svc, true, convertWav: _ => throw new InvalidDataException("not audio"));
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.BeginUploadCommand.Execute(TempFile("bad.wav"));
         await vm.StartUploadCommand.ExecuteAsync(null);
@@ -111,5 +111,36 @@ public class IrListViewModelTests : IDisposable
         vm.BeginUploadCommand.Execute(TempFile("y.wav"));
         Assert.False(vm.IsUploadPanelOpen);
         Assert.NotNull(vm.UploadBlockedMessage);
+    }
+
+    [Fact] public async Task Delete_reports_success_to_status()
+    {
+        var dev = new FakeIrDevice();
+        dev.SeedIr(0, "Ir0", Enumerable.Repeat((byte)1, 4096).ToArray());
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new IrService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        var status = new FakeStatusService();
+        var vm = new IrListViewModel(svc, writesAllowed: true, status: status);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Contains(status.Succeeded, m => m.Contains("Deleted"));
+    }
+
+    [Fact] public async Task Wav_upload_reports_success_to_status()
+    {
+        var dev = new FakeIrDevice();
+        for (int i = 0; i < 2; i++) dev.SeedIr(i, $"Ir{i}", Enumerable.Repeat((byte)(i + 1), 4096).ToArray());
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new IrService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        var converted = new List<string>();
+        var status = new FakeStatusService();
+        var vm = new IrListViewModel(svc, true, status: status,
+            convertWav: p => { converted.Add(p); return Enumerable.Repeat((byte)0xC0, 4096).ToArray(); });
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.BeginUploadCommand.Execute(TempFile("SpringCab.wav"));
+        await vm.StartUploadCommand.ExecuteAsync(null);
+        Assert.Single(converted);
+        Assert.Contains(status.Succeeded, m => m.Contains("Uploaded"));
     }
 }

@@ -10,15 +10,19 @@ public partial class IrListViewModel : ObservableObject
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private readonly IrService _irs;
     private readonly bool _writes;
+    private readonly Namager.App.Services.IStatusService _status;
 
     /// <summary>.wav -> device blob seam — Sonulab.Distill.WavToIr.Convert in the app,
     /// a fake in tests. Conversion is instant and synchronous (no cancel/progress needed).</summary>
     private readonly Func<string, byte[]> _convertWav;
     private string _uploadSourcePath = "";
 
-    public IrListViewModel(IrService irs, bool writesAllowed, Func<string, byte[]>? convertWav = null)
+    public IrListViewModel(IrService irs, bool writesAllowed,
+                           Namager.App.Services.IStatusService? status = null,
+                           Func<string, byte[]>? convertWav = null)
     {
         _irs = irs; _writes = writesAllowed;
+        _status = status ?? Namager.App.Services.NullStatusService.Instance;
         _convertWav = convertWav ?? Sonulab.Distill.WavToIr.Convert;
     }
 
@@ -39,18 +43,20 @@ public partial class IrListViewModel : ObservableObject
 
     /// <summary>Busy-gated write helper (mirrors AmpListViewModel.RunAsync) with an
     /// error channel: IR operations throw IrServiceException on guarded-write failures.</summary>
-    private async Task<bool> RunAsync(string message, Func<Task> work)
+    private async Task<bool> RunAsync(string message, string success, Func<Task> work)
     {
         if (!_writes || IsUploading) return false;
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
-        try { await work(); await ReloadAsync(); return true; }
-        catch (IrServiceException ex) { ErrorMessage = ex.Message; return false; }
+        using var op = _status.BeginOperation(message);
+        try { await work(); await ReloadAsync(); _status.Success(success); return true; }
+        catch (IrServiceException ex) { ErrorMessage = ex.Message; _status.Failure(ex.Message); return false; }
         catch (Exception ex)
         {
             // Transport/unexpected failures (e.g. the WiFi link dying mid-session) must surface,
             // never escape the [RelayCommand] (unhandled = process death — field crash class).
             Log.Warn(ex, "IR operation failed: {0}", message);
             ErrorMessage = $"Operation failed: {ex.Message}";
+            _status.Failure($"Failed: {ex.Message}");
             return false;
         }
         finally { IsBusy = false; BusyMessage = ""; }
@@ -66,13 +72,15 @@ public partial class IrListViewModel : ObservableObject
     [RelayCommand] private async Task RefreshAsync()
     {
         if (!CanRefresh) return;
-        IsBusy = true; BusyMessage = "Refreshing…"; ErrorMessage = null;
+        IsBusy = true; BusyMessage = "Reading IRs…"; ErrorMessage = null;
+        using var op = _status.BeginOperation("Reading IRs…");
         try { await ReloadAsync(); }
         catch (Exception ex)
         {
             // Same crash-guard as amps/presets: a dead link must surface, not tear down the app.
             Log.Warn(ex, "IR refresh failed");
             ErrorMessage = $"Refresh failed: {ex.Message}";
+            _status.Failure($"Refresh failed: {ex.Message}");
         }
         finally { IsBusy = false; BusyMessage = ""; }
     }
@@ -80,7 +88,7 @@ public partial class IrListViewModel : ObservableObject
     [RelayCommand] private async Task DeleteAsync()
     {
         if (Selected is { IsEmpty: false } s)
-            await RunAsync($"Deleting '{s.Name}'…", () => _irs.DeleteIrAsync(s.Index));
+            await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _irs.DeleteIrAsync(s.Index));
     }
 
     [RelayCommand] private async Task CommitRenameAsync(IrItemViewModel? item)
@@ -88,7 +96,7 @@ public partial class IrListViewModel : ObservableObject
         if (item is not { IsEditing: true } s) return;      // Escape-then-LostFocus won't re-commit
         var name = (s.EditName ?? "").Trim();
         if (name.Length == 0 || name == s.Name) { s.IsEditing = false; return; }
-        if (!await RunAsync($"Renaming '{s.Name}'…", () => _irs.RenameIrAsync(s.Index, name)))
+        if (!await RunAsync($"Renaming '{s.Name}'…", $"Renamed to '{name}'", () => _irs.RenameIrAsync(s.Index, name)))
             s.IsEditing = false;                            // gated/failed write: leave edit mode ourselves
     }
 
@@ -136,6 +144,7 @@ public partial class IrListViewModel : ObservableObject
         { UploadError = $"An IR named '{name}' already exists — names must be unique."; return; }
 
         UploadError = null;
+        using var op = _status.BeginOperation($"Uploading '{name}'…");
         IsUploading = true;
         try
         {
@@ -159,16 +168,18 @@ public partial class IrListViewModel : ObservableObject
             UploadStatus = $"Done — '{name}' in slot {slot + 1}";
             await ReloadAsync();
             Selected = Items.FirstOrDefault(i => i.Index == slot);
+            _status.Success($"Uploaded '{name}' to slot {slot + 1}");
         }
-        catch (InvalidDataException ex) { UploadError = ex.Message; }
-        catch (IrServiceException ex) { UploadError = ex.Message; }
-        catch (IOException ex) { UploadError = ex.Message; }
-        catch (UnauthorizedAccessException ex) { UploadError = ex.Message; }
+        catch (InvalidDataException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
+        catch (IrServiceException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
+        catch (IOException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
+        catch (UnauthorizedAccessException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
         catch (Exception ex)
         {
             // Transport failures (link dying mid-upload) must surface, never escape (crash class).
             Log.Warn(ex, "IR upload failed");
             UploadError = $"Upload failed: {ex.Message}";
+            _status.Failure($"Upload failed: {ex.Message}");
         }
         finally { IsUploading = false; }
     }

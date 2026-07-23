@@ -128,7 +128,7 @@ public partial class MainWindowViewModel : ObservableObject
             Amps = amps;
 
             var irService = new IrService(_connection.Client!, System.IO.Path.Combine("docs", "backups"));
-            var irs = new IrListViewModel(irService, _connection.WritesAllowed);
+            var irs = new IrListViewModel(irService, _connection.WritesAllowed, Status);
             Irs = irs;
 
             Tone3000.IsDeviceReady = _connection.WritesAllowed;
