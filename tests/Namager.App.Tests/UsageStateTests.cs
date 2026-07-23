@@ -96,4 +96,21 @@ public class UsageStateTests : IDisposable
     {
         Assert.EndsWith(Path.Combine("Namager", "usage.json"), UsageState.DefaultPath);
     }
+
+    // Guid.TryParse accepts N/B/P/X formats too, but the worker's installId check is a strict
+    // 8-4-4-4-12 regex — a hand-edited (or differently-formatted) file must still normalize to
+    // the canonical hyphenated lowercase "D" format on load, or that install 400-loops forever.
+    [Theory]
+    [InlineData("8f3c1e644b2a4c1d9e7f1a2b3c4d5e6f")]                     // N format, no hyphens
+    [InlineData("{8f3c1e64-4b2a-4c1d-9e7f-1a2b3c4d5e6f}")]                // B format, braces
+    [InlineData("8F3C1E64-4B2A-4C1D-9E7F-1A2B3C4D5E6F")]                  // upper-case D format
+    public void Load_normalizes_the_install_id_to_canonical_hyphenated_lowercase(string raw)
+    {
+        var path = TempPath();
+        File.WriteAllText(path, $"{{\"installId\":\"{raw}\"}}");
+
+        var state = UsageState.Load(path);
+
+        Assert.Equal("8f3c1e64-4b2a-4c1d-9e7f-1a2b3c4d5e6f", state.InstallId);
+    }
 }

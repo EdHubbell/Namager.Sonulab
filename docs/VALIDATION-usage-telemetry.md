@@ -28,10 +28,13 @@ Each row states the exact command and the exact expected status.
 
 ```bash
 npx wrangler d1 execute namager-usage --remote \
-  --command "SELECT active_days, COUNT(*) OVER () FROM installs WHERE install_id='$GUID'"
+  --command "SELECT active_days FROM installs WHERE install_id='$GUID'"
+npx wrangler d1 execute namager-usage --remote \
+  --command "SELECT COUNT(*) FROM pings WHERE install_id='$GUID'"
 ```
 
-Expect `active_days = 1`, and exactly one row in `pings` for that install/day.
+Expect `active_days = 1` from the first query, and `COUNT(*) = 1` from the second (exactly one row
+in `pings` for that install/day).
 
 - [ ] **13. Feedback route regression.** Submit feedback from the app's Send Feedback dialog
   (or POST to the bare `$URL`) and confirm a `user-feedback` issue appears on

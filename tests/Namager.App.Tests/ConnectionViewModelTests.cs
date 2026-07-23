@@ -149,7 +149,10 @@ public class ConnectionViewModelTests
         Assert.True(vm.IsConnected);
     }
 
-    [Fact] public async Task Connect_returns_promptly_even_when_usage_ping_is_slow()
+    // Bounded so a reintroduced `await` on the usage ping in ConnectionViewModel (the exact
+    // regression commit 2e98892 fixed) fails this test with a timeout instead of hanging the
+    // whole suite forever (the Gate below is only ever released after the assertions).
+    [Fact(Timeout = 10000)] public async Task Connect_returns_promptly_even_when_usage_ping_is_slow()
     {
         // Reproduces the reported bug: with the ping awaited, ExecuteAsync would block for as
         // long as PingAsync takes (up to its HTTP timeout when offline/unreachable), keeping the
