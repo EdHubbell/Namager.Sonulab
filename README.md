@@ -4,6 +4,8 @@ A fast desktop app (Avalonia / .NET 10) to manage a **Sonulab StompStation** ("A
 ESP32-S3) guitar pedal over USB serial - list, reorder, duplicate, rename, delete, edit, and
 back up presets, fixing the slow VoidX-Control workflow.
 
+![NAMager for Sonulab — preset list and amp editor](NAMagerScreenshot.png)
+
 ## Install
 
 ### Windows
@@ -45,12 +47,15 @@ For most of us, the StompStation is a toy that we want to enjoy playing with *wh
 NAMager helps you work with your pedal faster, so you spend more time playing tones and less time 
 managing them. 
 
-And NAMager sounds like how a 3 year old would say manager. So that's fun. 
+
+### NAMager?
+
+NAMager sounds like how a 3 year old would say manager. So that's fun. Fun is good and should be had.
 
 
-## Did you just vibe code this app with AI
+### Did you just vibe code this app with AI?
 
-Absolutely. I'm writing this by hand, tho. Some of it, anyway. 
+Absolutely. I'm writing this readme by hand, tho. Some of it, anyway. 
 
 
 ### Isn't the VoidX upload format proprietary?
