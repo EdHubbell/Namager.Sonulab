@@ -55,9 +55,11 @@ async function handleFeedback(request, env) {
     const ip = request.headers.get('cf-connecting-ip') || 'unknown';
     const now = Date.now();
     const recent = (hits.get(ip) || []).filter(t => now - t < 3600_000);
-    // Write the pruned list back (or drop the key entirely once it's empty) before checking the
-    // limit, so an IP that goes quiet for an hour is evicted on its next request instead of the
-    // map holding a stale entry for it forever.
+    // Write the pruned list back before checking the limit. This keeps each entry small and is
+    // what persists on the 429 path, which returns before the re-set below. It does NOT shrink
+    // the map: the delete branch is only reachable with an empty list, and such a request always
+    // falls through to the re-set, which re-adds the key. Key count is bounded solely by the
+    // RATE_MAP_MAX_ENTRIES cap below.
     if (recent.length === 0) hits.delete(ip); else hits.set(ip, recent);
     if (recent.length >= MAX_PER_HOUR)
       return new Response('rate limited', { status: 429 });
@@ -114,8 +116,9 @@ async function handlePing(request, env) {
   const ip = request.headers.get('cf-connecting-ip') || 'unknown';
   const now = Date.now();
   const recent = (pingHits.get(ip) || []).filter(t => now - t < 3600_000);
-  // Same eviction hygiene as the feedback route's `hits` map above: drop the key once its list
-  // is empty instead of letting quiet IPs linger for the isolate's whole lifetime.
+  // Same pruning as the feedback route's `hits` map above, with the same caveat: this trims each
+  // entry's timestamps (and is what persists on the 429 path) but never reduces the key count,
+  // since an empty list always falls through to the re-set below. The cap is the real bound.
   if (recent.length === 0) pingHits.delete(ip); else pingHits.set(ip, recent);
   if (recent.length >= PING_MAX_PER_HOUR)
     return new Response('rate limited', { status: 429 });
