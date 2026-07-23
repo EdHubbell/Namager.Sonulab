@@ -88,7 +88,7 @@
             <TextBlock Text="Reading amp metadata…" FontSize="11"
                        Foreground="{DynamicResource Sonulab.TextMutedBrush}"
                        IsVisible="{Binding IsDetailsLoading}"/>
-            <TextBlock Text="No metadata — uploaded outside ToneManager." FontSize="11"
+            <TextBlock Text="No metadata — uploaded outside NAMager." FontSize="11"
                        Foreground="{DynamicResource Sonulab.TextMutedBrush}"
                        IsVisible="{Binding ShowNoMetadata}"/>
             <TextBlock Text="{Binding DetailsError}" FontSize="11" TextWrapping="Wrap"

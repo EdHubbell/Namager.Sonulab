@@ -13,7 +13,7 @@ sealed class Program
     {
         var logPath = Logging.Configure();
         var log = NLog.LogManager.GetCurrentClassLogger();
-        log.Info("===== ToneManager started; logging to {0} =====", logPath);
+        log.Info("===== NAMager for Sonulab started; logging to {0} =====", logPath);
         // Last-resort diagnostics: crashes previously ONLY appeared in the Windows event log
         // (nothing in tonemanager.log), which slowed the field-crash investigations. The real
         // protection is the per-command guards in the ViewModels; these just guarantee a record.
