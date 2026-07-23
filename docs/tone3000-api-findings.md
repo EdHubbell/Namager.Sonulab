@@ -33,6 +33,25 @@ match the search-result shape above (nested `user`, plural `images`, `url` not `
 - Per-model fields: `id`, `tone_id`, `user_id`, `created_at`, `updated_at`, `name`,
   `model_url`, `size` (`"standard"`), `architecture_version` (`"1"`). **No `format` field**
   on the model object — see Divergences below.
+
+#### `architecture` param — A1 vs A2 (live-verified 2026-07-23, tone 74141)
+- **The endpoint defaults to A1 only.** A tone carries separate counts: `models_count`
+  (= A1), `a1_models_count`, `a2_models_count`, `custom_models_count`. `/api/v1/models?tone_id=X`
+  with no extra param returns ONLY the A1 set.
+- **A2 models require `&architecture=2`.** (`architecture=2` → the a2 set; note the param is
+  `architecture`, NOT `architecture_version` — the latter returned 0. Values `a=2`, `version=2`,
+  `architecture=a2` all returned 0 too.) Tone 74141 (`a2_models_count:6`, `models_count:0`)
+  returned `total:0` by default and `total:6` with `&architecture=2`.
+- **An A2 model file is a different NAM architecture:** version `0.7.0`, `"architecture":
+  "SlimmableContainer"`, whose `config.submodels[]` each hold `{max_value, model}` where `model`
+  is a full nested `WaveNet` (v0.7.0 schema: `layers`/`head`/`head_scale`). The sampled file had
+  2 submodels (max_value 0.5 slim, 1.0 full). **`NamParser` already handles this** — it selects
+  the full submodel (`max_value == 1.0`) and parses it via the fork path. Verified end-to-end:
+  a downloaded A2 model distilled through every stage to a valid 12288-byte `.vxamp`.
+- **NAMager standardizes on A2** (the newer/better capture arch; Tone3000 has back-filled A2 for
+  most previously-A1 tones): `T3kClient.GetModelsAsync` always passes `&architecture=2`, so an
+  A1-only tone shows no models (UI note: "No A2 models for this tone."). This is a deliberate
+  choice, not a limitation — A2 is preferred wherever it exists.
 - `model_url` is an **absolute** URL on `www.tone3000.com`
   (`https://www.tone3000.com/api/v1/models/{id}/download/{slug}.nam`), not a bare path or a
   separate CDN host, and carries no signed query-string token in this sample.

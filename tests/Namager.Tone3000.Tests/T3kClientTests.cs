@@ -82,6 +82,7 @@ public class T3kClientTests
         var models = await client.GetModelsAsync(42);
         Assert.Equal("/api/v1/models", h.Requests.Single().RequestUri!.AbsolutePath);
         Assert.Contains("tone_id=42", h.Requests.Single().RequestUri!.Query);
+        Assert.Contains("architecture=2", h.Requests.Single().RequestUri!.Query);   // A2-only (see api-findings)
         Assert.Single(models);
         Assert.Equal("https://x/m5", models[0].ModelUrl);
     }
@@ -102,6 +103,7 @@ public class T3kClientTests
         Assert.Equal(2, h.Requests.Count);
         Assert.Contains("page=1", h.Requests[0].RequestUri!.Query);
         Assert.Contains("page=2", h.Requests[1].RequestUri!.Query);
+        Assert.All(h.Requests, r => Assert.Contains("architecture=2", r.RequestUri!.Query));   // every page is A2-scoped
     }
 
     [Fact]

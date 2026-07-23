@@ -42,17 +42,24 @@ public sealed class T3kClient(IT3kAuth auth, HttpMessageHandler? handler = null,
 
     public async Task<IReadOnlyList<T3kModel>> GetModelsAsync(long toneId, CancellationToken ct = default)
     {
+        // architecture=2 fetches A2 (SlimmableContainer/NAM-v0.7.0) models ONLY. The endpoint
+        // defaults to A2's predecessor A1 (models_count); A2 (a2_models_count) requires this
+        // param. We standardize on A2 — the newer/better capture architecture, which the
+        // distiller already handles (NamParser SlimmableContainer path). See
+        // docs/tone3000-api-findings.md. A tone with no A2 models returns an empty list.
+        //
         // The server's default page size (10) silently truncates a tone's model list unless
         // we ask for a bigger page and follow total_pages for the rest (sequential, not
         // parallel, to stay a good API citizen and keep request order deterministic for tests).
         const int modelsPageSize = 100;
-        var first = await GetPageAsync<T3kModel>($"/api/v1/models?tone_id={toneId}&page_size={modelsPageSize}&page=1", ct);
+        const string scope = "&architecture=2";
+        var first = await GetPageAsync<T3kModel>($"/api/v1/models?tone_id={toneId}{scope}&page_size={modelsPageSize}&page=1", ct);
         if (first.TotalPages <= 1) return first.Data;
 
         var all = new List<T3kModel>(first.Data);
         for (int page = 2; page <= first.TotalPages; page++)
         {
-            var next = await GetPageAsync<T3kModel>($"/api/v1/models?tone_id={toneId}&page_size={modelsPageSize}&page={page}", ct);
+            var next = await GetPageAsync<T3kModel>($"/api/v1/models?tone_id={toneId}{scope}&page_size={modelsPageSize}&page={page}", ct);
             all.AddRange(next.Data);
         }
         return all;

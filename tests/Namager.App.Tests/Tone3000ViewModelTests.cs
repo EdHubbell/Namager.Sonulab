@@ -41,8 +41,11 @@ public class Tone3000ViewModelTests
         public T3kTone? ToneToReturn { set { _tone = value; _toneSet = true; } }
         public Task<T3kTone?> GetToneAsync(long id, CancellationToken ct = default)
         { GetToneCalls.Add(id); return Task.FromResult(_toneSet ? _tone : NextPage.Data.FirstOrDefault()); }
+        /// <summary>Override the model list a tone returns (e.g. empty to model an A2-only miss).
+        /// Unset → one "Clean" model, matching the old behavior.</summary>
+        public IReadOnlyList<T3kModel>? ModelsToReturn;
         public Task<IReadOnlyList<T3kModel>> GetModelsAsync(long toneId, CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<T3kModel>>(new[] { new T3kModel(9, "Clean", "nam", "https://x/9") });
+            Task.FromResult(ModelsToReturn ?? new[] { new T3kModel(9, "Clean", "nam", "https://x/9") });
         public Task<T3kUser?> GetUserAsync(CancellationToken ct = default) => Task.FromResult<T3kUser?>(new T3kUser("uuid-1", "ed"));
         public Task SetFavoriteAsync(long toneId, bool favorite, CancellationToken ct = default) => Task.CompletedTask;
     }
@@ -148,6 +151,34 @@ public class Tone3000ViewModelTests
         await vm.PendingOperation!;
         Assert.Single(vm.SelectedModels);
         Assert.Equal("Clean", vm.SelectedModels[0].Name);
+        Assert.False(vm.NoModelsForSelection);                // has models → no note
+    }
+
+    [Fact]
+    public async Task Selecting_an_A2less_tone_flags_no_models()
+    {
+        var client = new FakeClient { ModelsToReturn = Array.Empty<T3kModel>() };
+        var vm = Make(new FakeAuth { SignedIn = true }, client);
+        vm.Selected = new T3kTone(2, "A1-only amp", Gear: null, Description: null, Images: null,
+            PageUrl: null, Downloads: null, Stars: null, Format: "nam", User: new T3kToneAuthor("ed"));
+        await vm.PendingOperation!;
+        Assert.Empty(vm.SelectedModels);
+        Assert.True(vm.NoModelsForSelection);                 // empty A2 fetch → show the note
+    }
+
+    [Fact]
+    public async Task Reselecting_a_tone_with_models_clears_the_no_models_flag()
+    {
+        var client = new FakeClient { ModelsToReturn = Array.Empty<T3kModel>() };
+        var vm = Make(new FakeAuth { SignedIn = true }, client);
+        vm.Selected = new T3kTone(2, "A1-only", null, null, null, null, null, null, "nam", new T3kToneAuthor("ed"));
+        await vm.PendingOperation!;
+        Assert.True(vm.NoModelsForSelection);
+
+        client.ModelsToReturn = null;                          // next tone has models again
+        vm.Selected = new T3kTone(3, "A2 amp", null, null, null, null, null, null, "nam", new T3kToneAuthor("ed"));
+        await vm.PendingOperation!;
+        Assert.False(vm.NoModelsForSelection);                 // flag cleared on the new selection
     }
 
     [Fact]
