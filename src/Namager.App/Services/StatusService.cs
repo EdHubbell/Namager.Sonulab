@@ -54,7 +54,7 @@ public sealed partial class StatusService : ObservableObject, IStatusService
     public IOperationScope BeginOperation(string message, bool determinate = false)
     {
         CancelRevert();
-        _terminal = null;
+        if (_stack.Count == 0) _terminal = null;
         var op = new Op { Message = message, Determinate = determinate };
         _stack.Add(op);
         Recompute();

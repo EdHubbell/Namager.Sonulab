@@ -127,6 +127,23 @@ public class StatusServiceTests
         Assert.Equal(StatusKind.Idle, svc.Kind);
     }
 
+    [Fact] public void Nested_operation_preserves_a_pending_terminal()
+    {
+        var svc = new StatusService();
+        svc.SetIdleSummary("Ready");
+        var outer = svc.BeginOperation("Reading amps…");
+        svc.Success("Deleted 'X'");                   // terminal pending, hidden beneath outer busy
+        Assert.Equal(StatusKind.Busy, svc.Kind);
+        Assert.Equal("Reading amps…", svc.Message);
+
+        var inner = svc.BeginOperation("Something…"); // nested — must NOT discard the pending terminal
+        inner.Dispose();
+        outer.Dispose();                              // stack drains — pending Success must surface
+
+        Assert.Equal(StatusKind.Success, svc.Kind);
+        Assert.Equal("Deleted 'X'", svc.Message);
+    }
+
     [Fact] public void Changing_state_raises_property_changed()
     {
         var svc = new StatusService();
