@@ -1,11 +1,11 @@
 # Regenerates the installer wizard art from the app icon (studio-warm palette, matching
 # Styles/SonulabTheme.axaml):
-#   src/ToneManager.Installer/Assets/banner.bmp  (493x58  - WixUIBannerBmp, top strip)
-#   src/ToneManager.Installer/Assets/dialog.bmp  (493x312 - WixUIDialogBmp, welcome/finish)
+#   src/Namager.Installer/Assets/banner.bmp  (493x58  - WixUIBannerBmp, top strip)
+#   src/Namager.Installer/Assets/dialog.bmp  (493x312 - WixUIDialogBmp, welcome/finish)
 # Requires ImageMagick 7+ on PATH (dev machine only - the .bmp files are committed).
 # MSI dialogs need classic 24-bit BMPs: compose with alpha, then strip it (BMP3 + -alpha off).
 $assets = Join-Path $PSScriptRoot "..\..\src\Namager.App\Assets"
-$out = Join-Path $PSScriptRoot "..\..\src\ToneManager.Installer\Assets"
+$out = Join-Path $PSScriptRoot "..\..\src\Namager.Installer\Assets"
 New-Item -ItemType Directory -Force $out | Out-Null
 $ico = Join-Path $assets "app-icon.ico"   # frame 0 = 256px
 

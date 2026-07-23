@@ -1,4 +1,4 @@
-<!-- Deliberately NOT in ToneManager.slnx: packaging runs only in the release workflow or
+<!-- Deliberately NOT in Namager.Sonulab.slnx: packaging runs only in the release workflow or
      via an explicit local build (see step 3), never on plain solution builds. -->
 <Project Sdk="WixToolset.Sdk/6.0.1">
   <PropertyGroup>
@@ -11,7 +11,7 @@
          not the project directory, so a relative PublishDir silently harvests zero files. -->
     <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildProjectDirectory)\..\Namager.App\bin\Release\net10.0\win-x64\publish</PublishDir>
     <DefineConstants>$(DefineConstants);ProductVersion=$(ProductVersion);PublishDir=$(PublishDir)</DefineConstants>
-    <OutputName>ToneManager-$(ProductVersion)-x64</OutputName>
+    <OutputName>Namager.Sonulab-$(ProductVersion)-x64</OutputName>
     <!-- ICE38/ICE64 flag per-user (Scope=perUser) file components under LocalAppDataFolder as
          needing an HKCU registry KeyPath instead of a file KeyPath, and the user-profile
          directories as missing a RemoveFile entry. Both are well-known false positives for
@@ -23,7 +23,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Standard WixUI dialog set (Welcome/VerifyReady/Progress/Exit) for the
-         end-of-install "Launch ToneManager" checkbox. -->
+         end-of-install "Launch NAMager for Sonulab" checkbox. -->
     <PackageReference Include="WixToolset.UI.wixext" Version="6.0.1" />
   </ItemGroup>
 </Project>
