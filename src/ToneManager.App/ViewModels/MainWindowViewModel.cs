@@ -61,12 +61,12 @@ public partial class MainWindowViewModel : ObservableObject
     {
         // Tone3000 (Browse Tones) exists from startup - browsing needs no pedal. Null config
         // = the tab shows its "add your keys" card.
-        var t3kConfig = ToneManager.Tone3000.T3kConfig.TryLoad();
+        var t3kConfig = Namager.Tone3000.T3kConfig.TryLoad();
         if (t3kConfig is not null)
         {
-            var t3kAuth = new ToneManager.Tone3000.T3kAuth(t3kConfig, new ToneManager.Tone3000.T3kTokenStore());
-            _tone3000 = new Tone3000ViewModel(t3kAuth, new ToneManager.Tone3000.T3kClient(t3kAuth),
-                new ToneManager.Tone3000.T3kDownloader(t3kAuth,
+            var t3kAuth = new Namager.Tone3000.T3kAuth(t3kConfig, new Namager.Tone3000.T3kTokenStore());
+            _tone3000 = new Tone3000ViewModel(t3kAuth, new Namager.Tone3000.T3kClient(t3kAuth),
+                new Namager.Tone3000.T3kDownloader(t3kAuth,
                     System.IO.Path.Combine(AppContext.BaseDirectory, "NAMFiles", "Tone3000")));
         }
         else

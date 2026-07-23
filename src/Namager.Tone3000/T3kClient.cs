@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace ToneManager.Tone3000;
+namespace Namager.Tone3000;
 
 public interface IT3kClient
 {

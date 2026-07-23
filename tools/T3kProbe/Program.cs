@@ -3,7 +3,7 @@
 // secret key (the only code allowed to touch it; this tool never ships).
 // Usage: dotnet run --project tools/T3kProbe [-- <search-term>]
 using System.Text.Json;
-using ToneManager.Tone3000;
+using Namager.Tone3000;
 
 var cfgPath = T3kConfig.DefaultPath;
 using var cfgDoc = JsonDocument.Parse(File.ReadAllText(cfgPath));
