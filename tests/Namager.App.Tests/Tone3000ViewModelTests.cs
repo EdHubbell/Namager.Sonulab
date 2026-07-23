@@ -33,7 +33,14 @@ public class Tone3000ViewModelTests
         { if (Throw is not null) throw Throw; Searches.Add((query, format, page)); return Task.FromResult(NextPage); }
         public Task<T3kPage<T3kTone>> FavoritedAsync(int page, CancellationToken ct = default) => Task.FromResult(NextPage);
         public Task<T3kPage<T3kTone>> DownloadedAsync(int page, CancellationToken ct = default) => Task.FromResult(NextPage);
-        public Task<T3kTone?> GetToneAsync(long id, CancellationToken ct = default) => Task.FromResult<T3kTone?>(NextPage.Data.FirstOrDefault());
+        public List<long> GetToneCalls = new();
+        private T3kTone? _tone;
+        private bool _toneSet;
+        /// <summary>Set to override what GetToneAsync returns (including null for "not found").
+        /// Unset → returns the first tone of NextPage, matching the old behavior.</summary>
+        public T3kTone? ToneToReturn { set { _tone = value; _toneSet = true; } }
+        public Task<T3kTone?> GetToneAsync(long id, CancellationToken ct = default)
+        { GetToneCalls.Add(id); return Task.FromResult(_toneSet ? _tone : NextPage.Data.FirstOrDefault()); }
         public Task<IReadOnlyList<T3kModel>> GetModelsAsync(long toneId, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<T3kModel>>(new[] { new T3kModel(9, "Clean", "nam", "https://x/9") });
         public Task<T3kUser?> GetUserAsync(CancellationToken ct = default) => Task.FromResult<T3kUser?>(new T3kUser("uuid-1", "ed"));
@@ -266,6 +273,68 @@ public class Tone3000ViewModelTests
         await vm.PendingOperation!;
         Assert.Null(vm.Banner);                              // "no results" is not an error
         Assert.Empty(vm.Results);
+    }
+
+    [Fact]
+    public async Task Pasting_a_tone_url_shows_one_auto_selected_result_with_models()
+    {
+        var auth = new FakeAuth { SignedIn = true };
+        var client = new FakeClient();
+        var vm = Make(auth, client);
+        vm.SearchText = "https://www.tone3000.com/tones/1971-fender-super-six-reverb-74141";
+        await vm.PendingOperation!;
+
+        Assert.Equal(new long[] { 74141 }, client.GetToneCalls);   // fetched by id
+        Assert.Empty(client.Searches);                             // NOT a text search
+        Assert.Single(vm.Results);
+        Assert.Same(vm.Results[0], vm.Selected);                   // auto-selected
+        await vm.PendingOperation!;                                // the selection's model load
+        Assert.Single(vm.SelectedModels);                          // models loaded in the same gesture
+        Assert.Equal(1, vm.TotalPages);
+        Assert.Null(vm.Banner);
+    }
+
+    [Fact]
+    public async Task A_bare_numeric_id_is_fetched_by_id()
+    {
+        var auth = new FakeAuth { SignedIn = true };
+        var client = new FakeClient();
+        var vm = Make(auth, client);
+        vm.SearchText = "74141";
+        await vm.PendingOperation!;
+
+        Assert.Equal(new long[] { 74141 }, client.GetToneCalls);
+        Assert.Empty(client.Searches);
+        Assert.Single(vm.Results);
+    }
+
+    [Fact]
+    public async Task An_unknown_id_clears_results_and_names_the_id()
+    {
+        var auth = new FakeAuth { SignedIn = true };
+        var client = new FakeClient { ToneToReturn = null };
+        var vm = Make(auth, client);
+        vm.SearchText = "https://www.tone3000.com/tones/999999";
+        await vm.PendingOperation!;
+
+        Assert.Empty(vm.Results);
+        Assert.Null(vm.Selected);
+        Assert.Contains("999999", vm.Banner);
+    }
+
+    [Fact]
+    public async Task A_bad_link_shows_a_banner_and_never_calls_the_client()
+    {
+        var auth = new FakeAuth { SignedIn = true };
+        var client = new FakeClient();
+        var vm = Make(auth, client);
+        vm.SearchText = "https://www.tone3000.com/daweed";
+        await vm.PendingOperation!;
+
+        Assert.Empty(vm.Results);
+        Assert.NotNull(vm.Banner);
+        Assert.Empty(client.GetToneCalls);
+        Assert.Empty(client.Searches);            // no HTTP at all
     }
 
     [Fact]

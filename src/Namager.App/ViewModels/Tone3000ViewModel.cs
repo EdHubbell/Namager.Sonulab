@@ -133,6 +133,36 @@ public partial class Tone3000ViewModel : ObservableObject
         IsLoading = true; Banner = null;
         try
         {
+            if (ViewMode == T3kViewMode.Search)
+            {
+                var parsed = T3kSearchQuery.Parse(SearchText);
+                if (parsed.Kind == T3kQueryKind.BadLink)
+                {
+                    _dispatch(() =>
+                    {
+                        if (gen != _loadGeneration) return;
+                        Results.Clear(); TotalPages = 0;
+                        Banner = "That doesn't look like a Tone3000 tone link.";
+                    });
+                    return;
+                }
+                if (parsed.Kind == T3kQueryKind.ToneId)
+                {
+                    T3kTone? tone;
+                    try { tone = await _client.GetToneAsync(parsed.ToneId); }
+                    catch (T3kException ex) when (ex.Kind == T3kError.NotFound) { tone = null; }
+                    _dispatch(() =>
+                    {
+                        if (gen != _loadGeneration) return;
+                        Results.Clear();
+                        if (tone is null)
+                        { TotalPages = 0; Banner = $"No Tone3000 tone with ID {parsed.ToneId}."; }
+                        else
+                        { Results.Add(tone); TotalPages = 1; Selected = tone; }
+                    });
+                    return;
+                }
+            }
             var page = ViewMode switch
             {
                 T3kViewMode.Favorites => await _client.FavoritedAsync(Page),
