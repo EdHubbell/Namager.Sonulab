@@ -1,8 +1,8 @@
-// ToneManager feedback endpoint: turns an app POST into a GitHub issue.
+// NAMager for Sonulab feedback endpoint: turns an app POST into a GitHub issue.
 // Deployed manually with `wrangler deploy`; secret GITHUB_TOKEN is a fine-grained PAT
-// scoped to EdHubbell/ToneManager with Issues read/write ONLY.
+// scoped to EdHubbell/Namager.Sonulab with Issues read/write ONLY.
 
-const REPO = 'EdHubbell/ToneManager';
+const REPO = 'EdHubbell/Namager.Sonulab';
 const CAPS = { name: 100, email: 200, message: 4000 };
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -57,7 +57,7 @@ export default {
       headers: {
         'authorization': `Bearer ${env.GITHUB_TOKEN}`,
         'accept': 'application/vnd.github+json',
-        'user-agent': 'tonemanager-feedback-worker',
+        'user-agent': 'namager-sonulab-feedback-worker',
         'content-type': 'application/json',
       },
       body: JSON.stringify({ title, body, labels: ['user-feedback'] }),
