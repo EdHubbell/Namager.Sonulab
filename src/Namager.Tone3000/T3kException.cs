@@ -1,4 +1,4 @@
-namespace ToneManager.Tone3000;
+namespace Namager.Tone3000;
 
 public enum T3kError { Auth, RateLimited, Network, Api }
 

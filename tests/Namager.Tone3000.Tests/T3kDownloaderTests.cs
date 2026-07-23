@@ -1,5 +1,5 @@
 using System.Net;
-using ToneManager.Tone3000;
+using Namager.Tone3000;
 
 public class T3kDownloaderTests : IDisposable
 {

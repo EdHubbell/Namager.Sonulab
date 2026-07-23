@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace ToneManager.Tone3000;
+namespace Namager.Tone3000;
 
 /// <summary>Persists the OAuth refresh token encrypted with Windows DPAPI (CurrentUser
 /// scope): survives restarts, unreadable by other accounts, deleted on sign-out.

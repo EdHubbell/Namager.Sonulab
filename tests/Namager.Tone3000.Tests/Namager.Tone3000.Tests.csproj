@@ -15,6 +15,6 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ToneManager.Tone3000\ToneManager.Tone3000.csproj" />
+    <ProjectReference Include="..\..\src\Namager.Tone3000\Namager.Tone3000.csproj" />
   </ItemGroup>
 </Project>

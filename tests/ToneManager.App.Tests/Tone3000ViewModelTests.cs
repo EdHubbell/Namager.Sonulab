@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 using ToneManager.App.ViewModels;
-using ToneManager.Tone3000;
+using Namager.Tone3000;
 using Xunit;
 
 namespace ToneManager.App.Tests;
