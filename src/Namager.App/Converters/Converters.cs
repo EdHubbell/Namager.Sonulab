@@ -119,3 +119,19 @@ public sealed class EnabledToTooltip : IValueConverter
         value is true ? "Effect on" : "Effect off";
     public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
 }
+
+/// <summary>StatusKind -> brush for the status-bar text. Error => Danger, Success => Success,
+/// else default text. Resolves theme tokens at convert time (falls back to fixed brushes when
+/// the theme layer isn't loaded, e.g. bare converter tests).</summary>
+public sealed class StatusKindToBrush : IValueConverter
+{
+    public static readonly StatusKindToBrush Instance = new();
+    public object? Convert(object? value, Type _, object? __, CultureInfo ___) =>
+        value switch
+        {
+            Namager.App.Services.StatusKind.Error   => BoolToBrush.ResolveBrush("Sonulab.DangerBrush", Brushes.OrangeRed),
+            Namager.App.Services.StatusKind.Success => BoolToBrush.ResolveBrush("Sonulab.SuccessBrush", Brushes.LimeGreen),
+            _                                       => BoolToBrush.ResolveBrush("Sonulab.TextBrush", Brushes.Gray),
+        };
+    public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
+}

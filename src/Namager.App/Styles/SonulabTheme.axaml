@@ -16,6 +16,7 @@
           <SolidColorBrush x:Key="Sonulab.SurfaceAltBrush" Color="#1E1B18"/>
           <SolidColorBrush x:Key="Sonulab.BorderBrush" Color="#3A332C"/>
           <SolidColorBrush x:Key="Sonulab.RuleBrush" Color="#332D27"/>
+          <SolidColorBrush x:Key="Sonulab.TextBrush" Color="#E8E2DA"/>
           <SolidColorBrush x:Key="Sonulab.TextMutedBrush" Color="#E8E2DA" Opacity="0.55"/>
           <SolidColorBrush x:Key="Sonulab.SuccessBrush" Color="#7BC47B"/>
           <SolidColorBrush x:Key="Sonulab.DangerBrush" Color="#E06C68"/>
@@ -33,6 +34,7 @@
           <SolidColorBrush x:Key="Sonulab.SurfaceAltBrush" Color="#F6F2EC"/>
           <SolidColorBrush x:Key="Sonulab.BorderBrush" Color="#DDD3C4"/>
           <SolidColorBrush x:Key="Sonulab.RuleBrush" Color="#EDE5D8"/>
+          <SolidColorBrush x:Key="Sonulab.TextBrush" Color="#2B2620"/>
           <SolidColorBrush x:Key="Sonulab.TextMutedBrush" Color="#2B2620" Opacity="0.55"/>
           <SolidColorBrush x:Key="Sonulab.SuccessBrush" Color="#4A9E4A"/>
           <SolidColorBrush x:Key="Sonulab.DangerBrush" Color="#C0392B"/>
