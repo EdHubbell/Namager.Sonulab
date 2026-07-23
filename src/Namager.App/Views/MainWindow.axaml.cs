@@ -11,7 +11,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Title = $"ToneManager v{AppInfo.Version}";
+        Title = $"NAMager for Sonulab v{AppInfo.Version}";
         NavList.SelectionChanged += OnNavSelectionChanged;
         DataContextChanged += (_, _) =>
         {
