@@ -11,7 +11,7 @@ public sealed record T3kConfig(string PublishableKey, int RedirectPort)
 
     public static string DefaultPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                     "ToneManager", "tone3000.json");
+                     "Namager", "tone3000.json");
 
     /// <summary>Null on missing file, unparseable JSON, or a missing/placeholder key —
     /// the UI turns null into its "add your Tone3000 keys" card.</summary>
