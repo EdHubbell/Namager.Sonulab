@@ -17,12 +17,16 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     private readonly SonuClient _client;
     private readonly LabelService _labels;
     private readonly ParameterExposure _exposure;
+    private readonly IStatusService _status;
 
-    public ParameterEditorViewModel(SonuClient client, LabelService? labels = null, ParameterExposure? exposure = null)
+    public ParameterEditorViewModel(SonuClient client, LabelService? labels = null,
+                                     ParameterExposure? exposure = null,
+                                     IStatusService? status = null)
     {
         _client = client;
         _labels = labels ?? LabelService.Default;
         _exposure = exposure ?? ParameterExposure.Default;
+        _status = status ?? NullStatusService.Instance;
     }
 
     public ObservableCollection<BlockSectionViewModel> Blocks { get; } = new();
@@ -156,6 +160,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     private async Task SaveAsync()
     {
         ErrorMessage = null;
+        using var op = _status.BeginOperation("Saving preset…");
         try
         {
             foreach (var f in AllFields().Where(f => f.IsDirty))
@@ -164,12 +169,14 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                 await _client.SaveAsync(@"root\app\preset", PresetName);
             foreach (var f in AllFields()) f.MarkClean();
             IsDirty = false;
+            _status.Success("Saved");
         }
         catch (Exception ex)
         {
             // Fields stay dirty on failure so the user can retry the save after reconnecting.
             Log.Warn(ex, "parameter save failed");
             ErrorMessage = $"Save failed: {ex.Message}";
+            _status.Failure($"Save failed: {ex.Message}");
         }
     }
 

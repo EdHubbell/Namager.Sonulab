@@ -80,6 +80,21 @@ public class ParameterEditorViewModelTests
         Assert.Equal("-6", await new SonuClient(d).ReadValueAsync(@"root\app\amp\gain"));
     }
 
+    [Fact] public async Task Save_reports_saved_to_status()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var status = new FakeStatusService();
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()),
+            new ParameterExposure(new[] { @"root\app\amp\sag" }),
+            status);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.PresetName = "P1";                     // makes SaveAsync issue the device save
+        await vm.SaveCommand.ExecuteAsync(null);
+        Assert.Contains("Saved", status.Succeeded);
+        Assert.Empty(status.Failed);
+    }
+
     static ParameterEditorViewModel VmFor(FakeSonuLink d) =>
         new(new SonuClient(d),
             new LabelService(new Dictionary<string, string>()),
