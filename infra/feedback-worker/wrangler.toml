@@ -6,4 +6,4 @@ compatibility_date = "2026-07-01"
 [[d1_databases]]
 binding = "USAGE_DB"
 database_name = "namager-usage"
-database_id = "REPLACE_AFTER_D1_CREATE"
+database_id = "7c227afc-a53f-45cc-91ce-f96fb5dc46c1"
