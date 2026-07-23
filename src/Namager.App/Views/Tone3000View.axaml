@@ -42,7 +42,9 @@
 
         <!-- Toolbar -->
         <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto,Auto,Auto" Margin="0,0,0,8">
-          <TextBox Grid.Column="0" Text="{Binding SearchText}" Watermark="Search tones…"/>
+          <TextBox Grid.Column="0" Text="{Binding SearchText}"
+                   Watermark="Search tones, or paste Tone3000 URL or Tone ID…"
+                   ToolTip.Tip="Search tone titles, or paste a tone3000.com tone link (or its numeric ID) to jump straight to it."/>
           <ToggleButton Grid.Column="1" Margin="6,0,0,0" Content="NAM"
                         IsChecked="{Binding FormatFilter, Converter={x:Static vm:T3kConverters.IsNam}, Mode=OneWay}"
                         Command="{Binding SetFormatCommand}" CommandParameter="nam"/>
