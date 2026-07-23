@@ -1,5 +1,5 @@
 // T3kProbe - DEV ONLY. Verifies the Tone3000 API contract assumptions (spec: "Assumptions
-// to verify"). Reads %APPDATA%\ToneManager\tone3000.json directly, INCLUDING the
+// to verify"). Reads %APPDATA%\Namager\tone3000.json directly, INCLUDING the
 // secret key (the only code allowed to touch it; this tool never ships).
 // Usage: dotnet run --project tools/T3kProbe [-- <search-term>]
 using System.Text.Json;
