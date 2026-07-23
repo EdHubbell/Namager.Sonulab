@@ -1,6 +1,6 @@
 namespace Namager.Tone3000;
 
-public enum T3kError { Auth, RateLimited, Network, Api }
+public enum T3kError { Auth, RateLimited, Network, NotFound, Api }
 
 /// <summary>Every Tone3000 failure surfaces as this, with a user-honest message
 /// (the UI shows Message verbatim) and a Kind the UI can branch on.</summary>

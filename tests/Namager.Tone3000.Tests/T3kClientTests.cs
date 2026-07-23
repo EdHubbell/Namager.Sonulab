@@ -118,6 +118,7 @@ public class T3kClientTests
     [Theory]
     [InlineData(HttpStatusCode.Unauthorized, T3kError.Auth)]
     [InlineData(HttpStatusCode.TooManyRequests, T3kError.RateLimited)]
+    [InlineData(HttpStatusCode.NotFound, T3kError.NotFound)]
     [InlineData(HttpStatusCode.InternalServerError, T3kError.Api)]
     public async Task Http_failures_map_to_typed_errors(HttpStatusCode status, T3kError expected)
     {

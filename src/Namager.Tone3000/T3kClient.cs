@@ -92,6 +92,8 @@ public sealed class T3kClient(IT3kAuth auth, HttpMessageHandler? handler = null,
                 new T3kException("Tone3000 rejected the request — sign in again.", T3kError.Auth),
             HttpStatusCode.TooManyRequests =>
                 new T3kException("Tone3000 rate limit reached — wait a minute and retry.", T3kError.RateLimited),
+            HttpStatusCode.NotFound =>
+                new T3kException("Tone3000 couldn't find that tone.", T3kError.NotFound),
             _ => new T3kException($"Tone3000 request failed (HTTP {(int)resp.StatusCode}).", T3kError.Api),
         };
     }
