@@ -13,6 +13,10 @@ public partial class MainWindowViewModel : ObservableObject
 
     private bool _ampsLoaded, _irsLoaded;
 
+    /// <summary>The single status/progress channel, bound by the bottom status bar and shared
+    /// with every child VM (passed via their constructors). Created once, lives for the app.</summary>
+    public StatusService Status { get; } = new();
+
     [ObservableProperty] private ConnectionViewModel _connection;
     [ObservableProperty] private PresetListViewModel? _presets;
     [ObservableProperty] private ParameterEditorViewModel? _editor;
@@ -138,6 +142,8 @@ public partial class MainWindowViewModel : ObservableObject
             await presets.RefreshCommand.ExecuteAsync(null);
             Log.Info("PERF connect presets-list={0}ms", sw.ElapsedMilliseconds);
         }
+
+        Status.SetIdleSummary("Not connected");
     }
 
     /// <summary>Tone3000 handoff: switch to the Amps or IRs tab and open the upload panel

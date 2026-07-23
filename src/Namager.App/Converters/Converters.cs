@@ -135,3 +135,12 @@ public sealed class StatusKindToBrush : IValueConverter
         };
     public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
 }
+
+/// <summary>bool (command running) -> connect button label.</summary>
+public sealed class ConnectLabel : IValueConverter
+{
+    public static readonly ConnectLabel Instance = new();
+    public object? Convert(object? value, Type _, object? __, CultureInfo ___) =>
+        value is true ? "Connecting…" : "Connect";
+    public object? ConvertBack(object? v, Type _, object? __, CultureInfo ___) => throw new NotSupportedException();
+}

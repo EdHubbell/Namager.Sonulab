@@ -23,8 +23,12 @@
         <Button Classes="accent-outline" Command="{Binding Connection.ConnectCommand}"
                 ToolTip.Tip="Connect to StompStation">
           <StackPanel Orientation="Horizontal">
-            <PathIcon Data="{StaticResource Icon.Power}" Width="16" Height="16"/>
-            <TextBlock Text="Connect" Margin="6,0,0,0" VerticalAlignment="Center"/>
+            <PathIcon Data="{StaticResource Icon.Power}" Width="16" Height="16"
+                      IsVisible="{Binding !Connection.ConnectCommand.IsRunning}"/>
+            <ProgressBar Width="16" Height="16" IsIndeterminate="True"
+                         IsVisible="{Binding Connection.ConnectCommand.IsRunning}"/>
+            <TextBlock Margin="6,0,0,0" VerticalAlignment="Center"
+                       Text="{Binding Connection.ConnectCommand.IsRunning, Converter={x:Static conv:ConnectLabel.Instance}}"/>
           </StackPanel>
         </Button>
 
@@ -47,6 +51,22 @@
         <Button Classes="accent-outline" Content="Download" Click="OnDownloadUpdateClick"/>
         <Button Content="Dismiss" Command="{Binding DismissUpdateCommand}"/>
       </StackPanel>
+    </Border>
+
+    <!-- ===== Bottom status bar ===== -->
+    <Border DockPanel.Dock="Bottom" Padding="12,4"
+            Background="{DynamicResource Sonulab.SurfaceAltBrush}"
+            BorderBrush="{DynamicResource Sonulab.BorderBrush}" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"
+                   Text="{Binding Status.Message}"
+                   Foreground="{Binding Status.Kind, Converter={x:Static conv:StatusKindToBrush.Instance}}"/>
+        <ProgressBar Grid.Column="1" Width="160" Height="6" VerticalAlignment="Center" Margin="12,0,0,0"
+                     Minimum="0" Maximum="1"
+                     Value="{Binding Status.Progress}"
+                     IsIndeterminate="{Binding Status.IsIndeterminate}"
+                     IsVisible="{Binding Status.IsBusy}"/>
+      </Grid>
     </Border>
 
     <!-- ===== SplitView: left nav pane + content ===== -->
