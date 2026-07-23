@@ -2,7 +2,10 @@
 
 A fast desktop app (Avalonia / .NET 10) to manage a **Sonulab StompStation** ("AMP Station",
 ESP32-S3) guitar pedal over USB serial - list, reorder, duplicate, rename, delete, edit, and
-back up presets, fixing the slow VoidX-Control workflow.
+back up presets, fixing the slow VoidX-Control workflow. Includes integration with Tone3000, 
+so you can download tones from the largest online NAM sharing community.  
+
+Users can also add notes to their amp models, and those notes are stored on the pedal. 
 
 ![NAMager for Sonulab — preset list and amp editor](NAMagerScreenshot.png)
 
@@ -14,15 +17,20 @@ back up presets, fixing the slow VoidX-Control workflow.
 2. Run it. Windows SmartScreen will warn that the app is unrecognized (the installer is
    unsigned) — click **More info → Run anyway**. Installation is per-user: no admin rights
    needed, and .NET does not need to be installed.
-3. Launch **NAMager for Sonulab** from the Start Menu. Close VoidX-Control first — it
-   holds the pedal's COM port.
+3. Plug your StompStation into your PC with a USB cable.   
+4. Launch **NAMager for Sonulab** from the Start Menu. Make sure VoidX-Control isn't running - The pedal can only talk to one app at a time over COM.
 
-NAMager connects over USB first and falls back to **WiFi** automatically when the pedal is on
+NAMager connects over USB first and falls back to WiFi automatically when the pedal is on
 your network (same protocol, auto-discovered via mDNS) — handy when a cable or USB port lets you down.
-But really, best to stick with a USB connection. **WiFi** might have been an overreach for compatibility sake.
+But really, best to stick with a USB connection. WiFi might have been an overreach for compatibility sake. It's still buggy.
 
 Updating: the app tells you when a new version is available; download and run the new
 `.msi` and it upgrades in place.
+
+### Other OS
+
+Let's just see if we get use from the OS with the largest user base before expanding to others. Putting it on macOS means paying
+$100 a year to Job's descendants. Linux is achievable, but I don't have a test box at the moment.  
 
 ## Feedback
 
@@ -38,11 +46,17 @@ so you can follow the discussion.
 Ed got a StompStation to use with his pedal steel guitar. The hardware performance was great - Running direct 
 into a PA speaker is really convenient, and trying out different tones using NAM is fun. 
 
-On the other hand, using the VoidX app that ships with the StompStation is not fun. There are no controls to change what slot 
+On the other hand, using the VoidX app that ships with the StompStation is **not** fun. There are no controls to change what slot 
 the presets are in. It's kind of a pain to view the list of NAM amps and IR files on your pedal. 
-The overall UI is difficult to navigate. 
+The overall UI is difficult to navigate. Renaming a preset is a pain. 
 
-For most of us, the StompStation is a toy that we want to enjoy playing with *while making music*. 
+VoidX does a lot. The VoidX app is able to connect in 3 different ways
+(Bluetooth, USB, WiFi) across a plethora of platforms (Windows, Android, iOS, etc) -
+Supporting all those modes and operating systems is a really big pain. 
+I give them full credit those things. It's just that VoidX is not easy or intuitive or fun to use.
+It is the opposite of fun. It is work. 
+
+For most of us, the StompStation is a toy that we want to enjoy playing with *while making music*. It should be *fun to use*.
 
 NAMager helps you work with your pedal faster, so you spend more time playing tones and less time 
 managing them. 
@@ -57,6 +71,8 @@ NAMager sounds like how a 3 year old would say manager. So that's fun. Fun is go
 
 Absolutely. I'm writing this readme by hand, tho. Some of it, anyway. 
 
+Full Disclosure: I'm also wearing machine-washed socks and underwear. Can you tell? 
+
 
 ### Isn't the VoidX upload format proprietary?
 
@@ -67,7 +83,7 @@ makes it impossible to run NAMager.
 
 ### Will this work with StompStation Pro?
 
-No, I don't have one of those. Tell Sonulab to send me one if you want that. 
+No, I don't have one of those. Sonulab can send me one if you want that. I have a pedal steel gig I need to practice for, and the StompStation fits that use case nicely. 
 
 
 # Weedy Details
