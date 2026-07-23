@@ -115,3 +115,10 @@ Real exported `.pst` presets (the pedal's own `root\presets` format), used as ro
 ## Hardware note
 Writing presets changes the pedal's live/active state. The app takes backups before writes and
 verifies by read-back. The pedal's `.pcapng` captures live in the parent folder (not committed).
+
+## Privacy
+
+NAMager sends one anonymous ping when you connect your pedal (a random install ID, the app
+version, your pedal's firmware version, and whether you connected over USB or WiFi) so I can
+tell whether the app has actual users. No personal data, no tracking of what you do in the app,
+no opt-out toggle. Full details, including what is never sent: [PRIVACY.md](PRIVACY.md).

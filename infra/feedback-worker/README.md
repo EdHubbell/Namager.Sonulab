@@ -1,8 +1,11 @@
-# Feedback worker
+# NAMager worker
 
-Receives `{ name, email, message, appVersion, os, website }` POSTs from the app's
-Send Feedback dialog and creates a GitHub issue labeled `user-feedback` on
-`EdHubbell/Namager.Sonulab`. `website` is a honeypot — always empty from the real app.
+Two routes on one worker:
+
+- **`/`** — the app's Send Feedback dialog. Receives `{ name, email, message, appVersion, os,
+  website }` and creates a GitHub issue labeled `user-feedback`. `website` is a honeypot.
+- **`/ping`** — the anonymous usage ping. Receives `{ installId, appVersion, fw, transport }`
+  and records it in the `namager-usage` D1 database. See `PRIVACY.md`.
 
 **This worker is deployed manually, never by CI.**
 
@@ -61,3 +64,44 @@ curl -si <URL>
 
 (For `wrangler dev`, put the PAT in `infra/feedback-worker/.dev.vars` as
 `GITHUB_TOKEN=...` — that file is gitignored, never commit it.)
+
+## Usage telemetry (D1)
+
+One-time setup:
+
+```
+npx wrangler d1 create namager-usage         # paste database_id into wrangler.toml
+npx wrangler d1 execute namager-usage --remote --file schema.sql
+npx wrangler deploy
+```
+
+### Reporting queries
+
+Run with `npx wrangler d1 execute namager-usage --remote --command "<sql>"`.
+
+```sql
+-- Monthly actives: installs that connected a pedal in the last 30 days
+SELECT COUNT(*) FROM installs WHERE last_seen >= date('now','-30 days');
+
+-- Retention: of installs first seen 30-60 days ago, how many are still connecting?
+SELECT COUNT(*) FILTER (WHERE last_seen >= date('now','-14 days')) * 1.0 / COUNT(*)
+FROM installs WHERE first_seen BETWEEN date('now','-60 days') AND date('now','-30 days');
+
+-- New installs per day
+SELECT first_seen, COUNT(*) FROM installs GROUP BY first_seen ORDER BY first_seen DESC;
+
+-- Does anyone use WiFi, and regularly?
+SELECT transport, COUNT(DISTINCT install_id) AS installs, COUNT(*) AS days
+FROM pings WHERE day >= date('now','-60 days') GROUP BY transport;
+
+-- App version and firmware spread
+SELECT app_version, COUNT(*) FROM installs GROUP BY app_version ORDER BY 2 DESC;
+SELECT fw_version,  COUNT(*) FROM installs GROUP BY fw_version  ORDER BY 2 DESC;
+
+-- How engaged are the returning users? (active days per install)
+SELECT active_days, COUNT(*) FROM installs GROUP BY active_days ORDER BY active_days;
+```
+
+**Reading these honestly:** these counts include only people who *connected a pedal*. Anyone who
+downloaded the app and never plugged in is invisible here — that top of the funnel is the release
+asset download count on GitHub Releases, which is a separate number.
