@@ -27,7 +27,15 @@ slots — **name AND content, byte-verified, in ~213 ms** (confirmed live 2026-0
 - `dmove ` also exists in VoidX's app.so string pool — semantics unknown (move-with-shift?).
   Probe ONLY with a full-bank backup; a wrong guess about shift semantics scrambles slots.
 
-## 2. Paced-overlap serial pipelining (~1.7× on every bulk read)
+## 2. Paced-overlap serial pipelining (~1.7× on every bulk read) — BUILT 2026-07-24, hardware validation pending
+
+**Status:** implemented on `worktree-feat-serial-pipelining` (transport + `SonuClient`
+foreground bulk read only). Manual on-device checks: `docs/HARDWARE-VALIDATION-pipelining.md`.
+**Deferred follow-up:** the usage scan is NOT accelerated. `DeviceRepository.ReadPresetHeadAsync`
+requests one chunk per call so it can stop as soon as the amp/IR refs are complete; batching it
+means grouping requests and over-reading up to `group-1` chunks past that stop point, and it
+touches the scan path. Worth doing once the usage-map work has landed — a group of 4 would take
+the scan from ~14 s to ~8 s.
 
 Probe-proven (2026-07-24, `--pipeline-probe`): the firmware drops zero-gap pipelined commands
 but accepts the next command while still streaming the previous response — a ≥30 ms send pace

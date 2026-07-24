@@ -115,4 +115,65 @@ public class SonuClientBackgroundLaneTests
         var client = new SonuClient(new EmptyReplyLink(), backgroundQuietMs: 0);
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.ReadListBackgroundAsync(@"root\presets"));
     }
+
+    /// <summary>Link whose BATCH send blocks until the test releases it, so we can observe what
+    /// the background lane is allowed to do while a burst is in flight.</summary>
+    private sealed class GatedBatchLink : ISonuLink
+    {
+        public readonly TaskCompletionSource Release = new();
+        public readonly List<string> Commands = new();
+        public bool IsOpen => true;
+        public Task OpenAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public void Close() { }
+
+        public Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            lock (Commands) Commands.Add(command);
+            return Task.FromResult(Window(command));
+        }
+
+        public async Task<IReadOnlyList<string>> SendBatchAsync(IReadOnlyList<string> commands, CancellationToken ct = default)
+        {
+            await Release.Task;
+            lock (Commands) Commands.AddRange(commands);
+            return commands.Select(Window).ToList();
+        }
+
+        /// <summary>A well-formed dread reply (128 zero bytes) so the read needs NO repair pass —
+        /// otherwise the repair reads would pollute the command count this test asserts on.</summary>
+        private static string Window(string command)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(command, @"""index"":(\d+),""chunk"":(-?\d+)");
+            return m.Success
+                ? $"root\\presets:{{\"index\":{m.Groups[1].Value},\"chunk\":{m.Groups[2].Value},\"value\":\"{new string('0', 256)}\"}}\r\n"
+                : "";
+        }
+    }
+
+    [Fact]
+    public async Task Background_send_cannot_interleave_inside_a_pipelined_batch()
+    {
+        // The quiet window is 0 here, so the ONLY thing that can hold the background send back
+        // is the client gate — which the batch must hold for the whole burst. An interleaved
+        // dread inside a burst is the documented way to get a device commit silently discarded.
+        long tick = 0;
+        var link = new GatedBatchLink();
+        var client = new SonuClient(link, readRetryAttempts: 1, readRetryDelayMs: 0,
+            backgroundQuietMs: 0,
+            tickSource: () => Volatile.Read(ref tick),
+            backgroundPollDelay: _ => Task.Delay(1));
+
+        var batch = client.DReadChunkRangeAsync(@"root\presets", 0, 1, 4);   // takes the gate, blocks
+        await Task.Delay(50);
+        var bg = client.SendBackgroundAsync(@"read root\sys\_name");
+        await Task.Delay(50);
+
+        Assert.False(bg.IsCompleted);
+        lock (link.Commands) Assert.Empty(link.Commands);
+
+        link.Release.SetResult();
+        await batch;
+        await bg.WaitAsync(TimeSpan.FromSeconds(5));
+        lock (link.Commands) Assert.Equal(5, link.Commands.Count);   // 4 batched + 1 background
+    }
 }
