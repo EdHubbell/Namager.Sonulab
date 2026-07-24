@@ -6,7 +6,7 @@ using Xunit;
 
 public class PresetUsageServiceTests
 {
-    private const string AmpNode = @"root\app\amp\amp:{{""value"":""{0}"",""ref"":""root\\amp""}}";
+    private const string AmpNode = @"root\app\amp\amp:{{""value"":""{0}""}}";
     private static string Amp(string name) => string.Format(AmpNode, name);
 
     private static (PresetUsageService svc, DeviceRepository repo, FakePresetDevice dev) Make()

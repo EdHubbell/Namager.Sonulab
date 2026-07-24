@@ -33,6 +33,6 @@ public sealed class FakePresetUsageService : IPresetUsageService
         return PresetUsageMap.Build(docs);
     }
 
-    public static string AmpLine(string name) => $@"root\app\amp\amp:{{""value"":""{name}"",""ref"":""root\\amp""}}";
-    public static string IrLine(string name) => $@"root\app\ir\ir:{{""value"":""{name}"",""ref"":""root\\ir""}}";
+    public static string AmpLine(string name) => $@"root\app\amp\amp:{{""value"":""{name}""}}";
+    public static string IrLine(string name) => $@"root\app\ir\ir:{{""value"":""{name}""}}";
 }

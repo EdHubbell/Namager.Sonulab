@@ -1,3 +1,4 @@
+using System.IO;
 using Sonulab.Core.Model;
 using Sonulab.Core.Services;
 using Xunit;
@@ -13,11 +14,12 @@ public class PresetUsageMapTests
         return PresetDocument.Parse(blob);
     }
 
-    private const string AmpLine = @"root\app\amp\amp:{{""desc"":""Amp model"",""value"":""{0}"",""type"":""plist"",""ref"":""root\\amp""}}";
-    private const string IrLine  = @"root\app\ir\ir:{{""desc"":""Cab IR"",""value"":""{0}"",""type"":""plist"",""ref"":""root\\ir""}}";
-
-    private static string Amp(string name) => string.Format(AmpLine, name);
-    private static string Ir(string name) => string.Format(IrLine, name);
+    // REAL device lines: dread/.pst documents carry ONLY {"value":…} — no "ref" field.
+    // (The old fixtures injected a synthetic "ref" the firmware never sends; that let the
+    // schema-ref matching bug pass 619 tests while highlighting nothing on hardware.)
+    private static string Amp(string name) => $@"root\app\amp\amp:{{""value"":""{name}""}}";
+    private static string Ir(string name)  => $@"root\app\ir\ir:{{""value"":""{name}""}}";
+    private static string Ir2(string name) => $@"root\app\ir\ir2\ir:{{""value"":""{name}""}}";
 
     [Fact]
     public void Maps_amp_and_ir_names_to_the_presets_that_use_them()
@@ -49,16 +51,26 @@ public class PresetUsageMapTests
     }
 
     [Fact]
-    public void Captures_multiple_ir_nodes_in_one_preset()
+    public void Captures_primary_and_secondary_ir_refs_in_one_preset()
+    {
+        var map = PresetUsageMap.Build(new[] { (3, "Big", Doc(Ir("CabA"), Ir2("RoomB"))) });
+        Assert.Equal(new[] { new PresetRef(3, "Big") }, map.PresetsUsingIr("CabA"));
+        Assert.Equal(new[] { new PresetRef(3, "Big") }, map.PresetsUsingIr("RoomB"));
+    }
+
+    [Fact]
+    public void Stub_lines_and_foreign_paths_are_not_references()
     {
         var map = PresetUsageMap.Build(new[]
         {
-            (3, "Big", Doc(
-                @"root\app\ir\ir:{""value"":""CabA"",""ref"":""root\\ir""}",
-                @"root\app\reverb\ir:{""value"":""RoomB"",""ref"":""root\\ir""}")),
+            (0, "P", Doc(
+                @"root\app\amp:{""value"":""NotARef""}",        // amp block stub
+                @"root\app\ir:{""value"":""NotARef""}",         // ir block stub
+                @"root\app\ir\ir2:{""value"":""NotARef""}",     // ir2 stub (no trailing \ir)
+                @"root\app\reverb\ir:{""value"":""NotARef""}")),// outside the ir block
         });
-        Assert.Equal(new[] { new PresetRef(3, "Big") }, map.PresetsUsingIr("CabA"));
-        Assert.Equal(new[] { new PresetRef(3, "Big") }, map.PresetsUsingIr("RoomB"));
+        Assert.Empty(map.PresetsUsingAmp("NotARef"));
+        Assert.Empty(map.PresetsUsingIr("NotARef"));
     }
 
     [Fact]
@@ -77,8 +89,8 @@ public class PresetUsageMapTests
         var map = PresetUsageMap.Build(new[]
         {
             (0, "P", Doc(
-                @"root\app\amp\amp:{""value"":"""",""ref"":""root\\amp""}",   // empty value
-                @"root\app\gain\gain:{""value"":""5"",""type"":""num""}")),    // no ref
+                @"root\app\amp\amp:{""value"":""""}",           // empty value
+                @"root\app\gate\threshold:{""value"":-60.0}")),  // non-ref path
         });
         Assert.Empty(map.PresetsUsingAmp(""));
     }
@@ -96,5 +108,30 @@ public class PresetUsageMapTests
     {
         Assert.Empty(PresetUsageMap.Empty.PresetsUsingAmp("Plexi"));
         Assert.Empty(PresetUsageMap.Empty.PresetsUsingIr("V30"));
+    }
+
+    [Fact]
+    public void Builds_from_a_real_captured_preset_document()
+    {
+        var blob = File.ReadAllBytes(Path.Combine("Fixtures", "QuadReverbSM57.pst"));
+        var map = PresetUsageMap.Build(new[] { (0, "Quad Reverb SM57", PresetDocument.Parse(blob)) });
+        Assert.Equal(new[] { new PresetRef(0, "Quad Reverb SM57") },
+                     map.PresetsUsingAmp("Quad Reverb Randall Head SM57"));
+        Assert.Equal(new[] { new PresetRef(0, "Quad Reverb SM57") },
+                     map.PresetsUsingIr("TWIN REVERB __ CLEAN"));
+    }
+
+    [Fact]
+    public void HeadComplete_requires_all_three_reference_lines()
+    {
+        var text = File.ReadAllText(Path.Combine("Fixtures", "QuadReverbSM57.pst"))
+                       .TrimEnd('\0');
+        Assert.True(PresetUsageMap.HeadComplete(text));
+        // Truncated before the ir2\ir line (byte ~2859): incomplete.
+        Assert.False(PresetUsageMap.HeadComplete(text[..2000]));
+        // Truncated mid-line (ir2\ir line present but its record still open): incomplete.
+        int ir2 = text.IndexOf(@"root\app\ir\ir2\ir:{", StringComparison.Ordinal);
+        Assert.False(PresetUsageMap.HeadComplete(text[..(ir2 + 10)]));
+        Assert.False(PresetUsageMap.HeadComplete(""));
     }
 }
