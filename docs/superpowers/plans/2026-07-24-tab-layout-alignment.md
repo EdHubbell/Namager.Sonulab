@@ -18,7 +18,7 @@
 - Inside `SonulabTheme.axaml` reference tokens with `{StaticResource …}`; **inside views use `{DynamicResource …}`**, since the tokens arrive via a `Styles` include and static lookup across that boundary is load-order sensitive.
 - **Test count must not change.** The tests touching removed commands are rewritten onto the per-row commands, never deleted.
 - Build: `dotnet build` · Test: `dotnet test` · Run: `dotnet run --project src/Namager.App` (no device needed for layout checks; the app runs disconnected).
-- **Sequencing:** another agent is working in these same view files on `feat-amp-ir-reorder`. Do not start Task 1 until that work is merged.
+- **Sequencing:** work happens in the worktree `.claude/worktrees/tab-layout-alignment` on branch `worktree-tab-layout-alignment`, branched from `origin/main` (`6d8d45a`) plus this plan and its spec. Another agent has uncommitted work in these same view files in the main checkout; the worktree isolates us from it, so **Task 1 can start immediately**. The collision is deferred to merge time — when finishing, rebase onto whatever `main` has become and re-run `dotnet test` before merging. Baseline in this worktree: **693 tests, 0 failures**.
 
 ## File Structure
 
