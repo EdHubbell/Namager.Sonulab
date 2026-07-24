@@ -11,6 +11,13 @@
       <Setter Property="Foreground" Value="{DynamicResource Sonulab.AccentBrush}"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
+    <Style Selector="Button.reorder">
+      <Setter Property="Padding" Value="4"/>
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
   </UserControl.Styles>
   <Grid ColumnDefinitions="360,*">
 
@@ -19,6 +26,12 @@
       <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="0,0,0,6">
         <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
           <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
+        </Button>
+        <Button Command="{Binding MoveUpCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Move up">
+          <PathIcon Data="{StaticResource Icon.ChevronUp}" Width="16" Height="16"/>
+        </Button>
+        <Button Command="{Binding MoveDownCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Move down">
+          <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="16" Height="16"/>
         </Button>
         <Button x:Name="UploadNamButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Distill a .nam and upload it to an empty slot">
           <TextBlock Text="Upload .nam…"/>
@@ -49,6 +62,19 @@
                   <MenuItem Header="Rename" Command="{Binding BeginRenameCommand}"/>
                 </ContextMenu>
               </DockPanel.ContextMenu>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2"
+                          IsVisible="{Binding !IsEmpty}" VerticalAlignment="Center">
+                <Button Classes="reorder" IsEnabled="{Binding CanMoveUp}" ToolTip.Tip="Move up"
+                        Command="{Binding $parent[ListBox].((vm:AmpListViewModel)DataContext).MoveItemUpCommand}"
+                        CommandParameter="{Binding}">
+                  <PathIcon Data="{StaticResource Icon.ChevronUp}" Width="12" Height="12"/>
+                </Button>
+                <Button Classes="reorder" IsEnabled="{Binding CanMoveDown}" ToolTip.Tip="Move down"
+                        Command="{Binding $parent[ListBox].((vm:AmpListViewModel)DataContext).MoveItemDownCommand}"
+                        CommandParameter="{Binding}">
+                  <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="12" Height="12"/>
+                </Button>
+              </StackPanel>
               <TextBlock Classes="slot-number" Text="{Binding DisplaySlot, StringFormat='{}{0:00}'}"
                          Width="28" VerticalAlignment="Center"/>
               <Panel VerticalAlignment="Center" Margin="8,0,0,0">

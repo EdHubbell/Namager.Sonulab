@@ -94,6 +94,25 @@ public sealed class SlotBlobService
         return _client.DWriteChunkAsync(_kind.ListPath, index, -1, NamePad(ValidateName(name)), ct);
     }
 
+    /// <summary>Atomically swap two slots — name AND content — via the firmware `dswap` verb
+    /// (~120–235 ms, byte-verified, self-inverse; PROTOCOL.md). No temp slot, no name-uniqueness
+    /// requirement. Indices must be in [0, SlotCount); a non-numeric index would crash the device.</summary>
+    public Task SwapAsync(int a, int b, CancellationToken ct = default)
+    {
+        if (a is < 0 or >= SlotCount) throw _raise($"Slot must be 0..{SlotCount - 1}, got {a}.");
+        if (b is < 0 or >= SlotCount) throw _raise($"Slot must be 0..{SlotCount - 1}, got {b}.");
+        return _client.DSwapAsync(_kind.ListPath, a, b, ct);
+    }
+
+    /// <summary>Move one slot up/down one position via the shared bubble-swap engine. Reordering
+    /// never changes any preset's amp/IR reference (presets reference by name; dswap preserves the
+    /// name), so this needs no usage rescan.</summary>
+    public Task MoveStepAsync(int from, bool up, IProgress<ReorderProgress>? progress = null, CancellationToken ct = default) =>
+        SlotBubbleReorder.MoveStepAsync(from, up, ReadNamesAsync, SwapAsync, progress, ct);
+
+    private async Task<IReadOnlyList<string>> ReadNamesAsync(CancellationToken ct) =>
+        (await ListAsync(ct)).Select(s => s.Name).ToArray();
+
     /// <summary>Dread the slot and save it under the backup dir. Callers must ensure the
     /// slot is OCCUPIED first — dreading an empty slot is one timeout per chunk and is the
     /// prime suspect for killing a following commit (see HwCheck upload notes).</summary>

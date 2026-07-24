@@ -12,6 +12,8 @@ public partial class AmpItemViewModel : ObservableObject
     public int DisplaySlot => Index + 1;
     [ObservableProperty] private string _name;
     public bool IsEmpty => string.IsNullOrEmpty(Name);
+    public bool CanMoveUp => !IsEmpty && Index > 0;
+    public bool CanMoveDown => !IsEmpty && Index < Sonulab.Core.Services.SlotBlobService.SlotCount - 1;
 
     /// <summary>In-place rename state (display swaps a TextBlock for an edit TextBox while true).</summary>
     [ObservableProperty] private bool _isEditing;
