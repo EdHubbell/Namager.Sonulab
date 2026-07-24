@@ -286,8 +286,11 @@ public class PresetListViewModelTests
         Assert.False(string.IsNullOrWhiteSpace(vm.ErrorMessage));
     }
 
-    [Fact] public async Task Successful_mutation_invalidates_preset_usage()
+    [Fact] public async Task Successful_mutation_updates_preset_usage()
     {
+        // Superseded by targeted notification (Task 6): a successful Delete now maintains the usage
+        // map via NotifyPresetDeleted instead of a full Invalidate() rescan. See
+        // Delete_notifies_deleted_not_invalidate for the explicit assertion of that split.
         var dev = new FakePresetDevice();
         dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
         await dev.OpenAsync();
@@ -299,7 +302,8 @@ public class PresetListViewModelTests
 
         await vm.DeleteCommand.ExecuteAsync(null);
 
-        Assert.True(usage.InvalidateCount >= 1);       // preset changed → usage cache is stale
+        Assert.True(usage.DeletedCount >= 1);          // preset changed → usage map targeted-updated
+        Assert.Equal(0, usage.InvalidateCount);
     }
 
     [Fact] public async Task Refresh_does_not_invalidate_usage()
@@ -314,5 +318,49 @@ public class PresetListViewModelTests
         await vm.RefreshCommand.ExecuteAsync(null);     // read-only refresh
 
         Assert.Equal(0, usage.InvalidateCount);
+    }
+
+    static (PresetListViewModel vm, FakePresetDevice dev, FakePresetUsageService usage) MakeWithUsage()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        dev.SeedSlot(2, "C", new[] { @"root\app\amp\amp:{""value"":""mC""}" });
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var usage = new FakePresetUsageService();
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true, usage: usage);
+        return (vm, dev, usage);
+    }
+
+    [Fact] public async Task MoveDown_notifies_moved_not_invalidate()
+    {
+        var (vm, _, usage) = MakeWithUsage();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];                       // A at slot 0
+        await vm.MoveDownCommand.ExecuteAsync(null);     // -> slot 1
+        Assert.Equal(1, usage.MovedCount);
+        Assert.Equal((0, 1), usage.LastMoved);
+        Assert.Equal(0, usage.InvalidateCount);
+    }
+
+    [Fact] public async Task Delete_notifies_deleted_not_invalidate()
+    {
+        var (vm, _, usage) = MakeWithUsage();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[2];
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Equal(1, usage.DeletedCount);
+        Assert.Equal(0, usage.InvalidateCount);
+    }
+
+    [Fact] public async Task Duplicate_still_invalidates()
+    {
+        var (vm, _, usage) = MakeWithUsage();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[1];
+        await vm.DuplicateCommand.ExecuteAsync(null);
+        Assert.Equal(1, usage.InvalidateCount);
+        Assert.Equal(0, usage.MovedCount);
     }
 }
