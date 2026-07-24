@@ -12,4 +12,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Connection/compatibility.json" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Transport internals (TimerResolutionScope, the pacing wait) are implementation detail,
+         not public API, but they need direct test coverage. -->
+    <InternalsVisibleTo Include="Sonulab.Core.Tests" />
+  </ItemGroup>
 </Project>

@@ -72,13 +72,19 @@ public sealed class SonuClient
     /// <see cref="SendAsync"/>, held for the WHOLE burst. Pipelining happens WITHIN a burst;
     /// the background lane's quiet window still governs BETWEEN bursts, so a background scan
     /// can never interleave mid-batch (an interleaved dread is the HwCheck-documented way to
-    /// get a commit silently discarded).</summary>
+    /// get a commit silently discarded).
+    ///
+    /// Runs on a pool thread via Task.Run. The pipelined loop paces itself to the millisecond, and
+    /// where the timer resolution cannot be raised it spins rather than yields (see
+    /// SerialSonuLink.PipelineWaitAsync) — on the caller's thread, Avalonia's UI thread in the app,
+    /// a 96-chunk read froze the window for the whole burst at 106% of a core. The continuation
+    /// still resumes on the captured context, so callers' UI updates are unaffected.</summary>
     private async Task<IReadOnlyList<string>> SendBatchGatedAsync(IReadOnlyList<string> commands, CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
         Volatile.Write(ref _lastForegroundTicks, _tick());
         var sw = Stopwatch.StartNew();
-        try { return await _link.SendBatchAsync(commands, ct); }
+        try { return await Task.Run(() => _link.SendBatchAsync(commands, ct), ct); }
         finally
         {
             sw.Stop();
