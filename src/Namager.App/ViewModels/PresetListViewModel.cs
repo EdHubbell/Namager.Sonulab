@@ -12,10 +12,14 @@ public partial class PresetListViewModel : ObservableObject
     private readonly ReorderService _reorder;
     private readonly bool _writes;
     private readonly Namager.App.Services.IStatusService _status;
+    private readonly Namager.App.Services.IPresetUsageService _usage;
 
     public PresetListViewModel(DeviceRepository repo, ReorderService reorder, bool writesAllowed,
-                               Namager.App.Services.IStatusService? status = null)
-    { _repo = repo; _reorder = reorder; _writes = writesAllowed; _status = status ?? Namager.App.Services.NullStatusService.Instance; }
+                               Namager.App.Services.IStatusService? status = null,
+                               Namager.App.Services.IPresetUsageService? usage = null)
+    { _repo = repo; _reorder = reorder; _writes = writesAllowed;
+      _status = status ?? Namager.App.Services.NullStatusService.Instance;
+      _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance; }
 
     public ObservableCollection<PresetItemViewModel> Items { get; } = new();
     [ObservableProperty] private PresetItemViewModel? _selected;
@@ -33,6 +37,7 @@ public partial class PresetListViewModel : ObservableObject
         {
             await work();
             await ReloadAsync();
+            _usage.Invalidate();          // presets changed → amp/IR "used" highlights are now stale
             _status.Success(success);
             return true;
         }

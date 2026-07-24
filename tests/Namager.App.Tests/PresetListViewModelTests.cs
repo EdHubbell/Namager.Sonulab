@@ -285,4 +285,34 @@ public class PresetListViewModelTests
         Assert.False(vm.IsBusy);
         Assert.False(string.IsNullOrWhiteSpace(vm.ErrorMessage));
     }
+
+    [Fact] public async Task Successful_mutation_invalidates_preset_usage()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var usage = new FakePresetUsageService();
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true, usage: usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+
+        await vm.DeleteCommand.ExecuteAsync(null);
+
+        Assert.True(usage.InvalidateCount >= 1);       // preset changed → usage cache is stale
+    }
+
+    [Fact] public async Task Refresh_does_not_invalidate_usage()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var usage = new FakePresetUsageService();
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true, usage: usage);
+
+        await vm.RefreshCommand.ExecuteAsync(null);     // read-only refresh
+
+        Assert.Equal(0, usage.InvalidateCount);
+    }
 }
