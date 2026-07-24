@@ -363,4 +363,34 @@ public class PresetListViewModelTests
         Assert.Equal(1, usage.InvalidateCount);
         Assert.Equal(0, usage.MovedCount);
     }
+
+    // Throws on the dwrite that DeviceRepository.DeleteAsync issues (root\presets, chunk -1), so a
+    // delete's work() fails and RunAsync's catch path runs.
+    sealed class ThrowingDevice : FakePresetDevice
+    {
+        public override Task<string> SendAsync(string command, System.Threading.CancellationToken ct = default)
+            => command.StartsWith(@"dwrite root\presets:", StringComparison.Ordinal)
+               ? throw new System.IO.IOException("device fail")
+               : base.SendAsync(command, ct);
+    }
+
+    [Fact] public async Task Failed_mutation_invalidates_usage()
+    {
+        var dev = new ThrowingDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var usage = new FakePresetUsageService();
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true, usage: usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+
+        await vm.DeleteCommand.ExecuteAsync(null);   // work() throws; RunAsync's crash guard swallows it
+
+        Assert.Equal(1, usage.InvalidateCount);       // failure fallback: full rescan
+        Assert.Equal(0, usage.DeletedCount);           // targeted notify never ran
+        Assert.Equal(0, usage.MovedCount);
+        Assert.False(string.IsNullOrWhiteSpace(vm.ErrorMessage));   // surfaced, didn't crash
+    }
 }
