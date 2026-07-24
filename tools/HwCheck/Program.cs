@@ -13,7 +13,7 @@
 //   dotnet run --project tools/HwCheck -- --preset-dwrite-probe [--src <idx>] [--dst <idx>]  # guarded, timed re-test of preset dwrite
 //   dotnet run --project tools/HwCheck -- --dread-arg-probe [--idx <n>] [--include-crash-variants]  # read-only fuzz: does dread accept a batch/size arg? (crash variants opt-in)
 //   dotnet run --project tools/HwCheck -- --pipeline-probe [--idx <n>] [--depth <d>]  # read-only: pipelined dread burst timing (serial only)
-//   dotnet run --project tools/HwCheck -- --dswap-probe [--a <idx>] [--b <idx>]  # guarded probe of the undocumented dswap verb (backup + self-reversing)
+//   dotnet run --project tools/HwCheck -- --dswap-probe [--a <idx>] [--b <idx>] [--path <root\presets|root\amp|root\ir>] [--active]  # guarded probe of the undocumented dswap verb (backup + self-reversing); --path targets amp/ir tables, --active checks whether swapping the live preset disturbs it
 //   dotnet run --project tools/HwCheck -- --wifi [--ip <addr>] [...]  # any mode over WiFi (mDNS discovery; --ip pins the endpoint)
 // Requires VoidX-Control CLOSED (it holds COM6).
 using System.Diagnostics;
@@ -501,6 +501,9 @@ int dsp = Array.IndexOf(args, "--dswap-probe");
 if (dsp >= 0)
 {
     if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); session.Disconnect(); return 3; }
+    int dspPath = Array.IndexOf(args, "--path");
+    string swapPath = dspPath >= 0 && dspPath + 1 < args.Length ? args[dspPath + 1] : @"root\presets";
+    bool activeTest = Array.IndexOf(args, "--active") >= 0;
     var sClient = session.Client!;
     var occupied = slots.Where(s => !s.IsEmpty).Select(s => s.Index).ToList();
     if (occupied.Count < 2) { Console.WriteLine("RESULT: DSWAP-PROBE ABORT — need two occupied preset slots."); session.Disconnect(); return 1; }
@@ -524,7 +527,14 @@ if (dsp >= 0)
     await System.IO.File.WriteAllBytesAsync(fileB, bytesB);
     Console.WriteLine($"[backup] both slots -> {bdir}");
 
-    var swapCmd = $"dswap root\\presets:{{\"index\":{A},\"index2\":{B}}}";
+    var swapCmd = $"dswap {swapPath}:{{\"index\":{A},\"index2\":{B}}}";
+    string? liveBefore = null;
+    if (activeTest && swapPath == @"root\presets")
+    {
+        await sClient.SendRawAsync($"write root\\app\\preset:{{\"value\":\"{namesBefore[A]}\"}}"); // select A live
+        liveBefore = (await sClient.SendRawAsync("read root\\app\\preset")).Trim();
+        Console.WriteLine($"[active] live preset before swap: {liveBefore}");
+    }
     Console.WriteLine($"[probe] {swapCmd}");
     var swSwap = Stopwatch.StartNew();
     var swapResp = await sClient.SendRawAsync(swapCmd);
@@ -532,6 +542,15 @@ if (dsp >= 0)
     var respRecs = Sonulab.Core.Protocol.ResponseParser.NonMeterRecords(swapResp).ToList();
     Console.WriteLine($"[probe] responded in {swSwap.ElapsedMilliseconds} ms; records: {(respRecs.Count == 0 ? "(none)" : string.Join(" | ", respRecs.Select(r => r.Length > 70 ? r[..70] + "…" : r)))}");
     await Task.Delay(800);
+
+    if (activeTest && swapPath == @"root\presets")
+    {
+        var liveAfter = (await sClient.SendRawAsync("read root\\app\\preset")).Trim();
+        Console.WriteLine($"[active] live preset after swap:  {liveAfter}");
+        Console.WriteLine(liveBefore == liveAfter
+            ? "   => ACTIVE-SLOT: live preset UNDISTURBED by dswap"
+            : "   => ACTIVE-SLOT: live preset CHANGED by dswap — engine must re-select after a move touching the active slot");
+    }
 
     var namesAfter = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
     bool namesSwapped = namesAfter[A] == namesBefore[B] && namesAfter[B] == namesBefore[A];
