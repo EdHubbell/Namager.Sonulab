@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Sonulab.Core;
 using Sonulab.Core.Connection;
 using Sonulab.Core.Services;
+using Sonulab.Core.Transport;
 
 namespace Namager.App.ViewModels;
 
@@ -13,27 +14,41 @@ public partial class ConnectionViewModel : ObservableObject
     // Named _statusService (not _status) to avoid clashing with the [ObservableProperty] backing
     // field for the Status string property below.
     private readonly Namager.App.Services.IStatusService _statusService;
+    private readonly Action<Action> _dispatch;
     private bool _usagePinged;   // first successful connect of this app run only
 
     public ConnectionViewModel(DeviceSession session,
                                Namager.App.Services.IUsagePingService? usage = null,
-                               Namager.App.Services.IStatusService? status = null)
-    { _session = session; _usage = usage; _statusService = status ?? Namager.App.Services.NullStatusService.Instance; }
+                               Namager.App.Services.IStatusService? status = null,
+                               Action<Action>? dispatch = null)
+    { _session = session; _usage = usage;
+      _statusService = status ?? Namager.App.Services.NullStatusService.Instance;
+      _dispatch = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a)); }
 
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private bool _writesAllowed;
     [ObservableProperty] private string _status = "Disconnected";
+
+    /// <summary>Latched once the link dies mid-session. Keeps Connect disabled: re-opening the
+    /// transport on a session whose link is gone is the reconnect path this design rejects
+    /// (see CanConnect's note below). Recovery is an app restart.</summary>
+    [ObservableProperty] private bool _isDeviceLost;
 
     public DeviceRepository? Repository { get; private set; }
     public ReorderService? Reorder { get; private set; }
     public SonuClient? Client { get; private set; }
     public event EventHandler? Connected;
 
+    /// <summary>Raised once when the link dies mid-session, after the VM has entered its dead
+    /// state. MainWindowViewModel uses it to stop the background usage scan.</summary>
+    public event EventHandler? DeviceLost;
+
     /// <summary>Connect is only offered while disconnected. Re-opening the transport on an already-live
     /// session resets the ESP32 and builds a second, conflicting link — which wedged the pedal until a
     /// power cycle. Reconnecting after a drop requires restarting the app.</summary>
-    private bool CanConnect => !IsConnected;
+    private bool CanConnect => !IsConnected && !IsDeviceLost;
     partial void OnIsConnectedChanged(bool value) => ConnectCommand.NotifyCanExecuteChanged();
+    partial void OnIsDeviceLostChanged(bool value) => ConnectCommand.NotifyCanExecuteChanged();
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task ConnectAsync()
@@ -54,6 +69,7 @@ public partial class ConnectionViewModel : ObservableObject
             WritesAllowed = state.Compatibility!.WritesAllowed;
             Status = $"{state.Device!.Name} {state.Device.Version} — {state.Compatibility!.Message} ({state.Transport})";
             Client = _session.Client;
+            Client!.Disconnected += OnDeviceDisconnected;
             Repository = new DeviceRepository(_session.Client!);
             Reorder = new ReorderService(Repository);
             // Idle summary the bar shows once connect + initial reads finish.
@@ -79,4 +95,18 @@ public partial class ConnectionViewModel : ObservableObject
             _statusService.Failure($"Connect failed: {ex.Message}");
         }
     }
+
+    /// <summary>Fires on the thread of the failing send, so marshal before touching bound state.
+    /// Idempotent: SonuClient raises this once, but the guard keeps a second source harmless.</summary>
+    private void OnDeviceDisconnected(DeviceDisconnectedException ex) => _dispatch(() =>
+    {
+        if (IsDeviceLost) return;
+        IsDeviceLost = true;                  // BEFORE IsConnected: CanConnect must already be false
+        IsConnected = false;
+        Status = "Device disconnected — reconnect the pedal and restart NAMager";
+        _statusService.Failure(ex.Message);   // carries the at-risk slot when an upload was cut short
+        _statusService.SetIdleSummary("Device disconnected");
+        try { _session.Disconnect(); } catch { /* the transport already closed itself */ }
+        DeviceLost?.Invoke(this, EventArgs.Empty);
+    });
 }

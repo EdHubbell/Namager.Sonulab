@@ -111,6 +111,9 @@ public partial class MainWindowViewModel : ObservableObject
         var session = new DeviceSession(providers, new CompatibilityChecker(FirmwareCatalog.Default));
 
         _connection = new ConnectionViewModel(session, new UsagePingService(), Status);
+        // The scan's link is dead; its task must not keep polling a corpse. (SonuClient's latch
+        // makes each attempt fail instantly, so this is about ending it, not about cost.)
+        _connection.DeviceLost += (_, _) => _usageService?.Stop();
         _connection.Connected += (_, _) =>
         {
             _ampsLoaded = _irsLoaded = false;
