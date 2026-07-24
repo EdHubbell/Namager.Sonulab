@@ -1,6 +1,8 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using Sonulab.Core.Model;
+using Sonulab.Core.Transport;
 
 namespace Sonulab.Core.Services;
 
@@ -156,6 +158,21 @@ public sealed class SlotBlobService
     public async Task UploadAsync(int slot, byte[] payload, string name,
         IProgress<SlotUploadProgress>? progress = null, CancellationToken ct = default)
     {
+        var writing = new StrongBox<bool>(false);
+        try { await UploadCoreAsync(slot, payload, name, writing, progress, ct); }
+        catch (DeviceDisconnectedException ex) when (!ex.WasWriting)
+        {
+            // The link died mid-upload. The rollback path is dead too, so the honest thing is to
+            // name the slot. `writing.Value` keeps a pre-write failure (the name-table read at the
+            // top of the burst) from being reported as a half-write; the `!ex.WasWriting` filter
+            // stops a re-attribution if this ever ends up wrapped twice.
+            throw ex.ForSlot(_kind.Noun, slot, writing.Value);
+        }
+    }
+
+    private async Task UploadCoreAsync(int slot, byte[] payload, string name,
+        StrongBox<bool> writing, IProgress<SlotUploadProgress>? progress, CancellationToken ct)
+    {
         if (slot is < 0 or >= SlotCount)
             throw _raise($"Slot must be 0..{SlotCount - 1}, got {slot}.");
         if (payload.Length != _kind.SlotBytes)
@@ -178,6 +195,7 @@ public sealed class SlotBlobService
         int done = 0;
         async Task WriteChunkAckedAsync(int chunk, byte[] data, int expectNext)
         {
+            writing.Value = true;          // from here on, a drop may have half-written the slot
             var raw = await _client.DWriteChunkAsync(_kind.ListPath, slot, chunk, data, ct);
             var m = Regex.Match(raw, "\"chunk\":(-?\\d+)}");
             if (!m.Success || int.Parse(m.Groups[1].Value) != expectNext)
