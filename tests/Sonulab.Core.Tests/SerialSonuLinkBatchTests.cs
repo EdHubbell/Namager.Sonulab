@@ -53,7 +53,6 @@ public class SerialSonuLinkBatchTests
         Assert.Equal(4, windows.Count);
         for (int i = 0; i < 4; i++) Assert.Contains($"\"chunk\":{i + 1}", windows[i]);
         Assert.Equal(4, port.Received.Count);
-        Assert.Empty(port.Dropped);
     }
 
     [Fact]
@@ -62,6 +61,10 @@ public class SerialSonuLinkBatchTests
         var (link, port, _) = Make();
         RespondNormally(port);
         port.FirstByteLatencyMs = 1;          // device answers instantly — only the floor holds us back
+        // The real firmware cliff (PROTOCOL.md): anything paced under ~25ms is eaten. Arming
+        // this makes the floor genuinely falsifiable — if the loop ever sent too soon, the
+        // command would be dropped and Assert.Empty(port.Dropped) below would fail.
+        port.DropIfSentWithinMs = 25;
         await link.OpenAsync();
 
         await link.SendBatchAsync(Cmds(6));
@@ -70,6 +73,7 @@ public class SerialSonuLinkBatchTests
         for (int i = 1; i < port.ReceivedAt.Count; i++)
             Assert.True(port.ReceivedAt[i] - port.ReceivedAt[i - 1] >= Pace,
                 $"send {i} came {port.ReceivedAt[i] - port.ReceivedAt[i - 1]}ms after the previous — under the {Pace}ms floor");
+        Assert.Empty(port.Dropped);
     }
 
     [Fact]
@@ -87,6 +91,36 @@ public class SerialSonuLinkBatchTests
         for (int i = 1; i < port.ReceivedAt.Count; i++)
             Assert.True(port.ReceivedAt[i] - port.ReceivedAt[i - 1] >= 90,
                 $"send {i} did not wait for the previous response to start ({port.ReceivedAt[i] - port.ReceivedAt[i - 1]}ms)");
+    }
+
+    [Fact]
+    public async Task Clocks_on_any_byte_since_the_last_send_not_specifically_the_new_responses_first_byte()
+    {
+        // The self-clock predicate is satisfied by ANY byte arriving after a send, including the
+        // tail of an EARLIER response still streaming in — that byte is just as valid a proof
+        // the device is mid-transmission and listening again as the new response's own first
+        // byte would be. Model that directly: split every response into two fragments so
+        // response 1's terminating byte can still be in flight when response 2 has not started.
+        var (link, port, _) = Make();
+        port.Responder = _ => "R\0";
+        port.FirstByteLatencyMs = 60;   // a fresh response's own first byte, if we waited for it
+        port.FragmentIntervalMs = 50;   // gap between a response's two fragments
+        port.FragmentSize = 1;          // "R" then the terminating NUL, delivered separately
+        await link.OpenAsync();
+
+        await link.SendBatchAsync(Cmds(3));
+
+        // Send 3 is released ~50ms after send 2 — by response 1's trailing NUL, the tail of an
+        // EARLIER response — not by response 2's own first byte, which would take the full 60ms
+        // FirstByteLatencyMs. If the loop only reacted to the NEW response's first byte, this
+        // gap could never be smaller than 60ms.
+        Assert.True(port.ReceivedAt.Count >= 3, "expected all 3 commands to be sent");
+        var gap = port.ReceivedAt[2] - port.ReceivedAt[1];
+        Assert.True(gap < 60,
+            $"send 3 waited {gap}ms after send 2 — as long as a fresh response's own first byte " +
+            "would take, meaning the loop is not crediting the earlier response's still-arriving tail");
+        Assert.True(gap >= Pace,
+            $"send 3 came only {gap}ms after send 2 — under the {Pace}ms floor even though a byte arrived sooner");
     }
 
     [Fact]

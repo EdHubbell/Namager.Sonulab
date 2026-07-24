@@ -80,8 +80,12 @@ public sealed class SerialSonuLink : ISonuLink
 
     /// <summary>Paced-overlap pipelining (PROTOCOL.md "dread limits &amp; hazards"): the firmware
     /// drops zero-gap command bursts, but it DOES accept the next command while still streaming
-    /// the previous response. So we self-clock — send N+1 once the first byte of response N has
-    /// arrived — with PipelineMinPaceMs as a hard floor (30 ms proven; 25 ms is the cliff).
+    /// the previous response. So we self-clock — send N+1 once ANY response byte has arrived
+    /// since send N. That byte need not be response N's own first byte; it may be the tail of an
+    /// EARLIER response still streaming in, and that is just as valid a signal that the device is
+    /// mid-transmission and listening again. PipelineMinPaceMs is a hard floor regardless (30 ms
+    /// proven; 25 ms is the cliff), and FirstByteTimeoutMs is the stall escape — if a command was
+    /// eaten, no byte will ever arrive and the batch must keep moving instead of hanging on it.
     /// Measured ~33 ms/chunk vs ~57 lockstep.
     ///
     /// Per the interface contract, the returned windows are NOT positionally aligned with
@@ -116,9 +120,11 @@ public sealed class SerialSonuLink : ISonuLink
 
             long now = _tick();
             bool paceOk = sent == 0 || now - lastSendAt >= _options.PipelineMinPaceMs;
-            // Self-clock: the previous response has STARTED arriving, so the device is listening
-            // again. FirstByteTimeoutMs is the escape hatch — if the device ate the previous
-            // command, nothing will ever arrive and the batch must not stall on it.
+            // Self-clock: a response byte has arrived since the last send, so the device is
+            // mid-transmission and listening again. That byte may be the tail of an EARLIER
+            // response still streaming in rather than this response's own first byte — either
+            // way it's a valid signal. FirstByteTimeoutMs is the escape hatch — if the device ate
+            // the previous command, nothing will ever arrive and the batch must not stall on it.
             bool previousMoving = sent == 0 || sawByteSinceSend
                                   || now - lastSendAt >= _options.FirstByteTimeoutMs;
             if (sent < commands.Count && paceOk && previousMoving)
