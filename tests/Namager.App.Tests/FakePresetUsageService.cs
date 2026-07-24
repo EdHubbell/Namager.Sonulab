@@ -1,23 +1,38 @@
 using Namager.App.Services;
 using Sonulab.Core.Services;
 
-/// <summary>Controllable usage service for VM tests: set <see cref="Map"/>, observe calls.</summary>
+/// <summary>Controllable usage service for VM tests: set <see cref="Map"/>/<see cref="Complete"/>,
+/// raise <see cref="RaiseMapUpdated"/>, observe calls.</summary>
 public sealed class FakePresetUsageService : IPresetUsageService
 {
     public PresetUsageMap Map { get; set; } = PresetUsageMap.Empty;
+    public bool Complete { get; set; } = true;
     public int InvalidateCount { get; private set; }
-    public int GetCount { get; private set; }
+    public int EnsureScanningCount { get; private set; }
+    public int EnsureCompleteCount { get; private set; }
 
-    // When set, GetAsync awaits this before returning — lets a test hold a usage scan in flight.
+    // When set, EnsureCompleteAsync awaits this — lets a test hold a guard check in flight.
     public System.Threading.Tasks.TaskCompletionSource? Gate { get; set; }
+    // When set, EnsureCompleteAsync throws (simulates a dead link — guards must stay closed).
+    public System.Exception? FailWith { get; set; }
 
-    public async System.Threading.Tasks.Task<PresetUsageMap> GetAsync()
+    public PresetUsageMap Current => Map;
+    public bool IsComplete => Complete;
+    public event System.Action? MapUpdated;
+    public void RaiseMapUpdated() => MapUpdated?.Invoke();
+
+    public void EnsureScanning() { EnsureScanningCount++; }
+    public async System.Threading.Tasks.Task<PresetUsageMap> EnsureCompleteAsync(
+        System.Threading.CancellationToken ct = default)
     {
-        GetCount++;
+        EnsureCompleteCount++;
         if (Gate is not null) await Gate.Task;
+        if (FailWith is not null) throw FailWith;
+        Complete = true;
         return Map;
     }
-    public void Invalidate() { InvalidateCount++; }
+    public void Invalidate() { InvalidateCount++; Complete = false; }
+    public void Stop() { }
 
     // Build a map from raw amp/IR node lines. Each preset carries its 0-based slot.
     public static PresetUsageMap MapFor(params (int Slot, string Preset, string[] Lines)[] presets)

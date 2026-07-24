@@ -946,24 +946,8 @@ public class AmpListViewModelTests : IDisposable
         Assert.Equal(listReads, dev.CommandLog.Count(c => c == @"read root\amp"));  // no amp re-list
     }
 
-    [Fact]
-    public async Task RefreshUsage_holds_the_busy_gate_while_scanning()
-    {
-        var usage = new FakePresetUsageService();                // open (ungated) for the initial load
-        var (vm, _, _) = MakeWithUsage(usage);
-        await vm.RefreshCommand.ExecuteAsync(null);               // initial load completes normally
-        Assert.True(vm.CanMutate);
-
-        usage.Gate = new System.Threading.Tasks.TaskCompletionSource();
-        var t = vm.RefreshUsageAsync();                           // not awaited — observe the in-flight state
-
-        Assert.True(vm.IsBusy);
-        Assert.False(vm.CanMutate);
-
-        usage.Gate.SetResult();
-        await t;
-
-        Assert.False(vm.IsBusy);
-        Assert.True(vm.CanMutate);
-    }
+    // RefreshUsage_holds_the_busy_gate_while_scanning intentionally removed (Task 4): the new
+    // IPresetUsageService bridge (`_usage.Current`, no await) never gates IsBusy on a scan — that
+    // was the OLD blocking-cache behavior. The plan's Task 5 replaces it with a non-blocking
+    // RefreshUsageAsync (progressive fill via MapUpdated); no equivalent busy-gate assertion applies.
 }

@@ -9,60 +9,88 @@ public class PresetUsageServiceTests
     private const string AmpNode = @"root\app\amp\amp:{{""value"":""{0}""}}";
     private static string Amp(string name) => string.Format(AmpNode, name);
 
-    private static (PresetUsageService svc, DeviceRepository repo, FakePresetDevice dev) Make()
+    private static (PresetUsageService svc, FakePresetDevice dev, CountingLink link) Make()
     {
         var dev = new FakePresetDevice();
         dev.SeedSlot(0, "Lead", new[] { Amp("Plexi") });
         dev.SeedSlot(1, "Rhythm", new[] { Amp("Plexi") });
-        // slot 2 empty on purpose
         dev.OpenAsync().GetAwaiter().GetResult();
-        var repo = new DeviceRepository(new SonuClient(dev));
-        return (new PresetUsageService(repo), repo, dev);
+        var link = new CountingLink(dev);
+        // backgroundQuietMs 0: tests exercise scan logic, not the lane (lane has its own tests)
+        var repo = new DeviceRepository(new SonuClient(link, backgroundQuietMs: 0));
+        return (new PresetUsageService(repo), dev, link);
     }
 
     [Fact]
-    public async Task GetAsync_builds_the_map_from_occupied_presets_with_slots()
+    public async Task EnsureComplete_builds_the_full_map()
     {
         var (svc, _, _) = Make();
-        var map = await svc.GetAsync();
+        var map = await svc.EnsureCompleteAsync();
+        Assert.True(svc.IsComplete);
         Assert.Equal(new[] { new PresetRef(0, "Lead"), new PresetRef(1, "Rhythm") },
                      map.PresetsUsingAmp("Plexi"));
     }
 
     [Fact]
-    public async Task GetAsync_caches_and_does_not_reread_until_invalidated()
+    public async Task Scan_is_progressive_and_raises_MapUpdated_per_preset()
     {
-        var dev = new FakePresetDevice();
-        dev.SeedSlot(0, "Lead", new[] { Amp("Plexi") });
-        await dev.OpenAsync();
-        var link = new CountingLink(dev);
-        var svc = new PresetUsageService(new DeviceRepository(new SonuClient(link)));
-
-        await svc.GetAsync();
-        int afterFirst = link.Dreads;
-        Assert.True(afterFirst > 0, "first build must read preset content");
-
-        await svc.GetAsync();
-        Assert.Equal(afterFirst, link.Dreads);          // cache hit: no new reads
-
-        svc.Invalidate();
-        await svc.GetAsync();
-        Assert.True(link.Dreads > afterFirst);          // rebuild after invalidation
+        var (svc, _, _) = Make();
+        int updates = 0;
+        svc.MapUpdated += () => Interlocked.Increment(ref updates);
+        svc.EnsureScanning();
+        await svc.EnsureCompleteAsync();
+        Assert.True(updates >= 2, $"expected per-preset updates, got {updates}");
+        Assert.Single(svc.Current.PresetsUsingAmp("Plexi").Where(r => r.Index == 0));
     }
 
     [Fact]
-    public async Task GetAsync_reports_a_status_scope()
+    public async Task Complete_map_is_cached_until_invalidated()
     {
-        var dev = new FakePresetDevice();
-        dev.SeedSlot(0, "Lead", new[] { Amp("Plexi") });
-        await dev.OpenAsync();
-        var status = new FakeStatusService();
-        var svc = new PresetUsageService(new DeviceRepository(new SonuClient(dev)), status);
-        await svc.GetAsync();
-        Assert.Contains(status.Begun, m => m.Contains("preset usage"));
+        var (svc, _, link) = Make();
+        await svc.EnsureCompleteAsync();
+        int afterFirst = link.Dreads;
+        Assert.True(afterFirst > 0);
+
+        await svc.EnsureCompleteAsync();
+        Assert.Equal(afterFirst, link.Dreads);              // cache hit
+
+        svc.Invalidate();
+        Assert.False(svc.IsComplete);
+        Assert.NotSame(PresetUsageMap.Empty, svc.Current);  // stale map kept for highlights
+        await svc.EnsureCompleteAsync();
+        Assert.True(link.Dreads > afterFirst);              // rescan happened
     }
 
-    // Counts content reads so we can prove caching.
+    [Fact]
+    public async Task Invalidate_during_a_scan_restarts_it()
+    {
+        var (svc, dev, _) = Make();
+        svc.EnsureScanning();
+        svc.Invalidate();
+        dev.SeedSlot(2, "New", new[] { Amp("JCM800") });
+        var map = await svc.EnsureCompleteAsync();
+        Assert.Single(map.PresetsUsingAmp("JCM800"));       // post-invalidate content included
+    }
+
+    [Fact]
+    public async Task EnsureComplete_throws_when_the_link_is_dead_and_guards_stay_closed()
+    {
+        var dev = new FakePresetDevice();                   // never opened → SendAsync throws
+        var repo = new DeviceRepository(new SonuClient(dev, backgroundQuietMs: 0));
+        var svc = new PresetUsageService(repo);
+        await Assert.ThrowsAnyAsync<Exception>(() => svc.EnsureCompleteAsync());
+        Assert.False(svc.IsComplete);
+    }
+
+    [Fact]
+    public async Task Stop_cancels_a_running_scan()
+    {
+        var (svc, _, _) = Make();
+        svc.EnsureScanning();
+        svc.Stop();
+        await Assert.ThrowsAnyAsync<Exception>(() => svc.EnsureCompleteAsync());
+    }
+
     private sealed class CountingLink : Sonulab.Core.Transport.ISonuLink
     {
         private readonly Sonulab.Core.Transport.ISonuLink _inner;

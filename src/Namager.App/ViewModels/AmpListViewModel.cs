@@ -95,16 +95,17 @@ public partial class AmpListViewModel : ObservableObject
 
     /// <summary>Tag each item with the presets that use it. Highlighting is best-effort: a preset
     /// read failure must never break the amp list, so its errors are swallowed (logged).</summary>
-    private async Task ApplyUsageAsync()
+    private Task ApplyUsageAsync()
     {
         try
         {
-            var map = await _usage.GetAsync();
+            var map = _usage.Current;
             foreach (var item in Items)
                 item.UsedInPresets = item.IsEmpty
                     ? System.Array.Empty<Sonulab.Core.Services.PresetRef>() : map.PresetsUsingAmp(item.Name);
         }
         catch (Exception ex) { Log.Warn(ex, "amp preset-usage lookup failed"); }
+        return Task.CompletedTask;
     }
 
     /// <summary>Re-apply preset-usage highlighting without re-listing amps (cheap: cached map, or a
