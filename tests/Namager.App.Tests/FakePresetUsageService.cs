@@ -10,6 +10,10 @@ public sealed class FakePresetUsageService : IPresetUsageService
     public int InvalidateCount { get; private set; }
     public int EnsureScanningCount { get; private set; }
     public int EnsureCompleteCount { get; private set; }
+    public int MovedCount { get; private set; }
+    public (int From, int To)? LastMoved { get; private set; }
+    public int RenamedCount { get; private set; }
+    public int DeletedCount { get; private set; }
 
     // When set, EnsureCompleteAsync awaits this — lets a test hold a guard check in flight.
     public System.Threading.Tasks.TaskCompletionSource? Gate { get; set; }
@@ -32,6 +36,9 @@ public sealed class FakePresetUsageService : IPresetUsageService
         return Map;
     }
     public void Invalidate() { InvalidateCount++; Complete = false; }
+    public void NotifyPresetMoved(int from, int to) { MovedCount++; LastMoved = (from, to); Map = Map.WithMovedSlot(from, to); RaiseMapUpdated(); }
+    public void NotifyPresetRenamed(int index, string newName) { RenamedCount++; Map = Map.WithRenamedPreset(index, newName); RaiseMapUpdated(); }
+    public void NotifyPresetDeleted(int index) { DeletedCount++; Map = Map.WithoutSlot(index); RaiseMapUpdated(); }
     public void Stop() { }
 
     // Build a map from raw amp/IR node lines. Each preset carries its 0-based slot.

@@ -21,6 +21,22 @@ public class PresetUsageServiceTests
         return (new PresetUsageService(repo), dev, link);
     }
 
+    /// <summary>Seeds a device with the given (index, presetName, ampName) presets, opens a
+    /// PresetUsageService over it, and runs the scan to completion. Used by the targeted-notify
+    /// tests, which need a service whose IsComplete is already true.</summary>
+    private static async Task<(PresetUsageService svc, DeviceRepository repo)> CompletedService(
+        params (int Index, string PresetName, string AmpName)[] presets)
+    {
+        var dev = new FakePresetDevice();
+        foreach (var (index, presetName, ampName) in presets)
+            dev.SeedSlot(index, presetName, new[] { Amp(ampName) });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev, backgroundQuietMs: 0));
+        var svc = new PresetUsageService(repo);
+        await svc.EnsureCompleteAsync();
+        return (svc, repo);
+    }
+
     [Fact]
     public async Task EnsureComplete_builds_the_full_map()
     {
@@ -126,6 +142,38 @@ public class PresetUsageServiceTests
         Assert.Equal(new[] { new PresetRef(0, "Lead"), new PresetRef(1, "Rhythm") },
                      map.PresetsUsingAmp("Plexi"));
         Assert.True(link.ListAttempts >= 2, $"expected a retry, got {link.ListAttempts} attempt(s)");
+    }
+
+    [Fact]
+    public async Task NotifyPresetMoved_remaps_current_and_keeps_complete()
+    {
+        var (svc, _) = await CompletedService(
+            (0, "A", "mA"), (1, "B", "mB"), (2, "C", "mC"));
+        Assert.True(svc.IsComplete);
+        int updates = 0; svc.MapUpdated += () => updates++;
+
+        svc.NotifyPresetMoved(0, 2);   // A moves 0 -> 2
+
+        Assert.True(svc.IsComplete);   // targeted maintenance does NOT drop completeness
+        Assert.Equal(1, updates);
+        Assert.Equal(2, svc.Current.PresetsUsingAmp("mA")[0].Index);
+    }
+
+    [Fact]
+    public async Task NotifyPresetDeleted_drops_refs_and_keeps_complete()
+    {
+        var (svc, _) = await CompletedService((0, "A", "mA"), (1, "B", "mB"));
+        svc.NotifyPresetDeleted(0);
+        Assert.True(svc.IsComplete);
+        Assert.Empty(svc.Current.PresetsUsingAmp("mA"));
+    }
+
+    [Fact]
+    public async Task NotifyPresetRenamed_updates_ref_name()
+    {
+        var (svc, _) = await CompletedService((0, "A", "mA"));
+        svc.NotifyPresetRenamed(0, "A2");
+        Assert.Equal("A2", svc.Current.PresetsUsingAmp("mA")[0].Name);
     }
 
     /// <summary>Link wrapper that returns an empty response ("torn read") for any dread targeting

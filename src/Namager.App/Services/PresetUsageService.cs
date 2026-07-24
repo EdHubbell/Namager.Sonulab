@@ -31,6 +31,16 @@ public interface IPresetUsageService
     /// highlights but clears IsComplete; the next EnsureScanning()/EnsureCompleteAsync() rescans.</summary>
     void Invalidate();
 
+    /// <summary>A verified reorder happened: remap Current in place (no rescan), keep IsComplete,
+    /// raise MapUpdated. Callers must invoke ONLY on verified success; on failure use Invalidate().</summary>
+    void NotifyPresetMoved(int from, int to);
+
+    /// <summary>A verified rename happened: update the ref name at <paramref name="index"/> in place.</summary>
+    void NotifyPresetRenamed(int index, string newName);
+
+    /// <summary>A verified delete happened: drop refs at <paramref name="index"/> in place.</summary>
+    void NotifyPresetDeleted(int index);
+
     /// <summary>Cancel any background work (disconnect / reconnect).</summary>
     void Stop();
 }
@@ -97,6 +107,19 @@ public sealed class PresetUsageService : IPresetUsageService
     {
         lock (_sync) { _version++; _isComplete = false; }
         // _current is kept: stale highlights beat no highlights. Guards use EnsureCompleteAsync.
+    }
+
+    public void NotifyPresetMoved(int from, int to) => Apply(m => m.WithMovedSlot(from, to));
+    public void NotifyPresetRenamed(int index, string newName) => Apply(m => m.WithRenamedPreset(index, newName));
+    public void NotifyPresetDeleted(int index) => Apply(m => m.WithoutSlot(index));
+
+    // Transform Current in place and notify. IsComplete is intentionally UNTOUCHED: if the map was
+    // complete it stays complete (targeted maintenance); if a rescan is mid-flight it stays
+    // incomplete and that scan re-derives the truth. Safe to call from the UI thread post-mutation.
+    private void Apply(Func<PresetUsageMap, PresetUsageMap> transform)
+    {
+        _current = transform(_current);
+        MapUpdated?.Invoke();
     }
 
     public void Stop() => _cts.Cancel();
@@ -179,6 +202,9 @@ public sealed class NullPresetUsageService : IPresetUsageService
     public Task<PresetUsageMap> EnsureCompleteAsync(CancellationToken ct = default)
         => Task.FromResult(PresetUsageMap.Empty);
     public void Invalidate() { }
+    public void NotifyPresetMoved(int from, int to) { }
+    public void NotifyPresetRenamed(int index, string newName) { }
+    public void NotifyPresetDeleted(int index) { }
     public void Stop() { }
 }
 
