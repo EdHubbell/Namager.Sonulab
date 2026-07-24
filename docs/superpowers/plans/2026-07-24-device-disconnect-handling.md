@@ -14,7 +14,7 @@
 
 - **Do NOT add FluentAvalonia** or any third-party icon/UI library (Avalonia 12 + built-in `FluentTheme` only).
 - `Sonulab.Core` and `Sonulab.Transport.Wifi` have **no UI dependency** — no Avalonia types may be referenced from them.
-- All existing tests must keep passing: `dotnet test` (490 tests at the time of writing).
+- All existing tests must keep passing: `dotnet test` — measured baseline on this branch is **717 passing, 0 failing** (Core 235, App 292, Distill 86, Tone3000 78, Wifi 26). The "490 tests" figure in `CLAUDE.md` is stale; do not treat it as the target.
 - `OperationCanceledException` is **never** a disconnect. Every classification predicate must exclude it.
 - `TimeoutException` is **never** a disconnect (transient; `SerialPort.Read` is only called after `BytesToRead > 0`).
 - Only the **send** paths classify. `OpenAsync` is left alone so "VoidX-Control is holding COM6" (`UnauthorizedAccessException` at open) stays a probe failure.
