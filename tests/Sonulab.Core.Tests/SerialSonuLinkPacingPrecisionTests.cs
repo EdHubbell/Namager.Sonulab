@@ -11,6 +11,7 @@ using Xunit;
 /// wakes ~13 ms past the moment it could have sent.
 ///
 /// Two invariants, one per half of the fix.</summary>
+[Collection(TimingSensitive.Name)]
 public class SerialSonuLinkPacingPrecisionTests
 {
     private const int Pace = 30;

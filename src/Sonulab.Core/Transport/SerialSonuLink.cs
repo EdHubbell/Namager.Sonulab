@@ -50,16 +50,24 @@ public sealed class SerialSonuLink : ISonuLink
     /// 63 sends): a chunk response stops streaming a few ms BEFORE the floor opens, so the loop
     /// slept one full ~15.6 ms timer tick and woke well past the moment it could have sent.
     ///
-    /// So: sleep only for whatever is comfortably more than one tick, then spin the remainder.
-    /// The spin is bounded by TimerTickMs PER CALL, so the caller controls the real cost by how
-    /// much it asks for: the batch loop requests the whole interval remaining to its send floor
-    /// (~30 ms), which sleeps for the bulk of it and spins the tail. Requesting a few ms at a time
-    /// instead would spin continuously — an entire core, measured. Callers must also keep this off
-    /// a UI thread: it can complete without ever yielding (see SonuClient.SendBatchGatedAsync).</summary>
-    public static async Task PipelineWaitAsync(int ms, CancellationToken ct)
+    /// The fix is to remove the constraint rather than work around it: SendBatchAsync holds a
+    /// <see cref="TimerResolutionScope"/> for the burst, which puts the scheduler tick at 1 ms, and
+    /// then a plain Task.Delay is accurate (3.57 ms for a 3 ms request, against 15.61 without) at
+    /// idle CPU. Where that is unavailable — non-Windows, or winmm refusing — this falls back to
+    /// sleeping coarsely and spinning the tail: equally accurate, but it burns a core, so callers
+    /// must keep it off a UI thread (see SonuClient.SendBatchGatedAsync, which hops to the pool).</summary>
+    internal static async Task PipelineWaitAsync(int ms, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (ms <= 0) return;
+
+        // Fast path: a TimerResolutionScope is holding the scheduler tick at 1 ms, so Task.Delay
+        // is accurate to about a millisecond (measured 3.57 ms for a 3 ms request, against 15.61
+        // without) and no busy-wait is warranted.
+        if (TimerResolutionScope.IsActive) { await Task.Delay(ms, ct); return; }
+
+        // Fallback for a non-Windows host, or a winmm that would not load: sleep for whatever is
+        // comfortably more than one tick, then spin the remainder. Accurate, but it burns a core.
         var sw = Stopwatch.StartNew();
         int coarse = ms - TimerTickMs;
         if (coarse > 0) await Task.Delay(coarse, ct);
@@ -142,6 +150,11 @@ public sealed class SerialSonuLink : ISonuLink
             foreach (var c in commands) seq.Add(await SendAsync(c, ct));
             return seq;
         }
+
+        // Hold the scheduler tick at 1 ms for the burst so the pacing waits below are accurate
+        // without a busy-wait. Scoped to this batch only — it is a global setting. Inert on a
+        // non-Windows host, where PipelineWaitAsync falls back to sleep-then-spin.
+        using var timerResolution = TimerResolutionScope.Acquire();
 
         // ONE discard, before the first send. A mid-batch discard would destroy responses that
         // are still in flight — which is exactly what pipelining creates.

@@ -1,6 +1,7 @@
 using Sonulab.Core.Transport;
 using Xunit;
 
+[Collection(TimingSensitive.Name)]
 public class SerialSonuLinkBatchTests
 {
     private const int Pace = 30;
