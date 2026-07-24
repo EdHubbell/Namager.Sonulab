@@ -49,6 +49,7 @@ public class FakeSlotBlobDevice : ISonuLink
 
     private static readonly Regex DWriteRx = new(@"^dwrite (\S+):\{""index"":(-?\d+),""chunk"":(-?\d+),""value"":""([0-9a-fA-F]*)""\}$");
     private static readonly Regex DReadRx = new(@"^dread (\S+):\{""index"":(-?\d+),""chunk"":(-?\d+)\}$");
+    private static readonly Regex DSwapRx = new(@"^dswap (\S+):\{""index"":(-?\d+),""index2"":(-?\d+)\}$");
 
     private static byte[] FromHex(string h)
     { var b = new byte[h.Length / 2]; for (int i = 0; i < b.Length; i++) b[i] = Convert.ToByte(h.Substring(i * 2, 2), 16); return b; }
@@ -59,6 +60,12 @@ public class FakeSlotBlobDevice : ISonuLink
         _log.Add(command);
         Match m;
 
+        if ((m = DSwapRx.Match(command)).Success && m.Groups[1].Value == _listPath)
+        {
+            int a = int.Parse(m.Groups[2].Value), b = int.Parse(m.Groups[3].Value);
+            (_slots[a], _slots[b]) = (_slots[b], _slots[a]);   // swap whole slot (name + blob) atomically
+            return Task.FromResult($"dswap {_listPath}:{{\"index\":{a},\"index2\":{b}}}\r\n");
+        }
         if ((m = DWriteRx.Match(command)).Success && m.Groups[1].Value == _listPath)
         {
             int idx = int.Parse(m.Groups[2].Value), chunk = int.Parse(m.Groups[3].Value);
