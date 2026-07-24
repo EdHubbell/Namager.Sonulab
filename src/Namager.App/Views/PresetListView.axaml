@@ -21,12 +21,6 @@
       <Button Command="{Binding RefreshCommand}" ToolTip.Tip="Refresh">
         <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
       </Button>
-      <Button Command="{Binding MoveUpCommand}" ToolTip.Tip="Move up">
-        <PathIcon Data="{StaticResource Icon.ChevronUp}" Width="16" Height="16"/>
-      </Button>
-      <Button Command="{Binding MoveDownCommand}" ToolTip.Tip="Move down">
-        <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="16" Height="16"/>
-      </Button>
       <Button Command="{Binding DuplicateCommand}" ToolTip.Tip="Duplicate">
         <PathIcon Data="{StaticResource Icon.Copy}" Width="16" Height="16"/>
       </Button>

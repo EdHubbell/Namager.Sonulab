@@ -871,12 +871,11 @@ public class AmpListViewModelTests : IDisposable
         return (new AmpListViewModel(svc, writesAllowed: true, usage: usage), dev, usage);
     }
 
-    [Fact] public async Task MoveDown_reorders_items_and_touches_usage_never()
+    [Fact] public async Task MoveItemDown_reorders_items_and_touches_usage_never()
     {
         var (vm, dev, usage) = MakeWithUsage(seed: new[] { ("A", (byte)0xA0), ("B", (byte)0xB0) });
         await vm.RefreshCommand.ExecuteAsync(null);
-        vm.Selected = vm.Items[0];                       // "A" at slot 0
-        await vm.MoveDownCommand.ExecuteAsync(null);     // -> slot 1
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);   // "A" at slot 0 -> slot 1
         Assert.Equal("B", vm.Items[0].Name);
         Assert.Equal("A", vm.Items[1].Name);
         Assert.Equal(0, usage.InvalidateCount);          // reorder must NOT rescan
@@ -890,7 +889,7 @@ public class AmpListViewModelTests : IDisposable
         usage.Map = FakePresetUsageService.MapFor((0, "P0", new[] { FakePresetUsageService.AmpLine("A") }));
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[0];
-        await vm.MoveDownCommand.ExecuteAsync(null);
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);
         Assert.Equal("A", vm.Items[1].Name);             // moved, not blocked
         Assert.Null(vm.ErrorMessage);
     }

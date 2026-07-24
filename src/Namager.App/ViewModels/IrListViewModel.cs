@@ -155,26 +155,6 @@ public partial class IrListViewModel : ObservableObject
             s.IsEditing = false;                            // gated/failed write: leave edit mode ourselves
     }
 
-    [RelayCommand] private async Task MoveUpAsync()
-    {
-        if (Selected is { IsEmpty: false, Index: > 0 } s)
-        {
-            int dest = s.Index - 1;
-            if (await RunAsync($"Moving '{s.Name}' up…", $"Moved '{s.Name}' up", () => _irs.MoveIrStepAsync(s.Index, up: true)) && dest < Items.Count)
-                Selected = Items[dest];
-        }
-    }
-
-    [RelayCommand] private async Task MoveDownAsync()
-    {
-        if (Selected is { IsEmpty: false } s && s.Index < SlotBlobService.SlotCount - 1)
-        {
-            int dest = s.Index + 1;
-            if (await RunAsync($"Moving '{s.Name}' down…", $"Moved '{s.Name}' down", () => _irs.MoveIrStepAsync(s.Index, up: false)) && dest < Items.Count)
-                Selected = Items[dest];
-        }
-    }
-
     [RelayCommand] private async Task MoveItemUpAsync(IrItemViewModel? item)
     {
         if (item is not { IsEmpty: false } s || s.Index <= 0) return;

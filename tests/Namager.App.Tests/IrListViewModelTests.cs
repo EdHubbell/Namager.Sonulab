@@ -315,12 +315,11 @@ public class IrListViewModelTests : IDisposable
         return (new IrListViewModel(svc, writesAllowed: true, usage: usage), dev, usage);
     }
 
-    [Fact] public async Task MoveDown_reorders_items_and_touches_usage_never()
+    [Fact] public async Task MoveItemDown_reorders_items_and_touches_usage_never()
     {
         var (vm, dev, usage) = MakeWithUsage(seed: new[] { ("A", (byte)0xA0), ("B", (byte)0xB0) });
         await vm.RefreshCommand.ExecuteAsync(null);
-        vm.Selected = vm.Items[0];
-        await vm.MoveDownCommand.ExecuteAsync(null);
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);
         Assert.Equal("B", vm.Items[0].Name);
         Assert.Equal("A", vm.Items[1].Name);
         Assert.Equal(0, usage.InvalidateCount);
@@ -333,7 +332,7 @@ public class IrListViewModelTests : IDisposable
         usage.Map = FakePresetUsageService.MapFor((0, "P0", new[] { FakePresetUsageService.IrLine("A") }));
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[0];
-        await vm.MoveDownCommand.ExecuteAsync(null);
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);
         Assert.Equal("A", vm.Items[1].Name);
         Assert.Null(vm.ErrorMessage);
     }

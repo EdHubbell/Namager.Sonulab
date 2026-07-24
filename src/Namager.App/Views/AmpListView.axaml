@@ -27,12 +27,6 @@
         <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
           <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
         </Button>
-        <Button Command="{Binding MoveUpCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Move up">
-          <PathIcon Data="{StaticResource Icon.ChevronUp}" Width="16" Height="16"/>
-        </Button>
-        <Button Command="{Binding MoveDownCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Move down">
-          <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="16" Height="16"/>
-        </Button>
         <Button x:Name="UploadNamButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Distill a .nam and upload it to an empty slot">
           <TextBlock Text="Upload .nam…"/>
         </Button>
