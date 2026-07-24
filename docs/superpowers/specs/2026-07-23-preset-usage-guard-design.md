@@ -46,24 +46,30 @@ A pure, fully unit-testable value object built from already-loaded preset
 documents. No device I/O.
 
 ```csharp
+public readonly record struct PresetRef(int Index, string Name);   // Index = 0-based slot
+
 public sealed class PresetUsageMap
 {
-    // ampName (case-sensitive, trimmed) -> preset display names that use it
-    // irName  -> preset display names that use it
+    // ampName (case-sensitive, trimmed) -> presets that use it, ascending by slot
+    // irName  -> presets that use it, ascending by slot
     public static PresetUsageMap Build(
-        IEnumerable<(string PresetName, PresetDocument Doc)> occupiedPresets);
+        IEnumerable<(int SlotIndex, string PresetName, PresetDocument Doc)> occupiedPresets);
 
-    // Returns the (sorted, distinct) preset names using this amp/IR, or empty.
-    public IReadOnlyList<string> PresetsUsingAmp(string ampName);
-    public IReadOnlyList<string> PresetsUsingIr(string irName);
+    // Returns the (slot-ascending, distinct) presets using this amp/IR, or empty.
+    public IReadOnlyList<PresetRef> PresetsUsingAmp(string ampName);
+    public IReadOnlyList<PresetRef> PresetsUsingIr(string irName);
 }
 ```
 
 **Extraction rule:** iterate each document's node records; for every record
-whose schema `ref` equals `root\amp`, record `(value → presetName)` in the amp
-map; likewise `root\ir` → ir map. This is generic over how many IR nodes a
-preset has (e.g. cab + reverb IR) and needs no hard-coded node paths. Empty
-`value`s are skipped. Empty/unoccupied presets are never passed in.
+whose schema `ref` equals `root\amp`, record `(value → PresetRef(slot, name))` in
+the amp map; likewise `root\ir` → ir map. This is generic over how many IR nodes
+a preset has (e.g. cab + reverb IR) and needs no hard-coded node paths. Empty
+`value`s are skipped. Empty/unoccupied presets are never passed in. Each result
+list is **ordered by slot index ascending**, distinct by slot.
+
+**Slot formatting** (`NN Name`, e.g. `03 Clean` — the 1-based, zero-padded number
+shown in the preset list) is done in the app layer, so Core stays UI-free.
 
 **Node access:** `PresetDocument` exposes its lines; each parses to a
 `NodeRecord`/`NodeSchema` from which `Ref` and `value` are available (see
@@ -116,11 +122,13 @@ occupied slots + names, `ReadPresetAsync` for each document).
 `AmpItemViewModel` and `IrItemViewModel` each gain:
 
 - `bool IsUsed`
-- `IReadOnlyList<string> UsedInPresets`
-- `string? UsedInTooltip` — e.g. `"Used in: Clean, Lead, Rhythm"` (null when unused)
+- `IReadOnlyList<PresetRef> UsedInPresets`
+- `string? UsedInTooltip` — e.g. `"Used in: 03 Clean, 07 Lead, 12 Rhythm"` (null when unused)
 
 These are populated when the list is (re)loaded, by looking each item's `Name`
-up in the cached `PresetUsageMap`.
+up in the cached `PresetUsageMap`. A small app-layer helper formats each
+`PresetRef` as `NN Name` (slot ascending), shared by the tooltip and the block
+message.
 
 **Highlight (View):** used rows get a **subtle accent treatment** — a tinted row
 background or a left accent bar — driven by an existing Sonulab theme token
@@ -155,13 +163,14 @@ isn't built yet, the guard awaits `GetAsync()` first.
 paired with `_status.Failure(...)` in each VM), rendered with **text wrapping**
 so a multi-line list shows fully:
 
-> This IR file is used in the following presets: Clean, Lead, Rhythm. You can
-> only delete files that aren't in an active preset.
+> This IR file is used in the following presets: 03 Clean, 07 Lead, 12 Rhythm.
+> You can only delete files that aren't in an active preset.
 
-(Amp variant: "This amp file is used…".) Plus a short single-line status-bar
-failure for the always-visible channel, e.g. `Can't delete 'X' — used by 3
-presets`. No new modal dialog (the app has no message-box service today; adding
-one is unwarranted for a blocking notice).
+Each offending preset is listed as its slot number (1-based, zero-padded) plus
+name, in **ascending slot order**. (Amp variant: "This amp file is used…".) Plus
+a short single-line status-bar failure for the always-visible channel, e.g.
+`Can't delete 'X' — used by 3 presets`. No new modal dialog (the app has no
+message-box service today; adding one is unwarranted for a blocking notice).
 
 ## Data flow
 
