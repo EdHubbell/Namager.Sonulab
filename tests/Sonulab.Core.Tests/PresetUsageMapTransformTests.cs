@@ -25,6 +25,15 @@ public class PresetUsageMapTransformTests
         Assert.Equal(new[] { (1, "P3"), (2, "P1"), (3, "P2") }, Refs(m, "x"));
     }
 
+    [Fact] public void WithMovedSlot_down_rotates_ref_indices()
+    {
+        // slots 0,1,2 use amp "x"; move slot 0 -> 2 (down). The preset from 0 lands at 2, the others
+        // shift up to 0,1 — the in-range "shift" branch for from<to. Mirrors the engine's
+        // MoveAsync(0,2): A,B,C -> B,C,A.
+        var m = Map((0, "P0", "x"), (1, "P1", "x"), (2, "P2", "x")).WithMovedSlot(0, 2);
+        Assert.Equal(new[] { (0, "P1"), (1, "P2"), (2, "P0") }, Refs(m, "x"));
+    }
+
     [Fact] public void WithMovedSlot_leaves_out_of_range_refs_untouched()
     {
         var m = Map((0, "P0", "x"), (5, "P5", "x")).WithMovedSlot(1, 3);   // range [1,3] excludes 0 and 5
