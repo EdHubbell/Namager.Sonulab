@@ -5,6 +5,13 @@
              xmlns:behaviors="using:Namager.App.Behaviors"
              x:Class="Namager.App.Views.IrListView"
              x:DataType="vm:IrListViewModel">
+  <UserControl.Styles>
+    <!-- A preset references this file → highlight it (theme accent, both variants). -->
+    <Style Selector="TextBlock.used">
+      <Setter Property="Foreground" Value="{DynamicResource Sonulab.AccentBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+  </UserControl.Styles>
   <DockPanel MaxWidth="360" HorizontalAlignment="Left">
 
     <!-- Command bar -->
@@ -73,7 +80,7 @@
       </ListBox.KeyBindings>
       <ListBox.ItemTemplate>
         <DataTemplate x:DataType="vm:IrItemViewModel">
-          <DockPanel>
+          <DockPanel ToolTip.Tip="{Binding UsedInTooltip}">
             <DockPanel.ContextMenu>
               <ContextMenu>
                 <MenuItem Header="Rename" Command="{Binding BeginRenameCommand}"/>
@@ -83,6 +90,7 @@
                        Width="28" VerticalAlignment="Center"/>
             <Panel VerticalAlignment="Center" Margin="8,0,0,0">
               <TextBlock VerticalAlignment="Center" IsVisible="{Binding !IsEditing}"
+                         Classes.used="{Binding IsUsed}"
                          Opacity="{Binding IsEmpty, Converter={x:Static conv:BoolToOpacity.Instance}}"
                          FontStyle="{Binding IsEmpty, Converter={x:Static conv:BoolToItalic.Instance}}"
                          Text="{Binding Name}"/>

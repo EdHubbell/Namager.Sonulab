@@ -6,6 +6,12 @@
              xmlns:views="using:Namager.App.Views"
              x:Class="Namager.App.Views.AmpListView"
              x:DataType="vm:AmpListViewModel">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.used">
+      <Setter Property="Foreground" Value="{DynamicResource Sonulab.AccentBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+  </UserControl.Styles>
   <Grid ColumnDefinitions="360,*">
 
     <!-- ===== Left: command bar + slot list ===== -->
@@ -25,6 +31,11 @@
         </Button>
       </StackPanel>
 
+      <TextBlock DockPanel.Dock="Top" Margin="0,0,0,4" FontSize="11"
+                 Foreground="{DynamicResource Sonulab.DangerBrush}"
+                 Text="{Binding ErrorMessage}" TextWrapping="Wrap"
+                 IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
       <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}"
                IsEnabled="{Binding !IsBusy}">
         <ListBox.KeyBindings>
@@ -32,7 +43,7 @@
         </ListBox.KeyBindings>
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:AmpItemViewModel">
-            <DockPanel>
+            <DockPanel ToolTip.Tip="{Binding UsedInTooltip}">
               <DockPanel.ContextMenu>
                 <ContextMenu>
                   <MenuItem Header="Rename" Command="{Binding BeginRenameCommand}"/>
@@ -42,6 +53,7 @@
                          Width="28" VerticalAlignment="Center"/>
               <Panel VerticalAlignment="Center" Margin="8,0,0,0">
                 <TextBlock VerticalAlignment="Center" IsVisible="{Binding !IsEditing}"
+                           Classes.used="{Binding IsUsed}"
                            Opacity="{Binding IsEmpty, Converter={x:Static conv:BoolToOpacity.Instance}}"
                            FontStyle="{Binding IsEmpty, Converter={x:Static conv:BoolToItalic.Instance}}"
                            Text="{Binding Name}"/>
