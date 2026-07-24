@@ -12,6 +12,7 @@ public partial class MainWindowViewModel : ObservableObject
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
 
     private bool _ampsLoaded, _irsLoaded;
+    private Namager.App.Services.PresetUsageService? _usageService;
 
     /// <summary>The single status/progress channel, bound by the bottom status bar and shared
     /// with every child VM (passed via their constructors). Created once, lives for the app.</summary>
@@ -114,7 +115,10 @@ public partial class MainWindowViewModel : ObservableObject
         {
             _ampsLoaded = _irsLoaded = false;
 
-            var usage = new PresetUsageService(_connection.Repository!, Status);
+            // One scanner per connection. Stop the previous connection's background scan first —
+            // its link is gone and its task must not linger into the new session.
+            _usageService?.Stop();
+            var usage = _usageService = new PresetUsageService(_connection.Repository!);
 
             var presets = new PresetListViewModel(
                 _connection.Repository!,

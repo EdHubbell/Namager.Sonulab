@@ -54,9 +54,6 @@ public sealed class PresetUsageService : IPresetUsageService
 
     public PresetUsageService(DeviceRepository repo) => _repo = repo;
 
-    // TODO(Task 7): remove — kept so MainWindowViewModel compiles until its wiring task.
-    public PresetUsageService(DeviceRepository repo, IStatusService? status) : this(repo) { }
-
     public PresetUsageMap Current => _current;
     public bool IsComplete => _isComplete;
     public event Action? MapUpdated;
