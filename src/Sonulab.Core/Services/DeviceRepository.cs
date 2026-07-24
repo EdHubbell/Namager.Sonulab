@@ -31,6 +31,16 @@ public sealed class DeviceRepository
     public Task RenameAsync(int index, string name, CancellationToken ct = default) =>
         _client.DWriteChunkAsync(PresetsList, index, -1, NamePad(name), ct);
 
+    /// <summary>Atomically swap two preset slots — name AND content — via the firmware `dswap`
+    /// verb (~213 ms, byte-verified by firmware). No temp slot, no save-by-name, no name-uniqueness
+    /// requirement. Indices must be in [0, SlotCount); a non-numeric index would crash the device.</summary>
+    public Task SwapPresetSlotsAsync(int a, int b, CancellationToken ct = default)
+    {
+        if (a < 0 || a >= SlotCount) throw new ArgumentOutOfRangeException(nameof(a));
+        if (b < 0 || b >= SlotCount) throw new ArgumentOutOfRangeException(nameof(b));
+        return _client.DSwapAsync(PresetsList, a, b, ct);
+    }
+
     public Task DeleteAsync(int index, CancellationToken ct = default) =>
         _client.DWriteChunkAsync(PresetsList, index, -1, new byte[128], ct);
 

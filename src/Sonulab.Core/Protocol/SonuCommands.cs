@@ -10,4 +10,6 @@ public static class SonuCommands
     public static string DRead(string path, int index, int chunk) => $"dread {path}:{{\"index\":{index},\"chunk\":{chunk}}}";
     public static string DWrite(string path, int index, int chunk, string hex) =>
         $"dwrite {path}:{{\"index\":{index},\"chunk\":{chunk},\"value\":\"{hex}\"}}";
+    public static string DSwap(string path, int indexA, int indexB) =>
+        $"dswap {path}:{{\"index\":{indexA},\"index2\":{indexB}}}";
 }

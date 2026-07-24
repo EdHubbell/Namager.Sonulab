@@ -144,6 +144,9 @@ public sealed class SonuClient
         return SendAsync(SonuCommands.DWrite(path, index, chunk, hex), ct);
     }
 
+    public Task<string> DSwapAsync(string path, int indexA, int indexB, CancellationToken ct = default) =>
+        SendAsync(SonuCommands.DSwap(path, indexA, indexB), ct);
+
     /// <summary>Sends a raw protocol command and returns the raw response window (diagnostics).</summary>
     public Task<string> SendRawAsync(string command, CancellationToken ct = default) => SendAsync(command, ct);
 

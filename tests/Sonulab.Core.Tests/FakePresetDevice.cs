@@ -21,6 +21,7 @@ public class FakePresetDevice : ISonuLink
 
     static readonly Regex DReadRx = new(@"^dread (\S+):\{""index"":(-?\d+),""chunk"":(-?\d+)\}$");
     static readonly Regex DWriteRx = new(@"^dwrite (\S+):\{""index"":(-?\d+),""chunk"":(-?\d+),""value"":""([0-9a-fA-F]*)""\}$");
+    static readonly Regex DSwapRx = new(@"^dswap (\S+):\{""index"":(-?\d+),""index2"":(-?\d+)\}$");
     static readonly Regex SaveRx = new(@"^write root\\app\\preset:\{""value"":""([^""]*)"",""save"":""save""\}$");
     static readonly Regex SelectRx = new(@"^write root\\app\\preset:\{""value"":""([^""]*)""\}$");
     static readonly Regex WriteRx = new(@"^write (root\\app\\\S+):(\{.*\})$");
@@ -40,6 +41,12 @@ public class FakePresetDevice : ISonuLink
         if (!IsOpen) throw new InvalidOperationException("not open");
         Match m;
 
+        if ((m = DSwapRx.Match(command)).Success)
+        {
+            int a = int.Parse(m.Groups[2].Value), b = int.Parse(m.Groups[3].Value);
+            (_slots[a], _slots[b]) = (_slots[b], _slots[a]);   // swap name AND content atomically
+            return Task.FromResult("");
+        }
         if ((m = DWriteRx.Match(command)).Success)
         {
             int idx = int.Parse(m.Groups[2].Value), chunk = int.Parse(m.Groups[3].Value);
