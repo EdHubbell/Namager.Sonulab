@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using Namager.App.ViewModels;
 using Sonulab.Core.Connection;
 using Sonulab.Core.Transport;
@@ -67,15 +69,37 @@ public class DeviceLostTests
     {
         // Without the IsDeviceLost latch, IsConnected = false would RE-ENABLE Connect — the
         // reconnect-in-place this design rejects (re-opening a live session wedged the ESP32).
+        //
+        // The settled state alone does not pin the "IsDeviceLost is set BEFORE IsConnected"
+        // ordering: by the time the handler returns, both flags hold their final values
+        // regardless of which was assigned first, and CanExecute() re-evaluates fresh on every
+        // call rather than caching a value from an intermediate NotifyCanExecuteChanged firing.
+        // To actually observe the ordering, capture what CanExecute() reports at each
+        // CanExecuteChanged notification during the transition — if IsConnected flipped first,
+        // the first notification would see IsConnected=false, IsDeviceLost=false and report
+        // CanExecute()=true, transiently re-enabling Connect.
         var (vm, link) = Connected();
+        var observedDuringTransition = new List<bool>();
+        vm.ConnectCommand.CanExecuteChanged += (_, _) =>
+            observedDuringTransition.Add(vm.ConnectCommand.CanExecute(null));
+
         link.Kill = true;
         await Assert.ThrowsAsync<DeviceDisconnectedException>(() => vm.Client!.SendRawAsync("read x"));
 
-        Assert.False(vm.ConnectCommand.CanExecute(null));
+        Assert.NotEmpty(observedDuringTransition);
+        Assert.All(observedDuringTransition, canExecute => Assert.False(canExecute));
+        Assert.False(vm.ConnectCommand.CanExecute(null));   // settled state, still worth asserting directly
     }
 
     [Fact] public async Task DeviceLost_event_fires_once()
     {
+        // SonuClient.Latch() already guarantees Disconnected fires at most once, via
+        // Interlocked.CompareExchange, independent of anything downstream. So this test verifies
+        // that guarantee reaches ConnectionViewModel's DeviceLost event unchanged — it does NOT
+        // pin ConnectionViewModel's own `if (IsDeviceLost) return;` guard (that guard is isolated
+        // by OnDeviceDisconnected_guard_survives_being_invoked_twice below, since SonuClient's
+        // public surface only allows Disconnected to fire once per instance and so cannot be used
+        // to exercise the VM-side guard on its own).
         var (vm, link) = Connected();
         int fired = 0;
         vm.DeviceLost += (_, _) => fired++;
@@ -85,6 +109,44 @@ public class DeviceLostTests
             await Assert.ThrowsAsync<DeviceDisconnectedException>(() => vm.Client!.SendRawAsync("read x"));
 
         Assert.Equal(1, fired);
+    }
+
+    [Fact] public void OnDeviceDisconnected_guard_survives_being_invoked_twice()
+    {
+        // Isolates ConnectionViewModel's own `if (IsDeviceLost) return;` guard from SonuClient's
+        // single-fire latch (which DeviceLost_event_fires_once above actually exercises) by
+        // calling the private handler directly, twice, bypassing SonuClient entirely. This is the
+        // only way to observe the VM-side guard specifically.
+        var (vm, _) = Connected();
+        int fired = 0;
+        vm.DeviceLost += (_, _) => fired++;
+
+        var handler = typeof(ConnectionViewModel).GetMethod("OnDeviceDisconnected",
+            BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var ex = new DeviceDisconnectedException("USB");
+        handler.Invoke(vm, new object[] { ex });
+        handler.Invoke(vm, new object[] { ex });
+
+        Assert.Equal(1, fired);
+    }
+
+    [Fact] public async Task Throwing_DeviceLost_subscriber_does_not_mask_the_original_exception()
+    {
+        // SonuClient.Latch() calls Disconnected?.Invoke(ex) synchronously, then `throw;` rethrows
+        // the original DeviceDisconnectedException at the failing send's call site. Under
+        // synchronous test dispatch (and any future non-UI dispatch caller — production is only
+        // shielded because Dispatcher.UIThread.Post defers execution), an unguarded DeviceLost
+        // invoke would let a throwing subscriber's exception propagate out of Latch() instead,
+        // replacing the DeviceDisconnectedException the caller of the failing send is expecting.
+        var (vm, link) = Connected();
+        vm.DeviceLost += (_, _) => throw new InvalidOperationException("broken subscriber");
+
+        link.Kill = true;
+        await Assert.ThrowsAsync<DeviceDisconnectedException>(() => vm.Client!.SendRawAsync("read x"));
+
+        // The VM still reached its dead state despite the throwing subscriber.
+        Assert.True(vm.IsDeviceLost);
+        Assert.False(vm.IsConnected);
     }
 
     [Fact] public async Task Status_bar_gets_the_slot_naming_message()

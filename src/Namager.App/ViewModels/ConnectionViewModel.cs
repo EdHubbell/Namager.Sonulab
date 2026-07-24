@@ -9,6 +9,8 @@ namespace Namager.App.ViewModels;
 
 public partial class ConnectionViewModel : ObservableObject
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
+
     private readonly DeviceSession _session;
     private readonly Namager.App.Services.IUsagePingService? _usage;
     // Named _statusService (not _status) to avoid clashing with the [ObservableProperty] backing
@@ -107,6 +109,12 @@ public partial class ConnectionViewModel : ObservableObject
         _statusService.Failure(ex.Message);   // carries the at-risk slot when an upload was cut short
         _statusService.SetIdleSummary("Device disconnected");
         try { _session.Disconnect(); } catch { /* the transport already closed itself */ }
-        DeviceLost?.Invoke(this, EventArgs.Empty);
+        // A throwing subscriber here would otherwise replace the DeviceDisconnectedException at
+        // SonuClient.Latch()'s call site (Latch calls Disconnected?.Invoke, then `throw;` — if the
+        // invoke throws, that new exception propagates instead of the original reaching the
+        // caller of the failing send). Guard it the same way _session.Disconnect() is guarded
+        // above, but log so a broken subscriber is diagnosable rather than silently swallowed.
+        try { DeviceLost?.Invoke(this, EventArgs.Empty); }
+        catch (Exception ex2) { Log.Warn(ex2, "DeviceLost subscriber threw"); }
     });
 }
