@@ -43,7 +43,32 @@ hazards" has the numbers.
 - Care: keep the background-lane quiet-window semantics intact; pipelining is WITHIN one
   burst, the lane governs BETWEEN bursts.
 
-## 3. Riding minor findings from the scan-fix reviews (small, adjudicated non-blocking)
+## 3. Targeted usage-map updates on preset slot changes (Ed-requested, 2026-07-24)
+
+Today `PresetListViewModel.RunAsync` calls `_usage.Invalidate()` after EVERY successful preset
+mutation, so a mere reorder/slot move triggers a full ~15–30 s background re-scan — even though
+a slot change moves content without altering which amps/IRs are referenced. **A successful slot
+change should just remap slots on the in-memory map, not rescan.**
+
+- Add pure transforms to `PresetUsageMap` (it's immutable — return a new map):
+  `WithSwappedSlots(a, b)`, and while in there the same family covers the other cheap cases:
+  `WithRenamedPreset(index, newName)`, `WithoutSlot(index)` (delete).
+- Add targeted notifications to `IPresetUsageService` (e.g. `NotifySlotsSwapped(a, b)`,
+  `NotifyPresetRenamed(index, name)`, `NotifyPresetDeleted(index)`) that transform `Current`
+  in place, KEEP `IsComplete` true, and raise `MapUpdated` — then have the preset VM call the
+  targeted one instead of `Invalidate()` for reorder/rename/delete successes.
+- Apply ONLY on verified success (the reorder path read-back-verifies; on failure/rollback keep
+  today's `Invalidate()` as the safe fallback).
+- Caution with the CURRENT select+save reorder engine: one visible "step" is internally several
+  rename/save operations with temp names — apply the map transform once per completed verified
+  step, not per internal sub-operation. With the dswap engine (#1) this becomes trivial: one
+  atomic device swap ↔ one `WithSwappedSlots(a, b)`. Build these two together.
+- Content edits (param save, amp/IR selection change) still need a rescan — but a natural
+  extension is a single-slot targeted rescan (`Invalidate(index)` re-reading one preset head,
+  ~0.5 s) instead of the full-bank invalidate. Also fixes the rescan highlight flicker (see #4)
+  for the common cases.
+
+## 4. Riding minor findings from the scan-fix reviews (small, adjudicated non-blocking)
 
 Recorded in `.superpowers/sdd/progress.md`; none block anything:
 - **Invalidate→rescan highlight flicker**: after a preset edit + tab revisit, highlights blink
@@ -59,14 +84,14 @@ Recorded in `.superpowers/sdd/progress.md`; none block anything:
   injection seam — pre-existing; a seam refactor would enable it).
 - AmpListViewModelTests: `MakeUsageVm` near-duplicates `MakeWithUsage`.
 
-## 4. Byte-exact preset restore/duplicate via dwrite (unbuilt option, protocol resolved)
+## 5. Byte-exact preset restore/duplicate via dwrite (unbuilt option, protocol resolved)
 
 PROTOCOL.md VERDICT 2026-07-04: preset content IS dwrite-able (chunk:0 name → 1..64 → name at
 chunk:-1 commit, ~10 s/slot). Restore/duplicate today replay params (~12 s, not byte-exact).
 A `dwrite`-based `BackupService.RestoreSlotAsync` would be byte-exact and slightly faster.
 With pipelining (#2) the 66-write upload gets faster still.
 
-## 5. Outstanding hardware-validation checklists (not code)
+## 6. Outstanding hardware-validation checklists (not code)
 
 Pending manual runs, per CLAUDE.md "Not done": amp metadata
 (`docs/HARDWARE-VALIDATION-amp-metadata.md` — run before relying on SSMD blocks on-device),
