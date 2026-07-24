@@ -66,12 +66,14 @@ superpowers **brainstorming → spec (`docs/superpowers/specs/`) → writing-pla
 task) → merge to `main` (fast-forward) → push. Read `docs/HARDWARE-VALIDATION-*.md` for on-device checks.
 
 ## Not done
-Amp/IR reorder and backup-all UI deferred from their v1 tabs. (See
-`docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-plan-dragreorder.md` for
-pending manual checks.) Performance pass done — before/after numbers in `docs/perf-findings.md`;
+**Preset, amp, and IR slot reorder are all SHIPPED** via the atomic `dswap` verb + shared
+`SlotBubbleReorder` engine (presets = Cycle 1, amp/IR = Cycle 2, 2026-07-24; up/down buttons on
+every tab, no usage rescan). Backup-all UI is still deferred from the v1 tabs. Manual UI checks
+pending in `docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-irs-tab.md`
+(`docs/HARDWARE-VALIDATION-plan-dragreorder.md` was the earlier preset-reorder checklist). Performance pass done — before/after numbers in `docs/perf-findings.md`;
 the preset-dwrite question is resolved (VERDICT in PROTOCOL.md; byte-exact restore/duplicate via dwrite is a possible follow-up, not built).
-Ranked follow-ups (dswap-based reorder ~7× faster, riding review minors):
-`docs/superpowers/2026-07-24-post-scan-fix-next-steps.md`. Paced serial pipelining is BUILT
+Ranked follow-ups (dswap reorder + targeted usage-map done Cycles 1–2; remaining: byte-exact dwrite
+restore, riding review minors): `docs/superpowers/2026-07-24-post-scan-fix-next-steps.md`. Paced serial pipelining is BUILT
 (multi-chunk foreground `dread` overlaps sends at a 30 ms floor with lockstep repair; kill switch
 `SerialLinkOptions.PipelineEnabled`) — on-device checks pending in
 `docs/HARDWARE-VALIDATION-pipelining.md`. The background usage scan is deliberately not pipelined.
