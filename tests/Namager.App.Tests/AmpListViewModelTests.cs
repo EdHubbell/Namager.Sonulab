@@ -855,6 +855,46 @@ public class AmpListViewModelTests : IDisposable
         return (new AmpListViewModel(svc, writesAllowed: true, usage: usage), dev, usage);
     }
 
+    // ---- reorder (Task 3) ----
+
+    /// <summary>Seed-list variant of <see cref="MakeWithUsage(FakePresetUsageService)"/>: builds a fresh
+    /// FakeAmpDevice from (name, markerByte) pairs and a default FakePresetUsageService.</summary>
+    private (AmpListViewModel vm, FakeAmpDevice dev, FakePresetUsageService usage) MakeWithUsage(
+        (string Name, byte Marker)[] seed)
+    {
+        var dev = new FakeAmpDevice();
+        for (int i = 0; i < seed.Length; i++)
+            dev.SeedAmp(i, seed[i].Name, RealisticBlob(seed[i].Marker));
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        var usage = new FakePresetUsageService();
+        return (new AmpListViewModel(svc, writesAllowed: true, usage: usage), dev, usage);
+    }
+
+    [Fact] public async Task MoveDown_reorders_items_and_touches_usage_never()
+    {
+        var (vm, dev, usage) = MakeWithUsage(seed: new[] { ("A", (byte)0xA0), ("B", (byte)0xB0) });
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];                       // "A" at slot 0
+        await vm.MoveDownCommand.ExecuteAsync(null);     // -> slot 1
+        Assert.Equal("B", vm.Items[0].Name);
+        Assert.Equal("A", vm.Items[1].Name);
+        Assert.Equal(0, usage.InvalidateCount);          // reorder must NOT rescan
+        Assert.Equal(0, usage.MovedCount);               // nor targeted-notify (that's presets only)
+    }
+
+    [Fact] public async Task Reorder_is_allowed_on_a_referenced_amp()
+    {
+        // amp "A" is used by a preset; delete/rename would be blocked, but reorder must succeed.
+        var (vm, dev, usage) = MakeWithUsage(seed: new[] { ("A", (byte)0xA0), ("B", (byte)0xB0) });
+        usage.Map = FakePresetUsageService.MapFor((0, "P0", new[] { FakePresetUsageService.AmpLine("A") }));
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.MoveDownCommand.ExecuteAsync(null);
+        Assert.Equal("A", vm.Items[1].Name);             // moved, not blocked
+        Assert.Null(vm.ErrorMessage);
+    }
+
     [Fact]
     public async Task Refresh_marks_used_amps()
     {

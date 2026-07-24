@@ -38,6 +38,11 @@ public sealed class AmpService
     public Task DeleteAmpAsync(int index, CancellationToken ct = default) => _inner.DeleteAsync(index, ct);
     public Task RenameAmpAsync(int index, string name, CancellationToken ct = default) => _inner.RenameAsync(index, name, ct);
 
+    /// <summary>Move an amp slot up/down one position (atomic dswap; no usage impact — see
+    /// SlotBlobService.MoveStepAsync).</summary>
+    public Task MoveAmpStepAsync(int from, bool up, CancellationToken ct = default) =>
+        _inner.MoveStepAsync(from, up, null, ct);
+
     public Task UploadAmpAsync(int slot, byte[] vxampBytes, string name,
         IProgress<AmpUploadProgress>? progress = null, CancellationToken ct = default) =>
         _inner.UploadAsync(slot, vxampBytes, name,
