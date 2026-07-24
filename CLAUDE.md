@@ -67,7 +67,7 @@ task) → merge to `main` (fast-forward) → push. Read `docs/HARDWARE-VALIDATIO
 
 ## Not done
 **Preset, amp, and IR slot reorder are all SHIPPED** via the atomic `dswap` verb + shared
-`SlotBubbleReorder` engine (presets = Cycle 1, amp/IR = Cycle 2, 2026-07-24; up/down buttons on
+`SlotBubbleReorder` engine (presets = Cycle 1, amp/IR = Cycle 2, 2026-07-24; per-row up/down buttons on
 every tab, no usage rescan). Backup-all UI is still deferred from the v1 tabs. Manual UI checks
 pending in `docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-irs-tab.md`
 (`docs/HARDWARE-VALIDATION-plan-dragreorder.md` was the earlier preset-reorder checklist). Performance pass done — before/after numbers in `docs/perf-findings.md`;

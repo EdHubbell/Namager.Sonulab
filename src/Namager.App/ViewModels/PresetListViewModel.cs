@@ -84,30 +84,6 @@ public partial class PresetListViewModel : ObservableObject
         finally { IsBusy = false; BusyMessage = ""; }
     }
 
-    [RelayCommand] private async Task MoveUpAsync()
-    {
-        if (Selected is { IsEmpty: false, Index: > 0 } s)
-        {
-            int dest = s.Index - 1;
-            if (await RunAsync($"Moving slot {s.DisplaySlot} up…", $"Moved '{s.Name}' up",
-                    () => _reorder.MoveStepAsync(s.Index, up: true),
-                    () => _usage.NotifyPresetMoved(s.Index, dest)) && dest < Items.Count)
-                Selected = Items[dest];
-        }
-    }
-
-    [RelayCommand] private async Task MoveDownAsync()
-    {
-        if (Selected is { IsEmpty: false } s && s.Index < Items.Count - 1)
-        {
-            int dest = s.Index + 1;
-            if (await RunAsync($"Moving slot {s.DisplaySlot} down…", $"Moved '{s.Name}' down",
-                    () => _reorder.MoveStepAsync(s.Index, up: false),
-                    () => _usage.NotifyPresetMoved(s.Index, dest)) && dest < Items.Count)
-                Selected = Items[dest];
-        }
-    }
-
     [RelayCommand] private async Task MoveItemUpAsync(PresetItemViewModel? item)
     {
         if (item is not { IsEmpty: false } s || s.Index <= 0) return;

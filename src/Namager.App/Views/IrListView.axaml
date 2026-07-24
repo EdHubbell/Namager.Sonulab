@@ -11,26 +11,13 @@
       <Setter Property="Foreground" Value="{DynamicResource Sonulab.AccentBrush}"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
-    <Style Selector="Button.reorder">
-      <Setter Property="Padding" Value="4"/>
-      <Setter Property="MinWidth" Value="0"/>
-      <Setter Property="MinHeight" Value="0"/>
-      <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
-    </Style>
   </UserControl.Styles>
   <DockPanel MaxWidth="360" HorizontalAlignment="Left">
 
     <!-- Command bar -->
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="8,6,8,4">
+    <StackPanel DockPanel.Dock="Top" Classes="slot-toolbar" Orientation="Horizontal" Spacing="4">
       <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
         <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
-      </Button>
-      <Button Command="{Binding MoveUpCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Move up">
-        <PathIcon Data="{StaticResource Icon.ChevronUp}" Width="16" Height="16"/>
-      </Button>
-      <Button Command="{Binding MoveDownCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Move down">
-        <PathIcon Data="{StaticResource Icon.ChevronDown}" Width="16" Height="16"/>
       </Button>
       <Button x:Name="UploadWavButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Convert a .wav and upload it to an empty slot">
         <TextBlock Text="Upload .wav…"/>
@@ -44,11 +31,13 @@
     </StackPanel>
 
     <!-- Blocked / error messages -->
-    <TextBlock DockPanel.Dock="Top" Margin="8,0" FontSize="11" Foreground="{DynamicResource Sonulab.WarningBrush}"
+    <TextBlock DockPanel.Dock="Top" Classes="slot-message"
+               Foreground="{DynamicResource Sonulab.WarningBrush}"
                Text="{Binding UploadBlockedMessage}"
                IsVisible="{Binding UploadBlockedMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-    <TextBlock DockPanel.Dock="Top" Margin="8,0" FontSize="11" Foreground="{DynamicResource Sonulab.DangerBrush}"
-               Text="{Binding ErrorMessage}" TextWrapping="Wrap"
+    <TextBlock DockPanel.Dock="Top" Classes="slot-message"
+               Foreground="{DynamicResource Sonulab.DangerBrush}"
+               Text="{Binding ErrorMessage}"
                IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"/>
 
     <!-- Upload panel (inline, bottom) -->
@@ -86,7 +75,7 @@
     </Border>
 
     <!-- IR list -->
-    <ListBox ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
+    <ListBox Classes="slot-list" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}"
              IsEnabled="{Binding !IsBusy}">
       <ListBox.KeyBindings>
         <KeyBinding Gesture="F2" Command="{Binding Selected.BeginRenameCommand}"/>

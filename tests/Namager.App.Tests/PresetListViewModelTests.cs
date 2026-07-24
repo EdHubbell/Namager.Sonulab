@@ -26,12 +26,11 @@ public class PresetListViewModelTests
         Assert.True(vm.Items[5].IsEmpty);
     }
 
-    [Fact] public async Task MoveDown_moves_selected_and_reloads()
+    [Fact] public async Task MoveItemDown_moves_the_row_and_reloads()
     {
         var (vm, _) = Make();
         await vm.RefreshCommand.ExecuteAsync(null);
-        vm.Selected = vm.Items[0];                       // "A" at slot 0
-        await vm.MoveDownCommand.ExecuteAsync(null);     // -> slot 1
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);   // "A" at slot 0 -> slot 1
         Assert.Equal("B", vm.Items[0].Name);
         Assert.Equal("A", vm.Items[1].Name);
     }
@@ -95,7 +94,7 @@ public class PresetListViewModelTests
         var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: false);
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[0];
-        await vm.MoveDownCommand.ExecuteAsync(null);
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);
         await vm.DeleteCommand.ExecuteAsync(null);
         Assert.Equal("A", vm.Items[0].Name);   // unchanged — writes were gated
         Assert.Equal("B", vm.Items[1].Name);
@@ -245,7 +244,7 @@ public class PresetListViewModelTests
         }
     }
 
-    [Fact] public async Task Toolbar_move_reads_no_preset_content()
+    [Fact] public async Task Row_move_reads_no_preset_content()
     {
         var dev = new FakePresetDevice();
         dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
@@ -255,21 +254,19 @@ public class PresetListViewModelTests
         var repo = new DeviceRepository(new SonuClient(link));
         var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true);
         await vm.RefreshCommand.ExecuteAsync(null);
-        vm.Selected = vm.Items[0];
-        await vm.MoveDownCommand.ExecuteAsync(null);           // toolbar path
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);
         Assert.Equal("B", vm.Items[0].Name);
         Assert.Equal("A", vm.Items[1].Name);
         Assert.Equal(0, link.Dreads);                          // lean: zero content reads
     }
 
-    [Fact] public async Task Toolbar_move_on_empty_selected_slot_is_a_noop()
+    [Fact] public async Task Row_move_on_an_empty_slot_is_a_noop()
     {
         var (vm, _) = Make();
         await vm.RefreshCommand.ExecuteAsync(null);
-        vm.Selected = vm.Items[5];                             // empty slot
-        await vm.MoveDownCommand.ExecuteAsync(null);           // must not throw
-        await vm.MoveUpCommand.ExecuteAsync(null);
-        Assert.True(vm.Items[5].IsEmpty);                      // nothing moved
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[5]);   // empty slot — must not throw
+        await vm.MoveItemUpCommand.ExecuteAsync(vm.Items[5]);
+        Assert.True(vm.Items[5].IsEmpty);                        // nothing moved
     }
 
     [Fact] public async Task MoveItemDown_on_a_slot_the_device_reads_empty_surfaces_error_without_crashing()
@@ -333,12 +330,11 @@ public class PresetListViewModelTests
         return (vm, dev, usage);
     }
 
-    [Fact] public async Task MoveDown_notifies_moved_not_invalidate()
+    [Fact] public async Task MoveItemDown_notifies_moved_not_invalidate()
     {
         var (vm, _, usage) = MakeWithUsage();
         await vm.RefreshCommand.ExecuteAsync(null);
-        vm.Selected = vm.Items[0];                       // A at slot 0
-        await vm.MoveDownCommand.ExecuteAsync(null);     // -> slot 1
+        await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);   // A at slot 0 -> slot 1
         Assert.Equal(1, usage.MovedCount);
         Assert.Equal((0, 1), usage.LastMoved);
         Assert.Equal(0, usage.InvalidateCount);

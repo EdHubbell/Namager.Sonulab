@@ -24,7 +24,7 @@ write here is guarded (auto-backup to `docs/backups/`), but read the result line
 - [ ] **Cancel during distill**: start a `.nam` upload, hit Cancel while "Distilling…" — clean
       "Cancelled." error, nothing written to the device (amp list unchanged).
 - [ ] **VoidX interop**: open VoidX-Control afterwards; it must list the uploaded amp(s) normally.
-- [ ] **Reorder**: select an amp, click Move Up/Down (toolbar) and the per-row up/down buttons;
+- [ ] **Reorder**: select an amp, click its per-row up/down buttons;
       confirm the slot order changes on the pedal, ~235 ms/step, names+content intact.
 - [ ] **Reorder a referenced amp**: reorder an amp that a preset uses; confirm it is NOT blocked,
       the move succeeds, and the preset still resolves its amp (name unchanged).
