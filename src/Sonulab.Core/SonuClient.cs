@@ -18,6 +18,7 @@ public sealed class SonuClient
     private readonly Func<long> _tick;
     private readonly Func<CancellationToken, Task> _bgPollDelay;
     private long _lastForegroundTicks;
+    private DeviceDisconnectedException? _dead;
 
     /// <param name="readRetryAttempts">How many times a read (ReadValue/ReadList/BrowseRecords) is
     /// attempted while the response lacks the record the caller expects. The WiFi/TCP pedal
@@ -48,12 +49,39 @@ public sealed class SonuClient
         _lastForegroundTicks = _tick();
     }
 
+    /// <summary>True once the link has died. Latched — a SonuClient never recovers; the app
+    /// requires a restart to reconnect (ConnectionViewModel documents why re-opening a live
+    /// session wedges the ESP32).</summary>
+    public bool IsDisconnected => Volatile.Read(ref _dead) is not null;
+
+    /// <summary>Raised EXACTLY ONCE, on the thread of the failing send, when the link dies.
+    /// Subscribers in a UI must marshal to their own thread.</summary>
+    public event Action<DeviceDisconnectedException>? Disconnected;
+
+    private void ThrowIfDead()
+    {
+        // A copy, not the stored instance: rethrowing one instance overwrites its stack trace
+        // on every throw.
+        if (Volatile.Read(ref _dead) is { } d) throw d.Repeat();
+    }
+
+    private void Latch(DeviceDisconnectedException ex)
+    {
+        if (Interlocked.CompareExchange(ref _dead, ex, null) is null)
+        {
+            Log.Error(ex, "device link lost ({0}) — session is dead until the app restarts", ex.Transport);
+            Disconnected?.Invoke(ex);
+        }
+    }
+
     private async Task<string> SendAsync(string command, CancellationToken ct)
     {
+        ThrowIfDead();
         await _gate.WaitAsync(ct);
         Volatile.Write(ref _lastForegroundTicks, _tick());
         var sw = Stopwatch.StartNew();
         try { return await _link.SendAsync(command, ct); }
+        catch (DeviceDisconnectedException ex) { Latch(ex); throw; }
         finally
         {
             sw.Stop();
@@ -81,10 +109,12 @@ public sealed class SonuClient
     /// still resumes on the captured context, so callers' UI updates are unaffected.</summary>
     private async Task<IReadOnlyList<string>> SendBatchGatedAsync(IReadOnlyList<string> commands, CancellationToken ct)
     {
+        ThrowIfDead();
         await _gate.WaitAsync(ct);
         Volatile.Write(ref _lastForegroundTicks, _tick());
         var sw = Stopwatch.StartNew();
         try { return await Task.Run(() => _link.SendBatchAsync(commands, ct), ct); }
+        catch (DeviceDisconnectedException ex) { Latch(ex); throw; }
         finally
         {
             sw.Stop();
@@ -259,6 +289,7 @@ public sealed class SonuClient
         while (true)
         {
             ct.ThrowIfCancellationRequested();
+            ThrowIfDead();
             if (_tick() - Volatile.Read(ref _lastForegroundTicks) >= _backgroundQuietMs
                 && await _gate.WaitAsync(0, ct))
             {
@@ -266,7 +297,10 @@ public sealed class SonuClient
                 {
                     // Re-check under the gate: a foreground command may have just finished.
                     if (_tick() - Volatile.Read(ref _lastForegroundTicks) >= _backgroundQuietMs)
-                        return await _link.SendAsync(command, ct);
+                    {
+                        try { return await _link.SendAsync(command, ct); }
+                        catch (DeviceDisconnectedException ex) { Latch(ex); throw; }
+                    }
                 }
                 finally { _gate.Release(); }
             }
