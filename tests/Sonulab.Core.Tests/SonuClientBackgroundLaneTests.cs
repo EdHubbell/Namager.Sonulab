@@ -98,4 +98,21 @@ public class SonuClientBackgroundLaneTests
         Assert.Equal(30, names.Count);
         Assert.Equal("Lead", names[0]);
     }
+
+    private sealed class EmptyReplyLink : ISonuLink
+    {
+        public bool IsOpen => true;
+        public Task OpenAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public void Close() { }
+        public Task<string> SendAsync(string command, CancellationToken ct = default) => Task.FromResult("");
+    }
+
+    [Fact]
+    public async Task Background_list_read_throws_when_no_list_record()
+    {
+        // A torn/empty reply must NOT be treated as "30 empty slots" — that would let the
+        // preset-usage scan complete with a map missing real amp/IR references (fail-open).
+        var client = new SonuClient(new EmptyReplyLink(), backgroundQuietMs: 0);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.ReadListBackgroundAsync(@"root\presets"));
+    }
 }

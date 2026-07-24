@@ -212,7 +212,11 @@ public sealed class SonuClient
     }
 
     /// <summary>Background twin of <see cref="ReadListAsync"/> (single attempt — the scanner
-    /// retries at its own cadence instead of the WiFi-quirk retry loop).</summary>
+    /// retries at its own cadence instead of the WiFi-quirk retry loop). FAIL-CLOSED: no parseable
+    /// list record throws rather than returning an empty list — an empty list here silently reads
+    /// upstream as "30 empty slots", which would make the preset-usage scan complete with a map
+    /// missing real amp/IR references (a device with genuinely zero presets still answers with a
+    /// parseable 30-element array of empty strings, which is unaffected by this change).</summary>
     public async Task<IReadOnlyList<string>> ReadListBackgroundAsync(string path, CancellationToken ct = default)
     {
         var raw = await SendBackgroundAsync(SonuCommands.Read(path), ct);
@@ -220,6 +224,6 @@ public sealed class SonuClient
             if (NodeRecord.TryParse(rec, out var r) && r.Path == path
                 && r.Json.TryGetProperty("value", out var v) && v.ValueKind == JsonValueKind.Array)
                 return v.EnumerateArray().Select(e => e.GetString() ?? "").ToList();
-        return Array.Empty<string>();
+        throw new InvalidOperationException($"List read of '{path}' returned no list record.");
     }
 }

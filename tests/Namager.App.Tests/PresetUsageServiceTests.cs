@@ -91,6 +91,44 @@ public class PresetUsageServiceTests
         await Assert.ThrowsAnyAsync<Exception>(() => svc.EnsureCompleteAsync());
     }
 
+    [Fact]
+    public async Task Torn_preset_read_aborts_the_scan_and_guards_stay_closed()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "Lead", new[] { Amp("Plexi") });
+        dev.SeedSlot(1, "Rhythm", new[] { Amp("Plexi") });
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var link = new TornIndexLink(dev, tearIndex: 1);
+        var repo = new DeviceRepository(new SonuClient(link, backgroundQuietMs: 0));
+        var svc = new PresetUsageService(repo);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => svc.EnsureCompleteAsync());
+        Assert.False(svc.IsComplete);
+    }
+
+    /// <summary>Link wrapper that returns an empty response ("torn read") for any dread targeting
+    /// one specific preset index, and delegates everything else.</summary>
+    private sealed class TornIndexLink : Sonulab.Core.Transport.ISonuLink
+    {
+        private readonly Sonulab.Core.Transport.ISonuLink _inner;
+        private readonly int _tearIndex;
+        public TornIndexLink(Sonulab.Core.Transport.ISonuLink inner, int tearIndex)
+        {
+            _inner = inner;
+            _tearIndex = tearIndex;
+        }
+        public bool IsOpen => _inner.IsOpen;
+        public Task OpenAsync(CancellationToken ct = default) => _inner.OpenAsync(ct);
+        public void Close() => _inner.Close();
+        public Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (command.StartsWith("dread ", StringComparison.Ordinal)
+                && command.Contains($"\"index\":{_tearIndex}", StringComparison.Ordinal))
+                return Task.FromResult("");
+            return _inner.SendAsync(command, ct);
+        }
+    }
+
     private sealed class CountingLink : Sonulab.Core.Transport.ISonuLink
     {
         private readonly Sonulab.Core.Transport.ISonuLink _inner;

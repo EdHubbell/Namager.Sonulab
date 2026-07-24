@@ -70,10 +70,14 @@ public sealed class DeviceRepository
         for (int chunk = 1; chunk <= HeadChunkCap; chunk++)
         {
             var seg = await ReadChunks(chunk, 1);
+            // A torn read comes back with zero bytes — fail closed rather than returning a
+            // truncated document the usage guard could mistake for the real (shorter) content.
+            if (seg.Length == 0)
+                throw new InvalidOperationException($"Preset {index} head read failed: empty chunk {chunk}.");
             bytes.AddRange(seg);
-            // Content ends at the first NUL (the rest of the blob is zero padding) — or a torn
-            // chunk came back empty; either way there is nothing more to learn from this slot.
-            if (seg.Length == 0 || Array.IndexOf(seg, (byte)0) >= 0)
+            // Content ends at the first NUL (the rest of the blob is zero padding) — nothing more
+            // to learn from this slot.
+            if (Array.IndexOf(seg, (byte)0) >= 0)
                 return PresetDocument.Parse(bytes.ToArray());
             if (PresetUsageMap.HeadComplete(System.Text.Encoding.ASCII.GetString(bytes.ToArray())))
                 return PresetDocument.Parse(bytes.ToArray());
@@ -81,6 +85,9 @@ public sealed class DeviceRepository
         // Unexpected layout (refs not found in the head window): fall back to the full document
         // so the guard logic never runs on silently truncated data.
         var rest = await ReadChunks(HeadChunkCap + 1, PresetChunks - HeadChunkCap);
+        var expectedRestLength = (PresetChunks - HeadChunkCap) * 128;
+        if (rest.Length != expectedRestLength)
+            throw new InvalidOperationException($"Preset {index} full-read fallback came back short.");
         bytes.AddRange(rest);
         return PresetDocument.Parse(bytes.ToArray());
     }

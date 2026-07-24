@@ -94,4 +94,59 @@ public class PresetHeadReadTests
         Assert.Equal("Lead", slots[3].Name);
         Assert.True(slots[0].IsEmpty);
     }
+
+    /// <summary>Link wrapper that returns an empty response ("torn read") for the dread of one
+    /// specific chunk of one specific slot index, and delegates everything else.</summary>
+    private sealed class TornChunkLink : ISonuLink
+    {
+        private readonly ISonuLink _inner;
+        private readonly int _tearIndex;
+        private readonly int _tearChunk;
+        public TornChunkLink(ISonuLink inner, int tearIndex, int tearChunk)
+        {
+            _inner = inner;
+            _tearIndex = tearIndex;
+            _tearChunk = tearChunk;
+        }
+        public bool IsOpen => _inner.IsOpen;
+        public Task OpenAsync(CancellationToken ct = default) => _inner.OpenAsync(ct);
+        public void Close() => _inner.Close();
+        public Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (command.StartsWith("dread ", StringComparison.Ordinal)
+                && command.Contains($"\"index\":{_tearIndex}", StringComparison.Ordinal)
+                && command.Contains($"\"chunk\":{_tearChunk}", StringComparison.Ordinal))
+                return Task.FromResult("");
+            return _inner.SendAsync(command, ct);
+        }
+    }
+
+    [Fact]
+    public async Task Head_read_throws_on_a_torn_empty_chunk()
+    {
+        var dev = new FakePresetDevice();
+        dev.OpenAsync().GetAwaiter().GetResult();
+        dev.SeedSlot(0, "Quad", RealDocLines());
+        var link = new TornChunkLink(dev, tearIndex: 0, tearChunk: 5);
+        var repo = new DeviceRepository(new SonuClient(link, backgroundQuietMs: 0));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => repo.ReadPresetHeadAsync(0));
+    }
+
+    [Fact]
+    public async Task Fallback_full_read_throws_when_short()
+    {
+        var dev = new FakePresetDevice();
+        dev.OpenAsync().GetAwaiter().GetResult();
+        // Same shape as Head_read_falls_back_to_a_full_read_when_refs_never_complete: no ir2 line,
+        // enough filler to fill the head window with no NUL byte, forcing the HeadChunkCap fallback
+        // into chunks 33..64 — then tear one of those fallback chunks.
+        var filler = Enumerable.Range(0, 160)
+            .Select(i => $@"root\app\mod\rate\rawdata{i:D3}:{{""value"":1.0000000}}");
+        dev.SeedSlot(0, "Odd", new[] { @"root\app\amp\amp:{""value"":""Plexi""}" }.Concat(filler));
+        var link = new TornChunkLink(dev, tearIndex: 0, tearChunk: 40);
+        var repo = new DeviceRepository(new SonuClient(link, backgroundQuietMs: 0));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => repo.ReadPresetHeadAsync(0));
+    }
 }
