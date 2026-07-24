@@ -59,9 +59,10 @@ public class SerialSonuLinkPacingPrecisionTests
         foreach (var (at, ms) in requests)
         {
             // The floor that applies to this wait is set by the most recent send before it.
+            // +1: the loop's pace check is strictly greater, because the ms clock truncates.
             var lastSend = sends.Where(s => s <= at).DefaultIfEmpty(long.MinValue).Max();
             if (lastSend == long.MinValue) continue;
-            long floor = lastSend + Pace;
+            long floor = lastSend + Pace + 1;
             Assert.False(at < floor && at + ms > floor,
                 $"a {ms} ms wait starting at {at} ms sleeps past the pace floor at {floor} ms — " +
                 $"the send was legal at {floor} but cannot happen until {at + ms}");
@@ -72,24 +73,66 @@ public class SerialSonuLinkPacingPrecisionTests
     /// sub-tick interval. A plain Task.Delay(4) measures ~15.5 ms on Windows; anything near that
     /// makes invariant 1 unenforceable in production no matter what the loop asks for.
     ///
-    /// Real wall-clock timing, so the bound is deliberately loose: it only has to separate
-    /// "genuinely short" from "a full 15.6 ms timer tick".</summary>
+    /// Real wall-clock timing, so the comparison is SELF-CALIBRATING rather than a fixed bound:
+    /// it measures Task.Delay(4) in the same run and requires the pipeline wait to be markedly
+    /// faster. A fixed "under 10 ms" bound fails about half the time on a 2x-oversubscribed
+    /// machine, and xUnit runs collections in parallel — but under that same load Task.Delay
+    /// degrades too, so the RATIO holds where an absolute number would not.</summary>
     [Fact]
     public async Task Default_pipeline_wait_resolves_intervals_shorter_than_a_timer_tick()
     {
-        var link = new SerialSonuLink(new FakeSerialPort(), "COM6", 115200);
-
-        await SerialSonuLink.PipelineWaitAsync(4, CancellationToken.None);   // warm up
-
         const int Samples = 12;
+        const int Requested = 4;
+
+        await SerialSonuLink.PipelineWaitAsync(Requested, CancellationToken.None);   // warm up
+        await Task.Delay(Requested);
+
         var sw = Stopwatch.StartNew();
-        for (int i = 0; i < Samples; i++) await SerialSonuLink.PipelineWaitAsync(4, CancellationToken.None);
+        for (int i = 0; i < Samples; i++) await SerialSonuLink.PipelineWaitAsync(Requested, CancellationToken.None);
+        double precise = sw.Elapsed.TotalMilliseconds / Samples;
+
+        sw.Restart();
+        for (int i = 0; i < Samples; i++) await Task.Delay(Requested);
+        double coarse = sw.Elapsed.TotalMilliseconds / Samples;
+
+        Assert.True(precise < coarse * 0.75,
+            $"a {Requested} ms pipeline wait averaged {precise:F2} ms against Task.Delay's {coarse:F2} ms — " +
+            "it is not resolving below the timer tick, so the batch loop will oversleep its pace floor");
+    }
+
+    /// <summary>Wiring check: with NO delay injected, the pipelined path must take the precise
+    /// wait and the lockstep path must not. Every other batch test injects a delay, so without
+    /// this one the defaults could be swapped back to Task.Delay and the whole suite would still
+    /// pass while the device ran 30% slower.
+    ///
+    /// Asserted by timing a real batch against a port that answers instantly: 4 sends at a 30 ms
+    /// floor take ~120 ms with a precise wait, but ~15.6 ms of oversleep per send with a coarse
+    /// one. The midpoint separates them with room to spare.</summary>
+    [Fact]
+    public async Task Pipelined_path_uses_the_precise_wait_when_no_delay_is_injected()
+    {
+        var port = new FakeSerialPort
+        {
+            Responder = c =>
+            {
+                var chunk = c.Split("\"chunk\":")[1].TrimEnd('}');
+                return $"root\\presets:{{\"index\":0,\"chunk\":{chunk},\"value\":\"aa\"}}\r\n\0";
+            }
+        };
+        // Real clock, real waits — no tickSource, no delay.
+        var link = new SerialSonuLink(port, "COM6", 115200,
+            new SerialLinkOptions { PipelineMinPaceMs = Pace, PipelinePollMs = 3, MaxWaitMs = 2000 });
+        await link.OpenAsync();
+
+        var sw = Stopwatch.StartNew();
+        var windows = await link.SendBatchAsync(Enumerable.Range(1, 4).Select(Cmd).ToArray());
         sw.Stop();
 
-        double mean = sw.Elapsed.TotalMilliseconds / Samples;
-        Assert.True(mean < 10.0,
-            $"a 4 ms pipeline wait averaged {mean:F2} ms — at or near the ~15.6 ms timer tick, " +
-            "so the batch loop will keep oversleeping its pace floor");
+        Assert.Equal(4, windows.Count);
+        // 3 paced gaps at ~31 ms = ~93 ms ideal. Coarse waiting adds a tick per gap (~140 ms+).
+        Assert.True(sw.Elapsed.TotalMilliseconds < 125,
+            $"4 paced sends took {sw.Elapsed.TotalMilliseconds:F0} ms — the pipelined path is not " +
+            "using the precise wait by default (a full timer tick is being lost per send)");
     }
 
     /// <summary>The wait must still honor cancellation — it is on the path that a user's

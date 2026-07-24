@@ -51,8 +51,11 @@ public sealed class SerialSonuLink : ISonuLink
     /// slept one full ~15.6 ms timer tick and woke well past the moment it could have sent.
     ///
     /// So: sleep only for whatever is comfortably more than one tick, then spin the remainder.
-    /// The spin is bounded by TimerTickMs and only runs inside a bulk read — a few seconds of
-    /// partial-core use during a backup, in exchange for ~25% more throughput.</summary>
+    /// The spin is bounded by TimerTickMs PER CALL, so the caller controls the real cost by how
+    /// much it asks for: the batch loop requests the whole interval remaining to its send floor
+    /// (~30 ms), which sleeps for the bulk of it and spins the tail. Requesting a few ms at a time
+    /// instead would spin continuously — an entire core, measured. Callers must also keep this off
+    /// a UI thread: it can complete without ever yielding (see SonuClient.SendBatchGatedAsync).</summary>
     public static async Task PipelineWaitAsync(int ms, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -164,7 +167,10 @@ public sealed class SerialSonuLink : ISonuLink
             ct.ThrowIfCancellationRequested();
 
             long now = _tick();
-            bool paceOk = sent == 0 || now - lastSendAt >= _options.PipelineMinPaceMs;
+            // STRICTLY greater: _tick() truncates to whole ms, so ">= 30" admits a true interval
+            // of just over 29 ms — measured on ~5% of sends. The floor is a hardware constant
+            // (25 ms is where the firmware starts eating commands), so it should mean what it says.
+            bool paceOk = sent == 0 || now - lastSendAt > _options.PipelineMinPaceMs;
             // Self-clock: a response byte has arrived since the last send, so the device is
             // mid-transmission and listening again. That byte may be the tail of an EARLIER
             // response still streaming in rather than this response's own first byte — either
@@ -196,14 +202,21 @@ public sealed class SerialSonuLink : ISonuLink
             }
             else
             {
-                // Never sleep PAST the instant the next send becomes legal. Polling on a fixed
-                // interval means the last wait before the floor straddles it — measured as a
-                // ~13 ms overshoot per chunk. Ask only for the time that is actually left.
+                // Wait for exactly the instant the next send becomes legal — the WHOLE remaining
+                // interval, not a fixed poll tick. Two reasons:
+                //   * never sleep PAST it (a fixed 3 ms poll straddles the floor and overshoots by
+                //     a full ~15.6 ms timer tick — the 43.3 ms/chunk defect), and
+                //   * never spin THROUGH it: asking for 3 ms at a time makes PipelineWaitAsync spin
+                //     the entire inter-send gap (~100% of a core, measured). Asking for the whole
+                //     interval lets it sleep for the bulk and spin only the last stretch.
+                // Not draining the port meanwhile is safe: a chunk response is ~340 B against a
+                // 4 KB driver buffer, and we drain on the very next iteration after waking.
                 int wait = _options.PipelinePollMs;
                 if (sent > 0 && sent < commands.Count)
                 {
-                    long untilPace = _options.PipelineMinPaceMs - (_tick() - lastSendAt);
-                    if (untilPace > 0 && untilPace < wait) wait = (int)untilPace;
+                    // +1 because paceOk is strictly greater on a truncating ms clock.
+                    long untilPace = _options.PipelineMinPaceMs + 1 - (_tick() - lastSendAt);
+                    if (untilPace > 0) wait = (int)untilPace;
                 }
                 await PipelineDelayAsync(Math.Max(1, wait), ct);
             }
