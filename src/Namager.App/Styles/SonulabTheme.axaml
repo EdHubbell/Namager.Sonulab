@@ -42,6 +42,13 @@
           <SolidColorBrush x:Key="Sonulab.ScrimBrush" Color="#000000" Opacity="0.38"/>
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
+
+      <!-- ===== Layout metrics. Theme-invariant, so they sit outside ThemeDictionaries.
+           Single definition point: the three list tabs must not re-declare spacing. ===== -->
+      <Thickness x:Key="Sonulab.PageInset">8,6,8,4</Thickness>
+      <Thickness x:Key="Sonulab.ListInset">8,0</Thickness>
+      <Thickness x:Key="Sonulab.PaneGap">12,0,0,0</Thickness>
+      <x:Double x:Key="Sonulab.ToolbarHeight">32</x:Double>
     </ResourceDictionary>
   </Styles.Resources>
 
@@ -66,6 +73,40 @@
     <Setter Property="BorderThickness" Value="0,1,0,0"/>
     <Setter Property="Margin" Value="0,8,0,6"/>
     <Setter Property="Height" Value="1"/>
+  </Style>
+
+  <!-- ===== Slot-tab layout contract =====
+       Every list pane is [toolbar row of ToolbarHeight] + [list]. Pinning the row height means
+       an icon-only toolbar and a toolbar with text buttons occupy the same band, so the list
+       and the detail pane beside it always start at the same y. -->
+  <Style Selector="StackPanel.slot-toolbar">
+    <Setter Property="Margin" Value="{StaticResource Sonulab.PageInset}"/>
+    <Setter Property="Height" Value="{StaticResource Sonulab.ToolbarHeight}"/>
+  </Style>
+  <!-- Buttons fill the band exactly, so text and icon content cannot produce different heights. -->
+  <Style Selector="StackPanel.slot-toolbar > Button">
+    <Setter Property="Height" Value="{StaticResource Sonulab.ToolbarHeight}"/>
+    <Setter Property="MinHeight" Value="0"/>
+    <Setter Property="VerticalAlignment" Value="Stretch"/>
+  </Style>
+  <Style Selector="ListBox.slot-list">
+    <Setter Property="Margin" Value="{StaticResource Sonulab.ListInset}"/>
+  </Style>
+  <!-- Inline warning/error rows in a LIST pane. Detail panes keep their own frame. -->
+  <Style Selector="TextBlock.slot-message">
+    <Setter Property="Margin" Value="{StaticResource Sonulab.ListInset}"/>
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+  </Style>
+
+  <!-- Per-row reorder chevrons. Hoisted out of the three list views, which each carried an
+       identical copy. -->
+  <Style Selector="Button.reorder">
+    <Setter Property="Padding" Value="4"/>
+    <Setter Property="MinWidth" Value="0"/>
+    <Setter Property="MinHeight" Value="0"/>
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
   </Style>
 
   <!-- ===== Typography ===== -->
