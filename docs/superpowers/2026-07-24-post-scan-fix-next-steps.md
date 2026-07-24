@@ -37,6 +37,21 @@ means grouping requests and over-reading up to `group-1` chunks past that stop p
 touches the scan path. Worth doing once the usage-map work has landed — a group of 4 would take
 the scan from ~14 s to ~8 s.
 
+**Riding minors from the build's reviews** (all adjudicated non-blocking, none affect correctness):
+- `SonuClient.DReadChunkRangeAsync` scans every window for every wanted chunk — O(n²), roughly
+  2000 record re-parses for a 64-chunk slot. Correct but wasteful against a ~33 ms/chunk budget;
+  one pass building a chunk→hex map would be O(n).
+- The batch deadline `MaxWaitMs + PipelineMinPaceMs × N` budgets for the OVERLAPPED case. A device
+  that does not honor overlap self-clocks at the lockstep ~57 ms/chunk, so a 96-chunk amp read
+  (~5472 ms ideal vs a ~5380 ms deadline) would time out its tail into the repair pass — correct
+  results, slower than plain lockstep. Documented in the code; revisit if hardware step 6 shows
+  a high repair rate.
+- `SendBatchAsync` stops collecting once the window count reaches the command count, so an
+  unsolicited NUL-terminated record could truncate collection and orphan a real response
+  (non-corrupting — responses are matched by content — just a wasted repair).
+- Untested branches: mid-batch cancellation with a command already on the wire, and
+  `SerialSonuLink.SendAsync`'s idle-gap fallback (pre-existing gap, unchanged by this work).
+
 Probe-proven (2026-07-24, `--pipeline-probe`): the firmware drops zero-gap pipelined commands
 but accepts the next command while still streaming the previous response — a ≥30 ms send pace
 sustained ~32.6 ms/chunk vs ~57 lockstep; 25 ms is the cliff. PROTOCOL.md "dread limits &
