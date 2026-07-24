@@ -12,20 +12,59 @@ public sealed class SerialSonuLink : ISonuLink
     private readonly SerialLinkOptions _options;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly Func<long> _tick;
-    private readonly Func<int, CancellationToken, Task> _delay;
+    private readonly Func<int, CancellationToken, Task>? _injectedDelay;
+
+    /// <summary>Windows' default timer resolution. Task.Delay cannot resolve below it — measured
+    /// ~15.5 ms for EVERY requested value from 1 to 10 ms on the validation bench.</summary>
+    private const int TimerTickMs = 16;
 
     /// <param name="tickSource">Millisecond clock for the response-collection loops. Defaults to
     /// this instance's Stopwatch — NOT Environment.TickCount64, whose ~15.6 ms Windows resolution
     /// cannot express the 30 ms pipelining pace. Tests inject a virtual clock.</param>
-    /// <param name="delay">Awaited between read polls. Defaults to Task.Delay; tests inject a
-    /// function that advances the virtual clock instead of really waiting.</param>
+    /// <param name="delay">Awaited between read polls, on BOTH the lockstep and pipelined paths.
+    /// Tests inject a function that advances the virtual clock instead of really waiting. When it
+    /// is not supplied the two paths take different defaults, because they need different things:
+    /// lockstep waits for a NUL and is happy with plain Task.Delay, while the pipelined loop is
+    /// pacing against a 30 ms floor and needs sub-tick accuracy (see PipelineWaitAsync).</param>
     public SerialSonuLink(ISerialPortStream port, string portName, int baudRate,
         SerialLinkOptions? options = null, Func<long>? tickSource = null,
         Func<int, CancellationToken, Task>? delay = null)
     {
         _port = port; _portName = portName; _baud = baudRate; _options = options ?? new SerialLinkOptions();
         _tick = tickSource ?? (() => _clock.ElapsedMilliseconds);
-        _delay = delay ?? ((ms, ct) => Task.Delay(ms, ct));
+        _injectedDelay = delay;
+    }
+
+    private Task DelayAsync(int ms, CancellationToken ct) =>
+        _injectedDelay?.Invoke(ms, ct) ?? Task.Delay(ms, ct);
+
+    private Task PipelineDelayAsync(int ms, CancellationToken ct) =>
+        _injectedDelay?.Invoke(ms, ct) ?? PipelineWaitAsync(ms, ct);
+
+    /// <summary>Accurate short wait for the pacing loop, and the reason the pipelined path does
+    /// not simply use Task.Delay.
+    ///
+    /// Hardware validation (2026-07-24) measured 43.3 ms/chunk against a 30 ms floor while a
+    /// busy-spin probe reached 33.4 ms/chunk on the same device in the same run. The cause was
+    /// not the pace and not the self-clock gate (instrumentation showed the gate binding on 1 of
+    /// 63 sends): a chunk response stops streaming a few ms BEFORE the floor opens, so the loop
+    /// slept one full ~15.6 ms timer tick and woke well past the moment it could have sent.
+    ///
+    /// So: sleep only for whatever is comfortably more than one tick, then spin the remainder.
+    /// The spin is bounded by TimerTickMs and only runs inside a bulk read — a few seconds of
+    /// partial-core use during a backup, in exchange for ~25% more throughput.</summary>
+    public static async Task PipelineWaitAsync(int ms, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (ms <= 0) return;
+        var sw = Stopwatch.StartNew();
+        int coarse = ms - TimerTickMs;
+        if (coarse > 0) await Task.Delay(coarse, ct);
+        while (sw.Elapsed.TotalMilliseconds < ms)
+        {
+            ct.ThrowIfCancellationRequested();
+            Thread.SpinWait(100);
+        }
     }
 
     public bool IsOpen => _port.IsOpen;
@@ -72,7 +111,7 @@ public sealed class SerialSonuLink : ISonuLink
                 // No-response command (e.g. a write): if nothing has arrived by the first-byte
                 // timeout, stop instead of blocking the full MaxWaitMs.
                 if (!sawData && _tick() - start >= _options.FirstByteTimeoutMs) break;
-                await _delay(_options.PollMs, ct);
+                await DelayAsync(_options.PollMs, ct);
             }
         }
         return sb.ToString();
@@ -155,7 +194,19 @@ public sealed class SerialSonuLink : ISonuLink
                     else pending.Append((char)buf[i]);
                 }
             }
-            else await _delay(_options.PipelinePollMs, ct);
+            else
+            {
+                // Never sleep PAST the instant the next send becomes legal. Polling on a fixed
+                // interval means the last wait before the floor straddles it — measured as a
+                // ~13 ms overshoot per chunk. Ask only for the time that is actually left.
+                int wait = _options.PipelinePollMs;
+                if (sent > 0 && sent < commands.Count)
+                {
+                    long untilPace = _options.PipelineMinPaceMs - (_tick() - lastSendAt);
+                    if (untilPace > 0 && untilPace < wait) wait = (int)untilPace;
+                }
+                await PipelineDelayAsync(Math.Max(1, wait), ct);
+            }
         }
         return windows;
     }
