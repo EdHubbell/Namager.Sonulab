@@ -22,12 +22,19 @@ runs. No other code change is needed.
 - [ ] **3. Byte-compare.** The two backup sets must be **identical**. Any difference is a hard
       stop — report it before going further.
       `fc /b <before>\<file> <after>\<file>` per file, or a directory diff tool.
-- [ ] **4. Amp slot dump (96 chunks).** Dump one occupied amp slot both ways; byte-compare.
-- [ ] **5. IR slot dump (32 chunks).** Dump one occupied IR slot both ways; byte-compare.
-- [ ] **6. Repair rate.** Raise the file log target to Debug (`src/Namager.App/Logging.cs`) and
-      count `pipelined dread missed` lines during a full backup. Above ~1 % of chunks means the
-      30 ms floor is too aggressive on this hardware — raise `PipelineMinPaceMs` to 35 or 40 and
-      re-run steps 2–3.
+- [ ] **4. Amp slot dump (96 chunks).** `dotnet run --project tools/HwCheck -- --dump-amps` dumps
+      every occupied amp slot to `NAMFiles/VxampDump/`. Run once with pipelining OFF, move/rename
+      that directory (e.g. `VxampDump-before`), run again with pipelining ON, then
+      `fc /b VxampDump-before\<file> VxampDump\<file>` per file for at least one occupied slot.
+- [ ] **5. IR slot dump (32 chunks).** `dotnet run --project tools/HwCheck -- --dump-irs` dumps
+      every occupied IR slot to `NAMFiles/IrDump/`. Same before/after/rename/`fc /b` procedure as
+      step 4.
+- [ ] **6. Repair rate.** The file log target is already Debug by default (`src/Namager.App/Logging.cs`,
+      `config.AddRule(LogLevel.Debug, LogLevel.Fatal, target)`) — no config change needed. Run a
+      full backup, then open the log file (path printed at startup / `Logging.Configure()`'s return
+      value, under `logs/namager.log` next to the app binary) and count `pipelined dread missed`
+      lines. Above ~1 % of chunks means the 30 ms floor is too aggressive on this hardware — raise
+      `PipelineMinPaceMs` to 35 or 40 and re-run steps 2–3.
 - [ ] **7. Live-preset sanity.** With a preset selected and audible, run a backup with pipelining
       ON. Audio must not glitch and the pedal must stay responsive.
 - [ ] **8. Record the numbers** in `docs/perf-findings.md` (before/after, per-chunk ms, repair

@@ -112,6 +112,12 @@ public sealed class SerialSonuLink : ISonuLink
         long lastSendAt = 0;
         bool sawByteSinceSend = false;
         long start = _tick();
+        // Budget for the OVERLAPPED case (MaxWaitMs slack + one pace interval per command), not a
+        // worst case: if the device does not honor overlap it self-clocks at the lockstep rate
+        // (~57 ms/chunk), and for the largest read in the app (a 96-chunk amp slot) ideal lockstep
+        // time (~5472 ms) exceeds this deadline (~5380 ms) — the tail chunks would time out here
+        // and fall through to the per-chunk repair pass below. Still correct, just slower than
+        // plain lockstep would have been.
         long deadline = _options.MaxWaitMs + (long)_options.PipelineMinPaceMs * commands.Count;
 
         while (_tick() - start < deadline && (sent < commands.Count || windows.Count < commands.Count))

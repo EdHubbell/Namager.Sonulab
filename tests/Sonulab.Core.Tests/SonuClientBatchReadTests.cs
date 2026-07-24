@@ -20,6 +20,7 @@ public class SonuClientBatchReadTests
 
         Assert.Equal(blob, bytes);
         Assert.Equal(8, link.BatchCommands.Count);
+        Assert.Equal(1, link.BatchCalls);   // one batch call carrying all 8 commands, not 8 one-command batches
         Assert.Empty(link.LockstepCommands);
     }
 
@@ -61,8 +62,7 @@ public class SonuClientBatchReadTests
         var bytes = await client.DReadChunkRangeAsync(Path, 0, 1, 8);
 
         Assert.Equal(blob, bytes);
-        for (int c = 1; c <= 8; c++)
-            Assert.All(Enumerable.Range(0, 128), i => Assert.Equal((byte)c, bytes[(c - 1) * 128 + i]));
+        Assert.Single(link.LockstepCommands);   // exactly the one dropped chunk was repaired
     }
 
     [Fact]
@@ -70,13 +70,17 @@ public class SonuClientBatchReadTests
     {
         // Today's permissive contract: the short buffer reaches SlotBlobService's validated
         // wrappers, which fail loudly. The batch path must not change that.
-        var (client, link, _) = Make();
+        var (client, link, blob) = Make();
         link.DropEverywhere.Add(4);
 
         var bytes = await client.DReadChunkRangeAsync(Path, 0, 1, 8);
 
         Assert.Equal(7 * 128, bytes.Length);
         Assert.Equal(2, link.LockstepCommands.Count(c => c.Contains("\"chunk\":4")));
+        // Surviving chunks are 1,2,3,5,6,7,8 IN THAT ORDER — chunk 4's 128 bytes (value 4) excised
+        // from the full blob, not just any 7*128 bytes.
+        var expected = blob.Take(3 * 128).Concat(blob.Skip(4 * 128)).ToArray();
+        Assert.Equal(expected, bytes);
     }
 
     [Fact]

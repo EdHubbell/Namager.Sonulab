@@ -15,6 +15,10 @@ public sealed class BatchLinkDouble : ISonuLink
     public List<string> BatchCommands { get; } = new();
     public List<string> LockstepCommands { get; } = new();
 
+    /// <summary>Number of SendBatchAsync invocations — distinguishes ONE batch of N commands
+    /// from N separate one-command batches, which the flat BatchCommands list cannot.</summary>
+    public int BatchCalls { get; private set; }
+
     /// <summary>Chunks the BATCH omits entirely (the firmware ate the command). The lockstep
     /// repair still recovers them.</summary>
     public HashSet<int> DropInBatch { get; } = new();
@@ -41,6 +45,7 @@ public sealed class BatchLinkDouble : ISonuLink
 
     public Task<IReadOnlyList<string>> SendBatchAsync(IReadOnlyList<string> commands, CancellationToken ct = default)
     {
+        BatchCalls++;
         BatchCommands.AddRange(commands);
         var windows = new List<string>();
         if (InjectExtraWindow) windows.Add("root\\sys\\_meters\\out:{\"value\":-42}\r\n");
