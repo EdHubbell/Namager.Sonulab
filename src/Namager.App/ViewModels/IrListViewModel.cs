@@ -11,6 +11,7 @@ public partial class IrListViewModel : ObservableObject
     private readonly IrService _irs;
     private readonly bool _writes;
     private readonly Namager.App.Services.IStatusService _status;
+    private readonly Namager.App.Services.IPresetUsageService _usage;
 
     /// <summary>.wav -> device blob seam — Sonulab.Distill.WavToIr.Convert in the app,
     /// a fake in tests. Conversion is instant and synchronous (no cancel/progress needed).</summary>
@@ -19,11 +20,13 @@ public partial class IrListViewModel : ObservableObject
 
     public IrListViewModel(IrService irs, bool writesAllowed,
                            Namager.App.Services.IStatusService? status = null,
-                           Func<string, byte[]>? convertWav = null)
+                           Func<string, byte[]>? convertWav = null,
+                           Namager.App.Services.IPresetUsageService? usage = null)
     {
         _irs = irs; _writes = writesAllowed;
         _status = status ?? Namager.App.Services.NullStatusService.Instance;
         _convertWav = convertWav ?? Sonulab.Distill.WavToIr.Convert;
+        _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance;
     }
 
     public ObservableCollection<IrItemViewModel> Items { get; } = new();
@@ -67,6 +70,29 @@ public partial class IrListViewModel : ObservableObject
         var slots = await _irs.ListIrsAsync();
         Items.Clear();
         foreach (var s in slots) Items.Add(new IrItemViewModel(s));
+        await ApplyUsageAsync();
+    }
+
+    /// <summary>Tag each item with the presets that use it. Best-effort: a preset read failure must
+    /// never break the IR list, so its errors are swallowed (logged).</summary>
+    private async Task ApplyUsageAsync()
+    {
+        try
+        {
+            var map = await _usage.GetAsync();
+            foreach (var item in Items)
+                item.UsedInPresets = item.IsEmpty
+                    ? System.Array.Empty<PresetRef>() : map.PresetsUsingIr(item.Name);
+        }
+        catch (Exception ex) { Log.Warn(ex, "IR preset-usage lookup failed"); }
+    }
+
+    /// <summary>Re-apply preset-usage highlighting without re-listing IRs (cached map, or a preset
+    /// re-scan if invalidated). Called on tab revisit after preset edits.</summary>
+    public async Task RefreshUsageAsync()
+    {
+        if (!CanRefresh) return;
+        await ApplyUsageAsync();
     }
 
     [RelayCommand] private async Task RefreshAsync()
@@ -87,8 +113,9 @@ public partial class IrListViewModel : ObservableObject
 
     [RelayCommand] private async Task DeleteAsync()
     {
-        if (Selected is { IsEmpty: false } s)
-            await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _irs.DeleteIrAsync(s.Index));
+        if (Selected is not { IsEmpty: false } s) return;
+        if (s.UsedInPresets.Count > 0) { BlockUsed(s, "delete"); return; }
+        await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _irs.DeleteIrAsync(s.Index));
     }
 
     [RelayCommand] private async Task CommitRenameAsync(IrItemViewModel? item)
@@ -96,8 +123,19 @@ public partial class IrListViewModel : ObservableObject
         if (item is not { IsEditing: true } s) return;      // Escape-then-LostFocus won't re-commit
         var name = (s.EditName ?? "").Trim();
         if (name.Length == 0 || name == s.Name) { s.IsEditing = false; return; }
+        if (s.UsedInPresets.Count > 0) { s.IsEditing = false; BlockUsed(s, "rename"); return; }
         if (!await RunAsync($"Renaming '{s.Name}'…", $"Renamed to '{name}'", () => _irs.RenameIrAsync(s.Index, name)))
             s.IsEditing = false;                            // gated/failed write: leave edit mode ourselves
+    }
+
+    /// <summary>Refuse a delete/rename of an IR a preset references, and say which presets.</summary>
+    private void BlockUsed(IrItemViewModel s, string verb)
+    {
+        var presets = s.UsedInPresets;
+        ErrorMessage =
+            $"This IR file is used in the following presets: {Namager.App.Services.PresetRefFormat.Join(presets)}. " +
+            $"You can only {verb} files that aren't in an active preset.";
+        _status.Failure($"Can't {verb} '{s.Name}' — used by {presets.Count} preset{(presets.Count == 1 ? "" : "s")}.");
     }
 
     // ---- upload panel state ----

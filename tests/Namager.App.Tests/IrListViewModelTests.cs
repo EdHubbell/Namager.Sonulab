@@ -143,4 +143,91 @@ public class IrListViewModelTests : IDisposable
         Assert.Single(converted);
         Assert.Contains(status.Succeeded, m => m.Contains("Uploaded"));
     }
+
+    // ---- preset-usage highlight & guards (Task 5) ----
+
+    private (IrListViewModel vm, FakeIrDevice dev) MakeWithUsage(FakePresetUsageService usage)
+    {
+        var dev = new FakeIrDevice();
+        dev.SeedIr(0, "V30", Enumerable.Repeat((byte)1, 4096).ToArray());
+        dev.SeedIr(1, "Greenback", Enumerable.Repeat((byte)2, 4096).ToArray());
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new IrService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        return (new IrListViewModel(svc, writesAllowed: true, usage: usage), dev);
+    }
+
+    [Fact] public async Task Refresh_marks_used_irs()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((2, "Clean", new[] { FakePresetUsageService.IrLine("V30") }))
+        };
+        var (vm, _) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.True(vm.Items[0].IsUsed);                          // "V30" used by "Clean"
+        Assert.False(vm.Items[1].IsUsed);                         // "Greenback" unused
+    }
+
+    [Fact] public async Task Delete_of_a_used_ir_is_blocked_with_a_message()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((2, "Clean", new[] { FakePresetUsageService.IrLine("V30") }))
+        };
+        var (vm, dev) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Equal("V30", dev.SlotNames[0]);                   // NOT deleted
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Contains("IR file is used", vm.ErrorMessage);
+        Assert.Contains("03 Clean", vm.ErrorMessage);            // slot number + name
+    }
+
+    [Fact] public async Task Delete_of_an_unused_ir_proceeds()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((2, "Clean", new[] { FakePresetUsageService.IrLine("V30") }))
+        };
+        var (vm, dev) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[1];                                // "Greenback" — unused
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Null(dev.SlotNames[1]);
+        Assert.True(vm.Items[1].IsEmpty);
+    }
+
+    [Fact] public async Task Rename_of_a_used_ir_is_blocked()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((2, "Clean", new[] { FakePresetUsageService.IrLine("V30") }))
+        };
+        var (vm, dev) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var item = vm.Items[0];
+        item.BeginRenameCommand.Execute(null);
+        item.EditName = "V-30";
+        await vm.CommitRenameCommand.ExecuteAsync(item);
+        Assert.Equal("V30", dev.SlotNames[0]);                   // NOT renamed
+        Assert.False(item.IsEditing);
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Contains("03 Clean", vm.ErrorMessage);
+    }
+
+    [Fact] public async Task RefreshUsage_reapplies_without_relisting_irs()
+    {
+        var usage = new FakePresetUsageService();
+        var (vm, dev) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.Items[0].IsUsed);
+        int listReads = dev.CommandLog.Count(c => c == @"read root\ir");
+
+        usage.Map = FakePresetUsageService.MapFor((2, "Clean", new[] { FakePresetUsageService.IrLine("V30") }));
+        await vm.RefreshUsageAsync();
+
+        Assert.True(vm.Items[0].IsUsed);
+        Assert.Equal(listReads, dev.CommandLog.Count(c => c == @"read root\ir"));
+    }
 }
