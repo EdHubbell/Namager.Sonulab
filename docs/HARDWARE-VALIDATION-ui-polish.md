@@ -32,3 +32,17 @@ Most steps are device-free. Steps marked [PEDAL] need the StompStation connected
        Esc cancels) — the ListBoxItem restyle must not break the edit TextBox.
 - [ ] 10. Screenshot the Amps tab in both variants; compare against the mockup;
        attach or note deviations here. Record date + pass/fail per step.
+
+## Tab layout alignment (spec 2026-07-24-tab-layout-alignment-design.md)
+
+No device required — the app runs disconnected for these.
+
+- [ ] Cycle Presets → Amps → IRs → Presets. The first toolbar button does not move.
+- [ ] Same cycle: the list's left and top edges do not move.
+- [ ] Presets and Amps: the detail pane's top edge is level with the list's top edge.
+- [ ] Amps: no toolbar button extends past the list's right edge.
+- [ ] Amps and IRs: trigger an upload-blocked or error message; the list drops by the same
+      amount on both tabs, and a long message wraps instead of clipping.
+- [ ] Presets: with a parameter-save error showing, the Load/Save row keeps its height and the
+      error text wraps below it.
+- [ ] Repeat the first two checks in the other theme variant (light/dark).

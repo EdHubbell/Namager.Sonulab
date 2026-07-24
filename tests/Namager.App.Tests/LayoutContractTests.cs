@@ -51,4 +51,27 @@ public class LayoutContractTests
         Assert.Contains("x:Key=\"Sonulab.PaneGap\"", theme);
         Assert.Contains("x:Key=\"Sonulab.ToolbarHeight\"", theme);
     }
+
+    [Fact]
+    public void Amp_detail_pane_reserves_the_toolbar_band_instead_of_a_magic_offset()
+    {
+        var detail = File.ReadAllText(
+            Path.Combine(RepoRoot(), "src", "Namager.App", "Views", "AmpDetailPanel.axaml"));
+        Assert.Contains("Classes=\"slot-toolbar\"", detail);
+
+        var amps = File.ReadAllText(
+            Path.Combine(RepoRoot(), "src", "Namager.App", "Views", "AmpListView.axaml"));
+        Assert.DoesNotContain("Margin=\"16,34,0,0\"", amps);   // the retired magic offset
+    }
+
+    [Fact]
+    public void Both_detail_panes_take_the_same_gap_token()
+    {
+        foreach (var file in new[] { "AmpListView.axaml", "MainWindow.axaml" })
+        {
+            var xaml = File.ReadAllText(
+                Path.Combine(RepoRoot(), "src", "Namager.App", "Views", file));
+            Assert.Contains("Sonulab.PaneGap", xaml);
+        }
+    }
 }

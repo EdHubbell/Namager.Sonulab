@@ -89,7 +89,7 @@
     </DockPanel>
 
     <!-- ===== Right: detail panel (upload form / details / placeholder) ===== -->
-    <views:AmpDetailPanel Grid.Column="1" Margin="16,34,0,0"/>
+    <views:AmpDetailPanel Grid.Column="1" Margin="{DynamicResource Sonulab.PaneGap}"/>
 
   </Grid>
 </UserControl>
