@@ -107,4 +107,28 @@ public class MainWindowViewModelTests
         Assert.Equal("n", amps.UploadNotes);
         Assert.Equal("u", amps.UploadUrl);
     }
+
+    [Fact]
+    public async Task EnsureTabLoaded_reapplies_amp_usage_on_revisit()
+    {
+        // A usage service whose map changes; revisiting the Amps tab must re-apply it without
+        // re-listing amps (mirrors: user edits presets, returns to the Amps tab).
+        var dev = new FakeAmpDevice();
+        dev.SeedAmp(0, "Clean", Enumerable.Repeat((byte)1, 12288).ToArray());
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new AmpService(new SonuClient(dev), Path.Combine(Path.GetTempPath(), "mwvm-usage"), 0, 0);
+        var usage = new FakePresetUsageService();
+        var amps = new AmpListViewModel(svc, writesAllowed: true, usage: usage);
+
+        var vm = new MainWindowViewModel { Amps = amps };
+        vm.EnsureTabLoaded(1);                          // first visit: full refresh
+        if (vm.PendingTabLoad is { } t1) await t1;
+        Assert.False(amps.Items[0].IsUsed);
+
+        usage.Map = FakePresetUsageService.MapFor((6, "Lead", new[] { FakePresetUsageService.AmpLine("Clean") }));
+        vm.EnsureTabLoaded(1);                          // revisit: re-apply usage
+        if (vm.PendingTabLoad is { } t2) await t2;
+
+        Assert.True(amps.Items[0].IsUsed);
+    }
 }

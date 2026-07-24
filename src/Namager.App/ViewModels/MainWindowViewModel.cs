@@ -42,8 +42,16 @@ public partial class MainWindowViewModel : ObservableObject
     /// visit instead of at connect — removes two full list reads from the connect path.</summary>
     public void EnsureTabLoaded(int navIndex)
     {
-        if (navIndex == 1 && Amps is { } a && !_ampsLoaded) { _ampsLoaded = true; PendingTabLoad = TimedRefreshAsync(a.RefreshCommand, "amps-first-visit"); }
-        else if (navIndex == 2 && Irs is { } i && !_irsLoaded) { _irsLoaded = true; PendingTabLoad = TimedRefreshAsync(i.RefreshCommand, "irs-first-visit"); }
+        if (navIndex == 1 && Amps is { } a)
+        {
+            if (!_ampsLoaded) { _ampsLoaded = true; PendingTabLoad = TimedRefreshAsync(a.RefreshCommand, "amps-first-visit"); }
+            else PendingTabLoad = a.RefreshUsageAsync();   // revisit: refresh "used" highlights only
+        }
+        else if (navIndex == 2 && Irs is { } i)
+        {
+            if (!_irsLoaded) { _irsLoaded = true; PendingTabLoad = TimedRefreshAsync(i.RefreshCommand, "irs-first-visit"); }
+            else PendingTabLoad = i.RefreshUsageAsync();
+        }
     }
 
     private static async Task TimedRefreshAsync(CommunityToolkit.Mvvm.Input.IAsyncRelayCommand refresh, string label)
@@ -106,11 +114,14 @@ public partial class MainWindowViewModel : ObservableObject
         {
             _ampsLoaded = _irsLoaded = false;
 
+            var usage = new PresetUsageService(_connection.Repository!, Status);
+
             var presets = new PresetListViewModel(
                 _connection.Repository!,
                 _connection.Reorder!,
                 _connection.WritesAllowed,
-                Status);
+                Status,
+                usage);
             var editor = new ParameterEditorViewModel(_connection.Client!, status: Status);
             // Selecting a preset activates + loads it into the editor (dedup is handled in LoadForAsync).
             presets.PropertyChanged += (_, e) =>
@@ -124,11 +135,11 @@ public partial class MainWindowViewModel : ObservableObject
 
             var ampService = new AmpService(
                 _connection.Client!, System.IO.Path.Combine("docs", "backups"));
-            var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status);
+            var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status, usage: usage);
             Amps = amps;
 
             var irService = new IrService(_connection.Client!, System.IO.Path.Combine("docs", "backups"));
-            var irs = new IrListViewModel(irService, _connection.WritesAllowed, Status);
+            var irs = new IrListViewModel(irService, _connection.WritesAllowed, Status, usage: usage);
             Irs = irs;
 
             Tone3000.IsDeviceReady = _connection.WritesAllowed;
