@@ -70,8 +70,11 @@ Amp/IR reorder and backup-all UI deferred from their v1 tabs. (See
 `docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-plan-dragreorder.md` for
 pending manual checks.) Performance pass done — before/after numbers in `docs/perf-findings.md`;
 the preset-dwrite question is resolved (VERDICT in PROTOCOL.md; byte-exact restore/duplicate via dwrite is a possible follow-up, not built).
-Ranked follow-ups (dswap-based reorder ~7× faster, paced serial pipelining ~1.7×, riding review
-minors): `docs/superpowers/2026-07-24-post-scan-fix-next-steps.md`.
+Ranked follow-ups (dswap-based reorder ~7× faster, riding review minors):
+`docs/superpowers/2026-07-24-post-scan-fix-next-steps.md`. Paced serial pipelining is BUILT
+(multi-chunk foreground `dread` overlaps sends at a 30 ms floor with lockstep repair; kill switch
+`SerialLinkOptions.PipelineEnabled`) — on-device checks pending in
+`docs/HARDWARE-VALIDATION-pipelining.md`. The background usage scan is deliberately not pipelined.
 Amp metadata hardware validation (docs/HARDWARE-VALIDATION-amp-metadata.md) pending — run before relying on SSMD blocks on-device. IR-slot metadata not designed.
 UI-polish visual checklist (docs/HARDWARE-VALIDATION-ui-polish.md) pending.
 Tone3000 live checklist (docs/HARDWARE-VALIDATION-tone3000.md) pending.
