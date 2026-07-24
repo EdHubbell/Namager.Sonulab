@@ -92,7 +92,16 @@ public sealed class SerialSonuLink : ISonuLink
 
     public async Task<string> SendAsync(string command, CancellationToken ct = default)
     {
+        // The precondition check stays OUTSIDE the try: IsFatal matches InvalidOperationException
+        // (SerialPort raises it on a closed handle), so leaving this inside would silently
+        // reclassify a caller bug as a device disconnect.
         if (!_port.IsOpen) throw new InvalidOperationException("Serial link is not open.");
+        try { return await SendCoreAsync(command, ct); }
+        catch (Exception ex) when (DeviceDisconnectedException.IsFatal(ex)) { throw Fault(ex); }
+    }
+
+    private async Task<string> SendCoreAsync(string command, CancellationToken ct)
+    {
         _port.DiscardInBuffer();
         var bytes = Encoding.ASCII.GetBytes(command);
         _port.Write(bytes, 0, bytes.Length);
@@ -146,6 +155,12 @@ public sealed class SerialSonuLink : ISonuLink
     {
         if (!_port.IsOpen) throw new InvalidOperationException("Serial link is not open.");
         if (commands.Count == 0) return Array.Empty<string>();
+        try { return await SendBatchCoreAsync(commands, ct); }
+        catch (Exception ex) when (DeviceDisconnectedException.IsFatal(ex)) { throw Fault(ex); }
+    }
+
+    private async Task<IReadOnlyList<string>> SendBatchCoreAsync(IReadOnlyList<string> commands, CancellationToken ct)
+    {
         if (!_options.PipelineEnabled || commands.Count == 1)
         {
             var seq = new List<string>(commands.Count);
@@ -237,5 +252,13 @@ public sealed class SerialSonuLink : ISonuLink
             }
         }
         return windows;
+    }
+
+    /// <summary>Close the port and translate. Closing is what stops IsOpen from lying — a real
+    /// SerialPort reports IsOpen == true after an unplug until someone closes it.</summary>
+    private DeviceDisconnectedException Fault(Exception inner)
+    {
+        try { _port.Close(); } catch { /* already gone — the throw below is the real signal */ }
+        return new DeviceDisconnectedException("USB", inner);
     }
 }

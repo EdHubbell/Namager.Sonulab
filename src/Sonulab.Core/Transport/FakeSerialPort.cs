@@ -15,10 +15,15 @@ public sealed class FakeSerialPort : ISerialPortStream
     /// <summary>Maps a fully-received command (NUL stripped) to the response text to enqueue. Return "" for no response.</summary>
     public Func<string, string>? Responder { get; set; }
 
+    /// <summary>Fault injection for disconnect tests: invoked before each I/O operation with
+    /// "write", "read", "bytes" or "discard". Throw from here to simulate a yanked cable.
+    /// Deliberately general — a test counts calls itself and throws whatever it wants.</summary>
+    public Action<string>? OnIo { get; set; }
+
     public void Open(string portName, int baudRate) { IsOpen = true; OpenedPort = portName; OpenedBaud = baudRate; }
     public void Close() => IsOpen = false;
-    public void DiscardInBuffer() => _in.Clear();
-    public int BytesToRead => _in.Count;
+    public void DiscardInBuffer() { OnIo?.Invoke("discard"); _in.Clear(); }
+    public int BytesToRead { get { OnIo?.Invoke("bytes"); return _in.Count; } }
 
     public void EnqueueResponse(string text)
     {
@@ -27,6 +32,7 @@ public sealed class FakeSerialPort : ISerialPortStream
 
     public void Write(byte[] buffer, int offset, int count)
     {
+        OnIo?.Invoke("write");
         for (int i = 0; i < count; i++)
         {
             byte b = buffer[offset + i];
@@ -43,6 +49,7 @@ public sealed class FakeSerialPort : ISerialPortStream
 
     public int Read(byte[] buffer, int offset, int count)
     {
+        OnIo?.Invoke("read");
         int i = 0;
         while (i < count && _in.Count > 0) buffer[offset + i++] = _in.Dequeue();
         return i;

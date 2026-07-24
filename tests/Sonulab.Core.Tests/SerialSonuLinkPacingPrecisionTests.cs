@@ -141,7 +141,12 @@ public class SerialSonuLinkPacingPrecisionTests
     /// <summary>The scope must be released even when the batch dies mid-burst. It raises a
     /// PROCESS-WIDE setting, and a real IOException from the port ("a device attached to the
     /// system is not functioning") was observed unwinding through this exact path during hardware
-    /// validation — leaking there would leave the machine at a 1 ms tick indefinitely.</summary>
+    /// validation — leaking there would leave the machine at a 1 ms tick indefinitely.
+    ///
+    /// The raw IOException is now classified by SendBatchAsync into a DeviceDisconnectedException
+    /// (device-disconnect handling, Task 2) — that reclassification happens in the wrapper, above
+    /// the `using var timerResolution` scope declared inside SendBatchCoreAsync, so the scope's
+    /// Dispose still runs on the way out either way.</summary>
     [Fact]
     public async Task Timer_resolution_is_released_when_the_batch_throws()
     {
@@ -150,7 +155,7 @@ public class SerialSonuLinkPacingPrecisionTests
             new SerialLinkOptions { PipelineMinPaceMs = Pace, PipelinePollMs = 1, MaxWaitMs = 200 });
         await link.OpenAsync();
 
-        await Assert.ThrowsAsync<IOException>(
+        await Assert.ThrowsAsync<DeviceDisconnectedException>(
             () => link.SendBatchAsync(Enumerable.Range(1, 4).Select(Cmd).ToArray()));
 
         Assert.Equal(0, TimerResolutionScope.ActiveCount);
