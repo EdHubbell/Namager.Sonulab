@@ -65,6 +65,13 @@ public class LayoutContractTests
     }
 
     [Fact]
+    public void Parameter_editor_toolbar_takes_the_shared_toolbar_class()
+    {
+        var xaml = View("ParameterEditorView.axaml");
+        Assert.Contains("Classes=\"slot-toolbar\"", xaml);
+    }
+
+    [Fact]
     public void Both_detail_panes_take_the_same_gap_token()
     {
         foreach (var file in new[] { "AmpListView.axaml", "MainWindow.axaml" })
