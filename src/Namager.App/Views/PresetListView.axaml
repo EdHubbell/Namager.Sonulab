@@ -5,19 +5,10 @@
              xmlns:behaviors="using:Namager.App.Behaviors"
              x:Class="Namager.App.Views.PresetListView"
              x:DataType="vm:PresetListViewModel">
-  <UserControl.Styles>
-    <Style Selector="Button.reorder">
-      <Setter Property="Padding" Value="4"/>
-      <Setter Property="MinWidth" Value="0"/>
-      <Setter Property="MinHeight" Value="0"/>
-      <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
-    </Style>
-  </UserControl.Styles>
   <DockPanel>
 
     <!-- Icon command bar -->
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="8,6,8,4">
+    <StackPanel DockPanel.Dock="Top" Classes="slot-toolbar" Orientation="Horizontal" Spacing="4">
       <Button Command="{Binding RefreshCommand}" ToolTip.Tip="Refresh">
         <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
       </Button>
@@ -30,8 +21,8 @@
     </StackPanel>
 
     <!-- Preset list -->
-    <ListBox x:Name="PresetList" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" Margin="8,0"
-             IsEnabled="{Binding !IsBusy}">
+    <ListBox x:Name="PresetList" Classes="slot-list" ItemsSource="{Binding Items}"
+             SelectedItem="{Binding Selected}" IsEnabled="{Binding !IsBusy}">
       <ListBox.KeyBindings>
         <KeyBinding Gesture="F2" Command="{Binding Selected.BeginRenameCommand}"/>
       </ListBox.KeyBindings>
