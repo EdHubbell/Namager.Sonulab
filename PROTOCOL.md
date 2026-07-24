@@ -73,6 +73,22 @@ Reverse-engineered from a USBPcap capture (`SonulabCapture1.pcapng`) + static st
 | `write`  | `write <path>:{"value":<v>}\0` | set a value; `,"save":"save"` saves current `root\app\*` as a preset by name |
 | `dread`  | `dread <path>:{"index":N,"chunk":C}\0` | read one blob chunk; C in 1..(size/128); name at chunk -1 |
 | `dwrite` | `dwrite <path>:{"index":N,"chunk":C,"value":"<hex>"}\0` | write one blob chunk (128 B); name at chunk -1 |
+| `dswap`  | `dswap <path>:{"index":A,"index2":B}\0` | **CONFIRMED live 2026-07-24 (fw 2.5.1, serial, `--dswap-probe`)**: atomically swaps two slots — name AND content, byte-verified — in **~213 ms**; ACK echoes the command. Undocumented in VoidX UI; found via `app.so` string pool (`dswap `, `,"index2":`). ~7× faster than one select+save reorder step. |
+| `dmove`  | (unprobed) | exists in the `app.so` string pool (`dmove `) alongside dswap; semantics unknown (move-with-shift?). Probe with a full-bank backup before trusting. |
+
+### dread limits & hazards (probed 2026-07-24, fw 2.5.1, `--dread-arg-probe` / `--pipeline-probe`)
+- **No batch/size argument.** Extra numeric JSON keys (`count`, `chunks`, `size`, `len`, `num`, `to`,
+  `end`, `from/to`) are silently ignored — always exactly one 128-B chunk per round trip. `dread`
+  with no `chunk` key returns nothing.
+- **CRASH HAZARD: a non-numeric `chunk` value (e.g. `"chunk":"1-4"` or `"chunk":[1,2]`) calls
+  `abort()` in the firmware — the ESP32 reboots** (observed: `abort() was called at PC 0x420ba5fe`,
+  full reboot with boot log on the serial stream, device recovers in ~2 s). Never send one.
+- **Serial commands are NOT queued.** A zero-gap back-to-back command burst loses every command
+  after the first (contrast TCP, which queues and answers late — see the WiFi section). But the
+  firmware DOES accept the next command while still *streaming the previous response*: a paced
+  overlap of **≥30 ms between sends sustains ~33 ms/chunk** (vs ~57 ms/chunk lockstep, ~1.75×);
+  at 25 ms pace commands get dropped. Production use should self-clock (send next on first bytes
+  of the previous response) rather than hard-code the 30 ms.
 
 NOTE: protocol `index` is **0-based**; VoidX UI shows slots **1-based** (index 25 = "Slot 26").
 The app should display `index + 1`.

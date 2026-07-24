@@ -11,8 +11,13 @@
 //   dotnet run --project tools/HwCheck -- --upload-ir <irblob> <slotIndex> [--name <n>]  # guarded IR upload (backup+write+verify)
 //   dotnet run --project tools/HwCheck -- --delete-ir <slotIndex>              # guarded IR delete (backup+clear name)
 //   dotnet run --project tools/HwCheck -- --preset-dwrite-probe [--src <idx>] [--dst <idx>]  # guarded, timed re-test of preset dwrite
+//   dotnet run --project tools/HwCheck -- --dread-arg-probe [--idx <n>]   # read-only fuzz: does dread accept a batch/size arg?
+//   dotnet run --project tools/HwCheck -- --pipeline-probe [--idx <n>] [--depth <d>]  # read-only: pipelined dread burst timing (serial only)
+//   dotnet run --project tools/HwCheck -- --dswap-probe [--a <idx>] [--b <idx>]  # guarded probe of the undocumented dswap verb (backup + self-reversing)
 //   dotnet run --project tools/HwCheck -- --wifi [--ip <addr>] [...]  # any mode over WiFi (mDNS discovery; --ip pins the endpoint)
 // Requires VoidX-Control CLOSED (it holds COM6).
+using System.Diagnostics;
+using System.Text;
 using Sonulab.Core.Connection;
 using Sonulab.Core.Model;
 using Sonulab.Core.Services;
@@ -201,6 +206,370 @@ if (dpi >= 0)
     Console.WriteLine("RESULT: DREAD-PROBE COMPLETE");
     session.Disconnect();
     return 0;
+}
+
+// ---- raw-port helpers for the protocol probes below (serial only; bypass SonuClient's lockstep) ----
+// The probes need to (a) see EVERY response the device emits (a variant might answer with several
+// NUL-terminated responses — SonuClient returns at the first NUL) and (b) send commands back-to-back
+// without waiting. So they disconnect the DeviceSession and drive a SystemSerialPort directly.
+static void RawCmd(ISerialPortStream port, string cmd)
+{
+    var b = Encoding.ASCII.GetBytes(cmd);
+    port.Write(b, 0, b.Length);
+    port.Write(new byte[] { 0 }, 0, 1);
+}
+
+// Collect until `done(text)` or maxWaitMs. Tight spin (no Task.Delay) — per-chunk timing is the
+// measurement here and a 15 ms timer quantum would drown it.
+static string RawCollect(ISerialPortStream port, Func<string, bool> done, int maxWaitMs)
+{
+    var sb = new StringBuilder();
+    var sw = Stopwatch.StartNew();
+    var buf = new byte[4096];
+    while (sw.ElapsedMilliseconds < maxWaitMs)
+    {
+        int avail = port.BytesToRead;
+        if (avail > 0)
+        {
+            int got = port.Read(buf, 0, Math.Min(avail, buf.Length));
+            sb.Append(Encoding.ASCII.GetString(buf, 0, got));
+            if (done(sb.ToString())) break;
+        }
+        else Thread.SpinWait(2000);
+    }
+    return sb.ToString();
+}
+
+static bool RawProbeIdentity(ISerialPortStream port, int attempts = 10)
+{
+    for (int a = 0; a < attempts; a++)
+    {
+        port.DiscardInBuffer();
+        RawCmd(port, @"read root\sys\_name");
+        var resp = RawCollect(port, t => t.Contains(@"root\sys\_name:"), 500);
+        if (resp.Contains(@"root\sys\_name:")) return true;
+        Thread.Sleep(150);
+    }
+    return false;
+}
+
+static (ISerialPortStream? Port, string Name) RawOpenPedal(IReadOnlyList<string> names)
+{
+    foreach (var pn in names)
+    {
+        var p = new SystemSerialPort();
+        try
+        {
+            p.Open(pn, 115200);
+            Thread.Sleep(300); // opening resets the ESP32; identity probe below retries through the boot
+            if (RawProbeIdentity(p)) return (p, pn);
+            p.Close();
+            p.Dispose();
+        }
+        catch { try { p.Dispose(); } catch { } }
+    }
+    return (null, "");
+}
+
+// --dread-arg-probe [--idx <n>] : read-only fuzz of dread's JSON arguments against ONE occupied
+// preset slot, to settle whether fw 2.5.1 accepts any undocumented batch/size argument. VoidX's
+// app.so only ever builds {"index","chunk"}, so the expectation is "extra keys ignored, one 128-B
+// chunk back" — any variant yielding >256 hex chars or >1 chunk record is a FINDING that changes
+// the preset-usage scan design. Runs on the raw port so multi-response answers aren't truncated.
+int dap = Array.IndexOf(args, "--dread-arg-probe");
+if (dap >= 0)
+{
+    int n = ArgAfter(args, "--idx") ?? slots.First(s => !s.IsEmpty).Index;
+    if (string.IsNullOrEmpty(slots[n].Name)) { Console.WriteLine($"RESULT: DREAD-ARG-PROBE ABORT — slot idx {n} is empty."); session.Disconnect(); return 1; }
+    Console.WriteLine($"\n--- DREAD ARG PROBE  root\\presets idx {n} ('{slots[n].Name}')  (read-only, raw port) ---");
+    session.Disconnect();
+    Thread.Sleep(500); // let the OS release the COM port before reopening
+    var (aPort, aPortName) = RawOpenPedal(portNames());
+    if (aPort is null) { Console.WriteLine("RESULT: DREAD-ARG-PROBE ABORT — raw port reopen failed."); return 2; }
+    Console.WriteLine($"[raw] pedal on {aPortName}");
+
+    // Baseline: plain single-chunk dread. Everything below is compared against this hex.
+    aPort.DiscardInBuffer();
+    RawCmd(aPort, $"dread root\\presets:{{\"index\":{n},\"chunk\":1}}");
+    var baseText = RawCollect(aPort, t => Sonulab.Core.Protocol.ResponseParser.ChunkHex(t, n, 1) is { Length: 256 }, 2500);
+    var baseHex = Sonulab.Core.Protocol.ResponseParser.ChunkHex(baseText, n, 1);
+    Console.WriteLine($"baseline chunk1: hex={baseHex?.Length ?? 0} chars");
+    if (baseHex is not { Length: 256 }) { Console.WriteLine("RESULT: DREAD-ARG-PROBE ABORT — baseline dread failed"); aPort.Close(); return 4; }
+
+    var variants = new (string Label, string Cmd)[]
+    {
+        ("count:4",     $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"count\":4}}"),
+        ("chunks:4",    $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"chunks\":4}}"),
+        ("size:512",    $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"size\":512}}"),
+        ("len:512",     $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"len\":512}}"),
+        ("num:4",       $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"num\":4}}"),
+        ("to:4",        $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"to\":4}}"),
+        ("end:4",       $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"end\":4}}"),
+        ("range-str",   $"dread root\\presets:{{\"index\":{n},\"chunk\":\"1-4\"}}"),
+        ("array",       $"dread root\\presets:{{\"index\":{n},\"chunk\":[1,2,3,4]}}"),
+        ("from/to",     $"dread root\\presets:{{\"index\":{n},\"from\":1,\"to\":4}}"),
+        ("no-chunk",    $"dread root\\presets:{{\"index\":{n}}}"),
+        ("read+json",   $"read root\\presets:{{\"index\":{n}}}"),
+        ("browse+json", $"browse root\\presets:{{\"index\":{n}}}"),
+    };
+    bool finding = false;
+    foreach (var (label, cmd) in variants)
+    {
+        aPort.DiscardInBuffer();
+        RawCmd(aPort, cmd);
+        // First NUL = first response; keep listening 300 ms more in case the variant answers with
+        // SEVERAL NUL-terminated responses (the case SonuClient would truncate).
+        var text = RawCollect(aPort, t => t.Contains('\0'), 2000);
+        text += RawCollect(aPort, _ => false, 300);
+        var recs = Sonulab.Core.Protocol.ResponseParser.NonMeterRecords(text).ToList();
+        int hexRecs = 0, maxHex = 0; bool matchesBase = false;
+        foreach (var r in recs)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(r, "\"value\":\"([0-9a-fA-F]{2,})\"");
+            if (m.Success)
+            {
+                hexRecs++;
+                maxHex = Math.Max(maxHex, m.Groups[1].Value.Length);
+                if (string.Equals(m.Groups[1].Value, baseHex, StringComparison.OrdinalIgnoreCase)) matchesBase = true;
+            }
+        }
+        var head = recs.Count > 0 ? (recs[0].Length > 80 ? recs[0][..80] + "…" : recs[0]) : "(no records)";
+        Console.WriteLine($"  {label,-11} raw={text.Length,5}B recs={recs.Count,2} hexRecs={hexRecs} maxHex={maxHex,4}{(matchesBase ? " =chunk1" : "        ")}  {head}");
+        if (maxHex > 256 || hexRecs > 1) { finding = true; Console.WriteLine("    ^^^ FINDING: larger/multi-chunk response!"); }
+    }
+    bool aAlive = RawProbeIdentity(aPort);
+    Console.WriteLine($"[sanity] device still answers identity: {aAlive}");
+    Console.WriteLine(finding
+        ? "RESULT: DREAD-ARG-PROBE FINDING — the firmware accepts a batch/size argument (see above)"
+        : "RESULT: DREAD-ARG-PROBE NO-BATCH — every variant returned one 128-B chunk (or nothing)");
+    aPort.Close();
+    return aAlive ? 0 : 5;
+}
+
+// --pipeline-probe [--idx <n>] [--depth <d>] : read-only, SERIAL ONLY. Measures whether the
+// firmware accepts pipelined dread commands (send a burst without waiting, read the response
+// stream) and what the real per-chunk floor is. Ground truth is read lockstep through SonuClient
+// first; every pipelined chunk must match it byte-for-byte. Escalates burst depth 2→4→…→depth
+// (default 64) and stops at the first failure — worst case the ESP32 drops input, which the
+// end-of-run identity probe detects (a replug recovers; nothing is written).
+int ppb = Array.IndexOf(args, "--pipeline-probe");
+if (ppb >= 0)
+{
+    if (useWifi) { Console.WriteLine("RESULT: PIPELINE-PROBE ABORT — serial only (TCP pipelining is a separate probe)."); session.Disconnect(); return 1; }
+    int n = ArgAfter(args, "--idx") ?? slots.First(s => !s.IsEmpty).Index;
+    int maxDepth = Math.Clamp(ArgAfter(args, "--depth") ?? 64, 2, 64);
+    if (string.IsNullOrEmpty(slots[n].Name)) { Console.WriteLine($"RESULT: PIPELINE-PROBE ABORT — slot idx {n} is empty."); session.Disconnect(); return 1; }
+
+    Console.WriteLine($"\n--- PIPELINE PROBE  root\\presets idx {n} ('{slots[n].Name}')  (read-only) ---");
+    Console.WriteLine("[truth] lockstep 64-chunk read via SonuClient (this is the slow path we're trying to beat)...");
+    var truthSw = Stopwatch.StartNew();
+    var truth = await session.Client!.DReadBlobAsync(@"root\presets", n, 64);
+    Console.WriteLine($"[truth] {truth.Length} B in {truthSw.ElapsedMilliseconds} ms ({truthSw.ElapsedMilliseconds / 64.0:F1} ms/chunk lockstep incl. client overhead)");
+    if (truth.Length != 8192) { Console.WriteLine("RESULT: PIPELINE-PROBE ABORT — ground-truth read came back short."); session.Disconnect(); return 4; }
+
+    session.Disconnect();
+    Thread.Sleep(500);
+    var (port, portName) = RawOpenPedal(portNames());
+    if (port is null) { Console.WriteLine("RESULT: PIPELINE-PROBE ABORT — raw port reopen failed."); return 2; }
+    Console.WriteLine($"[raw] pedal on {portName}");
+
+    string TruthHex(int chunk) => Convert.ToHexString(truth, (chunk - 1) * 128, 128);
+    string Cmd(int chunk) => $"dread root\\presets:{{\"index\":{n},\"chunk\":{chunk}}}";
+
+    // Sequential raw baseline (lockstep, but without SonuClient/gate/Task.Delay overhead) — the
+    // fair "before" number for the pipelined comparison.
+    const int seqDepth = 8;
+    var sw = Stopwatch.StartNew();
+    bool seqOk = true;
+    for (int ch = 1; ch <= seqDepth && seqOk; ch++)
+    {
+        port.DiscardInBuffer();
+        RawCmd(port, Cmd(ch));
+        int cc = ch; // capture
+        var text = RawCollect(port, t => Sonulab.Core.Protocol.ResponseParser.ChunkHex(t, n, cc) is { Length: 256 }, 2500);
+        var hex = Sonulab.Core.Protocol.ResponseParser.ChunkHex(text, n, cc);
+        seqOk = string.Equals(hex, TruthHex(cc), StringComparison.OrdinalIgnoreCase);
+    }
+    sw.Stop();
+    Console.WriteLine(seqOk
+        ? $"[seq ] {seqDepth} chunks lockstep raw: {sw.ElapsedMilliseconds} ms  ({sw.ElapsedMilliseconds / (double)seqDepth:F1} ms/chunk)"
+        : "[seq ] BASELINE FAILED — aborting (device not answering dreads on the raw port)");
+    if (!seqOk) { port.Close(); return 4; }
+
+    // Runs one pipelined attempt: send `depth` commands paced `paceMs` apart (0 = single burst
+    // write) while reading continuously. Returns (chunks completed, elapsed ms, all-match).
+    (int Complete, long Ms, bool AllMatch) RunPipelined(int depth, int paceMs)
+    {
+        port.DiscardInBuffer();
+        var sb = new StringBuilder();
+        var buf = new byte[4096];
+        int sent = 0, next = 1;
+        var swB = Stopwatch.StartNew();
+        long nextSendAt = 0;
+        long deadline = 3000 + (long)paceMs * depth + 120L * depth;
+        if (paceMs == 0)
+        {
+            var burst = new StringBuilder();
+            for (int ch = 1; ch <= depth; ch++) { burst.Append(Cmd(ch)); burst.Append('\0'); }
+            var burstBytes = Encoding.ASCII.GetBytes(burst.ToString());
+            port.Write(burstBytes, 0, burstBytes.Length);
+            sent = depth;
+        }
+        while (swB.ElapsedMilliseconds < deadline && next <= depth)
+        {
+            if (sent < depth && swB.ElapsedMilliseconds >= nextSendAt)
+            {
+                sent++;
+                RawCmd(port, Cmd(sent));
+                nextSendAt = swB.ElapsedMilliseconds + paceMs;
+            }
+            int avail = port.BytesToRead;
+            if (avail > 0)
+            {
+                int got = port.Read(buf, 0, Math.Min(avail, buf.Length));
+                sb.Append(Encoding.ASCII.GetString(buf, 0, got));
+                var t = sb.ToString();
+                while (next <= depth && Sonulab.Core.Protocol.ResponseParser.ChunkHex(t, n, next) is { Length: 256 }) next++;
+            }
+            else Thread.SpinWait(500);
+        }
+        swB.Stop();
+        int complete = next - 1;
+        var text = sb.ToString();
+        bool allMatch = true;
+        for (int ch = 1; ch <= complete; ch++)
+            if (!string.Equals(Sonulab.Core.Protocol.ResponseParser.ChunkHex(text, n, ch), TruthHex(ch), StringComparison.OrdinalIgnoreCase))
+            { allMatch = false; break; }
+        RawCollect(port, _ => false, 250); // drain stragglers so the next attempt starts clean
+        return (complete, swB.ElapsedMilliseconds, allMatch);
+    }
+
+    // Zero-gap burst first (the "true pipelining" question), then a paced ladder: send the next
+    // command WHILE the previous response is still streaming (response tx is ~26 ms of the ~55 ms
+    // lockstep cycle). The fastest pace at which nothing is dropped is the real per-chunk floor.
+    var (bComplete, bMs, bMatch) = RunPipelined(Math.Min(2, maxDepth), 0);
+    Console.WriteLine($"[pipe] burst depth 2 (zero gap): {bComplete}/2 chunks in {bMs} ms  match={bMatch}");
+    bool burstWorks = bComplete == 2 && bMatch;
+    if (burstWorks)
+    {
+        var (fComplete, fMs, fMatch) = RunPipelined(maxDepth, 0);
+        Console.WriteLine($"[pipe] burst depth {maxDepth}: {fComplete}/{maxDepth} in {fMs} ms ({(fComplete > 0 ? fMs / (double)fComplete : 0):F1} ms/chunk) match={fMatch}");
+    }
+
+    int pacedDepth = Math.Min(16, maxDepth);
+    double bestPerChunk = double.MaxValue; int bestPace = -1;
+    foreach (int pace in new[] { 45, 35, 30, 25, 20, 15 })
+    {
+        var (complete, ms, pMatch) = RunPipelined(pacedDepth, pace);
+        Console.WriteLine($"[pace] {pace,2} ms gap, depth {pacedDepth}: {complete}/{pacedDepth} chunks in {ms,5} ms  " +
+            $"({(complete > 0 ? ms / (double)complete : 0):F1} ms/chunk)  match={pMatch}");
+        if (complete < pacedDepth || !pMatch)
+        {
+            Console.WriteLine($"[pace] {pace} ms FAILED — stopping (fastest safe pace = {(bestPace < 0 ? "none" : bestPace + " ms")}).");
+            break;
+        }
+        bestPerChunk = Math.Min(bestPerChunk, ms / (double)pacedDepth);
+        bestPace = pace;
+    }
+
+    bool alive = RawProbeIdentity(port);
+    Console.WriteLine($"[sanity] device still answers identity: {alive}");
+    double lockstepPerChunk = sw.ElapsedMilliseconds / (double)seqDepth;
+    Console.WriteLine(burstWorks
+        ? "RESULT: PIPELINE-PROBE BURST WORKS (see depth numbers above)"
+        : bestPace >= 0
+            ? $"RESULT: PIPELINE-PROBE PACED-ONLY — no zero-gap bursts, but a {bestPace} ms send pace holds: ~{bestPerChunk:F1} ms/chunk (vs {lockstepPerChunk:F1} lockstep)"
+            : "RESULT: PIPELINE-PROBE NOT SUPPORTED — the firmware drops any overlapped command (lockstep is the floor)");
+    port.Close();
+    return alive ? 0 : 5;
+}
+
+// --dswap-probe [--a <idx>] [--b <idx>] : GUARDED probe of the undocumented `dswap` verb found in
+// VoidX's app.so string pool ('dswap ' + ',"index2":' — same builder pattern as dread/dwrite).
+// Hypothesis: firmware-native slot swap = dswap root\presets:{"index":A,"index2":B}. Backs up both
+// slots' full content first, checks names+content after the command, and restores by swapping back
+// (or, if the device is left in any other state, by rewriting both slots from the backup).
+// Presets only for now — the restore path (BackupService) exists only for presets.
+int dsp = Array.IndexOf(args, "--dswap-probe");
+if (dsp >= 0)
+{
+    if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); session.Disconnect(); return 3; }
+    var sClient = session.Client!;
+    var occupied = slots.Where(s => !s.IsEmpty).Select(s => s.Index).ToList();
+    if (occupied.Count < 2) { Console.WriteLine("RESULT: DSWAP-PROBE ABORT — need two occupied preset slots."); session.Disconnect(); return 1; }
+    int A = ArgAfter(args, "--a") ?? occupied[0];
+    int B = ArgAfter(args, "--b") ?? occupied[1];
+    if (A == B || slots[A].IsEmpty || slots[B].IsEmpty)
+    { Console.WriteLine($"RESULT: DSWAP-PROBE ABORT — need two distinct occupied slots (got {A},{B})."); session.Disconnect(); return 1; }
+
+    Console.WriteLine($"\n--- DSWAP PROBE (guarded): idx {A} ('{slots[A].Name}') <-> idx {B} ('{slots[B].Name}') ---");
+    var bdir = System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups", "dswap-probe-" + DateTime.Now.ToString("yyyyMMdd-HHmmss")));
+    System.IO.Directory.CreateDirectory(bdir);
+    var namesBefore = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+    var docA = await repo.ReadPresetAsync(A);
+    var docB = await repo.ReadPresetAsync(B);
+    var bytesA = docA.ToBytes(); var bytesB = docB.ToBytes();
+    var invalidCh = System.IO.Path.GetInvalidFileNameChars();
+    string San(string s2) => new(s2.Select(ch => invalidCh.Contains(ch) ? '_' : ch).ToArray());
+    var fileA = System.IO.Path.Combine(bdir, $"{A:D2} - {San(namesBefore[A])}.pst");
+    var fileB = System.IO.Path.Combine(bdir, $"{B:D2} - {San(namesBefore[B])}.pst");
+    await System.IO.File.WriteAllBytesAsync(fileA, bytesA);
+    await System.IO.File.WriteAllBytesAsync(fileB, bytesB);
+    Console.WriteLine($"[backup] both slots -> {bdir}");
+
+    var swapCmd = $"dswap root\\presets:{{\"index\":{A},\"index2\":{B}}}";
+    Console.WriteLine($"[probe] {swapCmd}");
+    var swSwap = Stopwatch.StartNew();
+    var swapResp = await sClient.SendRawAsync(swapCmd);
+    swSwap.Stop();
+    var respRecs = Sonulab.Core.Protocol.ResponseParser.NonMeterRecords(swapResp).ToList();
+    Console.WriteLine($"[probe] responded in {swSwap.ElapsedMilliseconds} ms; records: {(respRecs.Count == 0 ? "(none)" : string.Join(" | ", respRecs.Select(r => r.Length > 70 ? r[..70] + "…" : r)))}");
+    await Task.Delay(800);
+
+    var namesAfter = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+    bool namesSwapped = namesAfter[A] == namesBefore[B] && namesAfter[B] == namesBefore[A];
+    bool namesUnchanged = namesAfter[A] == namesBefore[A] && namesAfter[B] == namesBefore[B];
+    var afterA = (await repo.ReadPresetAsync(A)).ToBytes();
+    var afterB = (await repo.ReadPresetAsync(B)).ToBytes();
+    bool contentSwapped = afterA.AsSpan().SequenceEqual(bytesB) && afterB.AsSpan().SequenceEqual(bytesA);
+    bool contentStayed = afterA.AsSpan().SequenceEqual(bytesA) && afterB.AsSpan().SequenceEqual(bytesB);
+    Console.WriteLine($"[check] names: [{A}]='{namesAfter[A]}' [{B}]='{namesAfter[B]}'  swapped={namesSwapped} unchanged={namesUnchanged}");
+    Console.WriteLine($"[check] content: swapped={contentSwapped} stayed={contentStayed}");
+    Console.WriteLine(
+        namesSwapped && contentSwapped ? $"   => FINDING: dswap WORKS — full slot swap in {swSwap.ElapsedMilliseconds} ms (vs ~1.5 s/step select+save)!" :
+        namesSwapped && contentStayed ? "   => FINDING: dswap swaps NAMES ONLY — desyncs name/content, NOT usable as-is" :
+        namesUnchanged && contentStayed ? "   => FINDING: dswap had NO effect (verb ignored or wrong arg shape)" :
+        "   => FINDING: AMBIGUOUS state — see restore below");
+
+    bool restored;
+    if (namesUnchanged && contentStayed)
+        restored = true; // nothing happened, nothing to restore
+    else
+    {
+        Console.WriteLine("[restore] sending dswap again to swap back...");
+        await sClient.SendRawAsync(swapCmd);
+        await Task.Delay(800);
+        var namesR = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+        var rA = (await repo.ReadPresetAsync(A)).ToBytes();
+        var rB = (await repo.ReadPresetAsync(B)).ToBytes();
+        restored = namesR[A] == namesBefore[A] && namesR[B] == namesBefore[B]
+                   && rA.AsSpan().SequenceEqual(bytesA) && rB.AsSpan().SequenceEqual(bytesB);
+        if (!restored)
+        {
+            Console.WriteLine("[restore] swap-back did NOT restore — rewriting both slots from backup (slow, ~15 s/slot)...");
+            var bsvc = new BackupService(repo);
+            await bsvc.RestoreSlotAsync(A, fileA);
+            await bsvc.RestoreSlotAsync(B, fileB);
+            var namesR2 = (await repo.ListPresetsAsync()).Select(s => s.Name).ToArray();
+            restored = namesR2[A] == namesBefore[A] && namesR2[B] == namesBefore[B];
+        }
+    }
+    Console.WriteLine(restored
+        ? "[restore] original names + content verified"
+        : $"[restore] STILL OFF — restore manually from {bdir}");
+    session.Disconnect();
+    Console.WriteLine($"RESULT: DSWAP-PROBE COMPLETE (restored={restored})");
+    return restored ? 0 : 5;
 }
 
 // --delete-amp <slotIndex> : guarded amp delete. Backs up the blob, then clears the slot's

@@ -8,7 +8,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 ## Build / test / run
 - Build: `dotnet build`  · Test: `dotnet test` (all should pass; 490 tests)
 - Run the app: `dotnet run --project src/Namager.App`  (needs VoidX-Control CLOSED — see gotchas)
-- Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot> | --preset-dwrite-probe | --wifi [--ip <addr>]]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin. `--wifi` runs any mode over WiFi (mDNS auto-discovery; `--ip <addr>` pins the endpoint, skipping mDNS).
+- Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot> | --preset-dwrite-probe | --dread-arg-probe | --pipeline-probe | --dswap-probe | --wifi [--ip <addr>]]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin. `--wifi` runs any mode over WiFi (mDNS auto-discovery; `--ip <addr>` pins the endpoint, skipping mDNS).
 
 ## Architecture
 - **`src/Sonulab.Core`** (no UI, fully unit-tested): `Protocol/` (SonuCommands, ResponseParser),
