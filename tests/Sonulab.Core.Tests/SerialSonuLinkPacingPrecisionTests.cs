@@ -101,16 +101,111 @@ public class SerialSonuLinkPacingPrecisionTests
             "it is not resolving below the timer tick, so the batch loop will oversleep its pace floor");
     }
 
-    /// <summary>Wiring check: with NO delay injected, the pipelined path must take the precise
-    /// wait and the lockstep path must not. Every other batch test injects a delay, so without
-    /// this one the defaults could be swapped back to Task.Delay and the whole suite would still
-    /// pass while the device ran 30% slower.
+    /// <summary>The batch MUST hold a TimerResolutionScope for its duration. That scope is what
+    /// makes Task.Delay accurate enough to pace against a 30 ms floor; without it the loop falls
+    /// back to burning a core, or (if the fallback were ever removed) to 43 ms/chunk.
     ///
-    /// Asserted by timing a real batch against a port that answers instantly: 4 sends at a 30 ms
-    /// floor take ~120 ms with a precise wait, but ~15.6 ms of oversleep per send with a coarse
-    /// one. The midpoint separates them with room to spare.</summary>
+    /// Nothing else catches its removal: with the scope held a plain Task.Delay is accurate, and
+    /// without it the spin fallback is accurate too — so every timing assertion passes either way.
+    /// Observed from inside the injected delay, which only runs while the loop is running.</summary>
     [Fact]
-    public async Task Pipelined_path_uses_the_precise_wait_when_no_delay_is_injected()
+    public async Task Batch_holds_the_raised_timer_resolution_for_its_duration()
+    {
+        long now = 0;
+        bool activeDuringBatch = false;
+        var port = new ScriptedSerialPort(() => Volatile.Read(ref now)) { FirstByteLatencyMs = 5 };
+        port.Responder = c =>
+        {
+            var chunk = c.Split("\"chunk\":")[1].TrimEnd('}');
+            return $"root\\presets:{{\"index\":0,\"chunk\":{chunk},\"value\":\"aa\"}}\r\n\0";
+        };
+        var link = new SerialSonuLink(port, "COM6", 115200,
+            new SerialLinkOptions { PipelineMinPaceMs = Pace, PipelinePollMs = 3, MaxWaitMs = 2000 },
+            tickSource: () => Volatile.Read(ref now),
+            delay: (ms, ct) =>
+            {
+                if (TimerResolutionScope.IsActive) activeDuringBatch = true;
+                Volatile.Write(ref now, Volatile.Read(ref now) + ms);
+                return Task.CompletedTask;
+            });
+        await link.OpenAsync();
+
+        await link.SendBatchAsync(Enumerable.Range(1, 3).Select(Cmd).ToArray());
+
+        if (OperatingSystem.IsWindows())
+            Assert.True(activeDuringBatch, "SendBatchAsync did not hold a TimerResolutionScope — " +
+                "its pacing waits are back to the ~15.6 ms timer tick");
+        Assert.Equal(0, TimerResolutionScope.ActiveCount);   // and released on the way out
+    }
+
+    /// <summary>The scope must be released even when the batch dies mid-burst. It raises a
+    /// PROCESS-WIDE setting, and a real IOException from the port ("a device attached to the
+    /// system is not functioning") was observed unwinding through this exact path during hardware
+    /// validation — leaking there would leave the machine at a 1 ms tick indefinitely.</summary>
+    [Fact]
+    public async Task Timer_resolution_is_released_when_the_batch_throws()
+    {
+        var port = new ThrowOnSecondWritePort();
+        var link = new SerialSonuLink(port, "COM6", 115200,
+            new SerialLinkOptions { PipelineMinPaceMs = Pace, PipelinePollMs = 1, MaxWaitMs = 200 });
+        await link.OpenAsync();
+
+        await Assert.ThrowsAsync<IOException>(
+            () => link.SendBatchAsync(Enumerable.Range(1, 4).Select(Cmd).ToArray()));
+
+        Assert.Equal(0, TimerResolutionScope.ActiveCount);
+        Assert.False(TimerResolutionScope.IsActive);
+    }
+
+    /// <summary>Port double that fails partway through a burst, the way a pedal yanked off the
+    /// USB bus does.</summary>
+    private sealed class ThrowOnSecondWritePort : ISerialPortStream
+    {
+        private int _commands;
+        public bool IsOpen { get; private set; }
+        public void Open(string portName, int baudRate) => IsOpen = true;
+        public void Close() => IsOpen = false;
+        public void DiscardInBuffer() { }
+        public int BytesToRead => 0;
+        public int Read(byte[] buffer, int offset, int count) => 0;
+        public void Write(byte[] buffer, int offset, int count)
+        {
+            // Count whole commands: each is written as payload then a NUL terminator.
+            if (count == 1 && buffer[offset] == 0 && ++_commands >= 2)
+                throw new IOException("A device attached to the system is not functioning. : 'COM6'.");
+        }
+        public void Dispose() { }
+    }
+
+    /// <summary>Companion to the fallback test above: under a held scope the wait takes the
+    /// production path (plain Task.Delay at a 1 ms tick) and must still resolve a sub-tick
+    /// interval. Without this, only the fallback is covered and the shipped path is not.</summary>
+    [Fact]
+    public async Task Pipeline_wait_is_accurate_on_the_production_path_under_a_held_scope()
+    {
+        using var scope = TimerResolutionScope.Acquire();
+        const int Samples = 12, Requested = 4;
+
+        await SerialSonuLink.PipelineWaitAsync(Requested, CancellationToken.None);   // warm up
+        var sw = Stopwatch.StartNew();
+        for (int i = 0; i < Samples; i++) await SerialSonuLink.PipelineWaitAsync(Requested, CancellationToken.None);
+        double mean = sw.Elapsed.TotalMilliseconds / Samples;
+
+        // Only meaningful where the OS actually granted the raised resolution.
+        if (!TimerResolutionScope.IsActive) return;
+        Assert.True(mean < 12.0,
+            $"a {Requested} ms wait averaged {mean:F2} ms with the scope held — the raised timer " +
+            "resolution is not taking effect, so the batch loop will oversleep its pace floor");
+    }
+
+    /// <summary>End-to-end pacing: a real batch, real clock, no injection. Four sends at a 30 ms
+    /// floor cannot beat ~93 ms, and must not drift far past it.
+    ///
+    /// Deliberately generous: this is wall-clock timing and a loaded CI box measured 134 ms and
+    /// 618 ms on an earlier, tighter bound. It is a smoke test that pacing is in the right
+    /// ballpark, not a precision instrument — the precision claims live in the tests above.</summary>
+    [Fact]
+    public async Task Pipelined_batch_paces_close_to_its_floor_end_to_end()
     {
         var port = new FakeSerialPort
         {
@@ -125,15 +220,19 @@ public class SerialSonuLinkPacingPrecisionTests
             new SerialLinkOptions { PipelineMinPaceMs = Pace, PipelinePollMs = 3, MaxWaitMs = 2000 });
         await link.OpenAsync();
 
+        await link.SendBatchAsync(new[] { Cmd(1) });                    // warm up JIT and the port
         var sw = Stopwatch.StartNew();
         var windows = await link.SendBatchAsync(Enumerable.Range(1, 4).Select(Cmd).ToArray());
         sw.Stop();
 
         Assert.Equal(4, windows.Count);
-        // 3 paced gaps at ~31 ms = ~93 ms ideal. Coarse waiting adds a tick per gap (~140 ms+).
-        Assert.True(sw.Elapsed.TotalMilliseconds < 125,
-            $"4 paced sends took {sw.Elapsed.TotalMilliseconds:F0} ms — the pipelined path is not " +
-            "using the precise wait by default (a full timer tick is being lost per send)");
+        // 3 paced gaps at ~31 ms = ~93 ms ideal; the floor makes anything faster impossible.
+        Assert.True(sw.Elapsed.TotalMilliseconds >= 90,
+            $"4 paced sends took only {sw.Elapsed.TotalMilliseconds:F0} ms — faster than the " +
+            $"{Pace} ms floor allows, so the floor is not being honoured");
+        Assert.True(sw.Elapsed.TotalMilliseconds < 200,
+            $"4 paced sends took {sw.Elapsed.TotalMilliseconds:F0} ms against a ~93 ms ideal — " +
+            "pacing has drifted well past its floor");
     }
 
     /// <summary>The wait must still honor cancellation — it is on the path that a user's

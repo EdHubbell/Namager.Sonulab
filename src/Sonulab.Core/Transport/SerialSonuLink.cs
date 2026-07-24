@@ -23,9 +23,11 @@ public sealed class SerialSonuLink : ISonuLink
     /// cannot express the 30 ms pipelining pace. Tests inject a virtual clock.</param>
     /// <param name="delay">Awaited between read polls, on BOTH the lockstep and pipelined paths.
     /// Tests inject a function that advances the virtual clock instead of really waiting. When it
-    /// is not supplied the two paths take different defaults, because they need different things:
-    /// lockstep waits for a NUL and is happy with plain Task.Delay, while the pipelined loop is
-    /// pacing against a 30 ms floor and needs sub-tick accuracy (see PipelineWaitAsync).</param>
+    /// is not supplied the two paths take different defaults: lockstep waits for a NUL and is
+    /// happy with plain Task.Delay, while the pipelined loop paces against a 30 ms floor and goes
+    /// through PipelineWaitAsync. On Windows both end up on Task.Delay (the batch raises the timer
+    /// resolution first); the split is what keeps the busy-wait FALLBACK off the lockstep path on
+    /// hosts where the resolution cannot be raised.</param>
     public SerialSonuLink(ISerialPortStream port, string portName, int baudRate,
         SerialLinkOptions? options = null, Func<long>? tickSource = null,
         Func<int, CancellationToken, Task>? delay = null)
@@ -136,7 +138,7 @@ public sealed class SerialSonuLink : ISonuLink
     /// mid-transmission and listening again. PipelineMinPaceMs is a hard floor regardless (30 ms
     /// proven; 25 ms is the cliff), and FirstByteTimeoutMs is the stall escape — if a command was
     /// eaten, no byte will ever arrive and the batch must keep moving instead of hanging on it.
-    /// Measured ~33 ms/chunk vs ~57 lockstep.
+    /// Measured 35.1 ms/chunk through SonuClient vs ~57 lockstep (raw achievable: 33.4).
     ///
     /// Per the interface contract, the returned windows are NOT positionally aligned with
     /// <paramref name="commands"/>; callers match responses by content.</summary>
@@ -219,7 +221,7 @@ public sealed class SerialSonuLink : ISonuLink
                 // interval, not a fixed poll tick. Two reasons:
                 //   * never sleep PAST it (a fixed 3 ms poll straddles the floor and overshoots by
                 //     a full ~15.6 ms timer tick — the 43.3 ms/chunk defect), and
-                //   * never spin THROUGH it: asking for 3 ms at a time makes PipelineWaitAsync spin
+                //   * never poll THROUGH it: asking for 3 ms at a time made the fallback path spin
                 //     the entire inter-send gap (~100% of a core, measured). Asking for the whole
                 //     interval lets it sleep for the bulk and spin only the last stretch.
                 // Not draining the port meanwhile is safe: a chunk response is ~340 B against a

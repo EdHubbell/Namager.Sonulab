@@ -37,6 +37,10 @@ internal sealed class TimerResolutionScope : IDisposable
     /// decide whether a plain Task.Delay is accurate enough or a busy-wait fallback is needed.</summary>
     public static bool IsActive => Volatile.Read(ref _activeCount) > 0;
 
+    /// <summary>Exposed for tests only. IsActive cannot tell a balanced 0 from an over-released
+    /// -1, so it cannot catch a double-release on its own.</summary>
+    internal static int ActiveCount => Volatile.Read(ref _activeCount);
+
     /// <summary>Never throws and never returns null — on any platform or failure the scope is
     /// simply inert, and disposing it is a no-op.</summary>
     public static TimerResolutionScope Acquire()
@@ -44,9 +48,13 @@ internal sealed class TimerResolutionScope : IDisposable
         bool held = false;
         if (OperatingSystem.IsWindows())
         {
+            // Swallowed deliberately: the contract is that acquiring a nicety never fails a
+            // bulk read. A trimmed or NativeAOT publish can fail the marshal rather than the load.
             try { held = TimeBeginPeriod(PeriodMs) == 0; }   // 0 = TIMERR_NOERROR
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
+            catch (BadImageFormatException) { }
+            catch (MarshalDirectiveException) { }
         }
         if (held) Interlocked.Increment(ref _activeCount);
         return new TimerResolutionScope(held);
@@ -66,6 +74,8 @@ internal sealed class TimerResolutionScope : IDisposable
             try { TimeEndPeriod(PeriodMs); }
             catch (DllNotFoundException) { }
             catch (EntryPointNotFoundException) { }
+            catch (BadImageFormatException) { }
+            catch (MarshalDirectiveException) { }
         }
     }
 }
