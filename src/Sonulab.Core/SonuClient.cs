@@ -68,6 +68,29 @@ public sealed class SonuClient
         }
     }
 
+    /// <summary>Foreground batch: the same gate and quiet-clock bookkeeping as
+    /// <see cref="SendAsync"/>, held for the WHOLE burst. Pipelining happens WITHIN a burst;
+    /// the background lane's quiet window still governs BETWEEN bursts, so a background scan
+    /// can never interleave mid-batch (an interleaved dread is the HwCheck-documented way to
+    /// get a commit silently discarded).</summary>
+    private async Task<IReadOnlyList<string>> SendBatchGatedAsync(IReadOnlyList<string> commands, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        Volatile.Write(ref _lastForegroundTicks, _tick());
+        var sw = Stopwatch.StartNew();
+        try { return await _link.SendBatchAsync(commands, ct); }
+        finally
+        {
+            sw.Stop();
+            Volatile.Write(ref _lastForegroundTicks, _tick());
+            _gate.Release();
+            if (Log.IsTraceEnabled)
+                Log.Trace("batch {0,5}ms  {1} cmds  {2}", sw.ElapsedMilliseconds, commands.Count,
+                    commands.Count == 0 ? "" :
+                    commands[0].Length > 70 ? commands[0][..70] + "…" : commands[0]);
+        }
+    }
+
     /// <summary>Sends a read command, retrying while the response does not contain the record the
     /// caller expects. Two WiFi quirks make this necessary (see the ctor's <c>readRetryAttempts</c>):
     /// the pedal intermittently answers with an empty record ("\r\n\0"), and a late response to a
@@ -150,24 +173,70 @@ public sealed class SonuClient
     public Task<byte[]> DReadBlobAsync(string path, int index, int chunkCount, CancellationToken ct = default) =>
         DReadChunkRangeAsync(path, index, 1, chunkCount, ct);
 
+    /// <summary>Lockstep re-read attempts for a chunk the pipelined batch did not deliver.
+    /// Two covers the observed drop rate; past that the permissive short-buffer contract takes
+    /// over and the validated read layer fails loudly.</summary>
+    private const int ChunkRepairAttempts = 2;
+
     /// <summary>Dread chunks [firstChunk .. firstChunk+count-1] (1-based). PERMISSIVE like
     /// DReadBlobAsync: a missing/torn chunk contributes 0 bytes, shortening the result —
-    /// callers that need integrity use SlotBlobService's validated wrappers.</summary>
+    /// callers that need integrity use SlotBlobService's validated wrappers.
+    ///
+    /// Multi-chunk reads go out as ONE paced-overlap batch (~33 ms/chunk vs ~57 lockstep).
+    /// Responses are matched BY CONTENT, never by position: ResponseParser.ChunkHex verifies
+    /// index AND chunk, so a window list shifted by an unsolicited record or a dropped response
+    /// can never mis-attribute data — it just leaves a chunk unmatched, which the lockstep
+    /// repair pass below re-reads.</summary>
     public async Task<byte[]> DReadChunkRangeAsync(string path, int index, int firstChunk, int count, CancellationToken ct = default)
     {
-        var bytes = new List<byte>(count * 128);
-        for (int c = firstChunk; c < firstChunk + count; c++)
+        if (count <= 0) return Array.Empty<byte>();
+
+        var hex = new string[count];
+        if (count == 1)
         {
-            var raw = await SendAsync(SonuCommands.DRead(path, index, c), ct);
-            var hex = ResponseParser.ChunkHex(raw, index, c) ?? "";
-            // A torn record can carry an odd-length hex value; Convert.FromHexString would
-            // throw FormatException past every caller. Treat it as a missing chunk instead —
-            // the resulting short buffer fails loudly at the validated-read layer.
-            if ((hex.Length & 1) == 1) hex = "";
-            bytes.AddRange(Convert.FromHexString(hex));
+            var single = await SendAsync(SonuCommands.DRead(path, index, firstChunk), ct);
+            hex[0] = ValidHex(ResponseParser.ChunkHex(single, index, firstChunk));
         }
+        else
+        {
+            var commands = new string[count];
+            for (int i = 0; i < count; i++) commands[i] = SonuCommands.DRead(path, index, firstChunk + i);
+            var windows = await SendBatchGatedAsync(commands, ct);
+
+            for (int i = 0; i < count; i++)
+            {
+                hex[i] = "";
+                foreach (var w in windows)
+                {
+                    var h = ValidHex(ResponseParser.ChunkHex(w, index, firstChunk + i));
+                    if (h.Length > 0) { hex[i] = h; break; }
+                }
+            }
+
+            // Repair pass: re-read only what the batch missed, lockstep (~57 ms each), instead
+            // of forfeiting the whole batch over one dropped command.
+            for (int i = 0; i < count; i++)
+            {
+                for (int attempt = 1; attempt <= ChunkRepairAttempts && hex[i].Length == 0; attempt++)
+                {
+                    int chunk = firstChunk + i;
+                    Log.Debug("pipelined dread missed {0} idx {1} chunk {2} — lockstep repair {3}/{4}",
+                        path, index, chunk, attempt, ChunkRepairAttempts);
+                    var raw = await SendAsync(SonuCommands.DRead(path, index, chunk), ct);
+                    hex[i] = ValidHex(ResponseParser.ChunkHex(raw, index, chunk));
+                }
+            }
+        }
+
+        var bytes = new List<byte>(count * 128);
+        foreach (var h in hex) bytes.AddRange(Convert.FromHexString(h));   // "" → 0 bytes, as before
         return bytes.ToArray();
     }
+
+    /// <summary>A torn record can carry an odd-length hex value; Convert.FromHexString would
+    /// throw past every caller. Treat it as missing instead — the resulting short buffer fails
+    /// loudly at the validated-read layer.</summary>
+    private static string ValidHex(string? hex) => hex is null || (hex.Length & 1) == 1 ? "" : hex;
 
     /// <summary>Background lane: sends <paramref name="command"/> only once the link has been
     /// foreground-quiet for the configured window (default 1000 ms — chosen above AmpService's
@@ -204,8 +273,7 @@ public sealed class SonuClient
         for (int c = firstChunk; c < firstChunk + count; c++)
         {
             var raw = await SendBackgroundAsync(SonuCommands.DRead(path, index, c), ct);
-            var hex = ResponseParser.ChunkHex(raw, index, c) ?? "";
-            if ((hex.Length & 1) == 1) hex = "";
+            var hex = ValidHex(ResponseParser.ChunkHex(raw, index, c));
             bytes.AddRange(Convert.FromHexString(hex));
         }
         return bytes.ToArray();
