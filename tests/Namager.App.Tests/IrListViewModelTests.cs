@@ -298,4 +298,43 @@ public class IrListViewModelTests : IDisposable
         Assert.NotNull(vm.ErrorMessage);                               // refused, with a message
         Assert.DoesNotContain(dev.CommandLog, c => c.StartsWith("dwrite"));  // nothing deleted
     }
+
+    // ---- reorder (Task 4) ----
+
+    /// <summary>Seed-list variant of <see cref="MakeUsageVm"/>: builds a fresh
+    /// FakeIrDevice from (name, markerByte) pairs and a default FakePresetUsageService.</summary>
+    private (IrListViewModel vm, FakeIrDevice dev, FakePresetUsageService usage) MakeWithUsage(
+        (string Name, byte Marker)[] seed)
+    {
+        var dev = new FakeIrDevice();
+        for (int i = 0; i < seed.Length; i++)
+            dev.SeedIr(i, seed[i].Name, Enumerable.Repeat(seed[i].Marker, 4096).ToArray());
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new IrService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        var usage = new FakePresetUsageService();
+        return (new IrListViewModel(svc, writesAllowed: true, usage: usage), dev, usage);
+    }
+
+    [Fact] public async Task MoveDown_reorders_items_and_touches_usage_never()
+    {
+        var (vm, dev, usage) = MakeWithUsage(seed: new[] { ("A", (byte)0xA0), ("B", (byte)0xB0) });
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.MoveDownCommand.ExecuteAsync(null);
+        Assert.Equal("B", vm.Items[0].Name);
+        Assert.Equal("A", vm.Items[1].Name);
+        Assert.Equal(0, usage.InvalidateCount);
+        Assert.Equal(0, usage.MovedCount);
+    }
+
+    [Fact] public async Task Reorder_is_allowed_on_a_referenced_ir()
+    {
+        var (vm, dev, usage) = MakeWithUsage(seed: new[] { ("A", (byte)0xA0), ("B", (byte)0xB0) });
+        usage.Map = FakePresetUsageService.MapFor((0, "P0", new[] { FakePresetUsageService.IrLine("A") }));
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];
+        await vm.MoveDownCommand.ExecuteAsync(null);
+        Assert.Equal("A", vm.Items[1].Name);
+        Assert.Null(vm.ErrorMessage);
+    }
 }

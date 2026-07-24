@@ -23,6 +23,10 @@ public sealed class IrService
     public Task DeleteIrAsync(int index, CancellationToken ct = default) => _inner.DeleteAsync(index, ct);
     public Task RenameIrAsync(int index, string name, CancellationToken ct = default) => _inner.RenameAsync(index, name, ct);
 
+    /// <summary>Move an IR slot up/down one position (atomic dswap; no usage impact).</summary>
+    public Task MoveIrStepAsync(int from, bool up, CancellationToken ct = default) =>
+        _inner.MoveStepAsync(from, up, null, ct);
+
     public Task UploadIrAsync(int slot, byte[] irBytes, string name,
         IProgress<SlotUploadProgress>? progress = null, CancellationToken ct = default) =>
         _inner.UploadAsync(slot, irBytes, name, progress, ct);
