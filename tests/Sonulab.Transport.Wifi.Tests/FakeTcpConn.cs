@@ -14,6 +14,10 @@ public sealed class FakeTcpConn : ITcpConn
     public bool FailConnect { get; set; }
     public Func<string, byte[]>? RespondWith;   // command (no NUL) -> raw response bytes
 
+    /// <summary>Fault injection for disconnect tests: invoked with "send" or "receive" before
+    /// each operation. Throw from here to simulate a dropped socket.</summary>
+    public Action<string>? OnIo { get; set; }
+
     public int Available { get { lock (_rx) return _rx.Count; } }
 
     public Task ConnectAsync(string host, int port, CancellationToken ct = default)
@@ -25,6 +29,7 @@ public sealed class FakeTcpConn : ITcpConn
 
     public Task SendAsync(byte[] data, CancellationToken ct = default)
     {
+        OnIo?.Invoke("send");
         Sends.Add(data);
         _pendingCmd.Write(data, 0, data.Length);
         var all = _pendingCmd.ToArray();
@@ -40,6 +45,7 @@ public sealed class FakeTcpConn : ITcpConn
 
     public int Receive(byte[] buffer)
     {
+        OnIo?.Invoke("receive");
         lock (_rx)
         {
             int n = Math.Min(buffer.Length, _rx.Count);

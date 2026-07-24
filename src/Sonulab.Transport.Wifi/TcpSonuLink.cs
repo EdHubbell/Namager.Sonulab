@@ -54,8 +54,15 @@ public sealed class TcpSonuLink : ISonuLink
 
     public async Task<string> SendAsync(string command, CancellationToken ct = default)
     {
+        // Outside the try, same reasoning as SerialSonuLink: IsFatal matches
+        // InvalidOperationException, so this precondition must not be reclassified.
         if (!_conn.Connected) throw new InvalidOperationException("TCP link is not open.");
+        try { return await SendCoreAsync(command, ct); }
+        catch (Exception ex) when (DeviceDisconnectedException.IsFatal(ex)) { throw Fault(ex); }
+    }
 
+    private async Task<string> SendCoreAsync(string command, CancellationToken ct)
+    {
         // Drain stale bytes (serial: DiscardInBuffer), settling response debt: every NUL discarded
         // here is an owed late response that already arrived.
         DrainAvailable();
@@ -175,5 +182,13 @@ public sealed class TcpSonuLink : ISonuLink
             for (int i = 0; i < n; i++)
                 if (drain[i] == 0 && _pending > 0) _pending--;
         }
+    }
+
+    /// <summary>Close the socket and translate. The _pending response-debt counter needs no
+    /// unwinding — the link is closed and SonuClient latches it, so nothing reads it again.</summary>
+    private DeviceDisconnectedException Fault(Exception inner)
+    {
+        try { _conn.Close(); } catch { /* already gone */ }
+        return new DeviceDisconnectedException("WiFi", inner);
     }
 }
