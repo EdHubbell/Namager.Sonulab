@@ -14,6 +14,7 @@ public partial class AmpListViewModel : ObservableObject
     private readonly AmpService _amps;
     private readonly bool _writes;
     private readonly Namager.App.Services.IStatusService _status;
+    private readonly Namager.App.Services.IPresetUsageService _usage;
 
     /// <summary>Distillation seam — Sonulab.Distill.Distiller.DistillAsync in the app,
     /// a fake in tests. Returns the fidelity ShapeErr (lower is better).</summary>
@@ -28,13 +29,15 @@ public partial class AmpListViewModel : ObservableObject
 
     public AmpListViewModel(AmpService amps, bool writesAllowed,
         Namager.App.Services.IStatusService? status = null,
-        DistillRunner? distill = null, string? distilledDir = null, Action<Action>? dispatch = null)
+        DistillRunner? distill = null, string? distilledDir = null, Action<Action>? dispatch = null,
+        Namager.App.Services.IPresetUsageService? usage = null)
     {
         _amps = amps; _writes = writesAllowed;
         _status = status ?? Namager.App.Services.NullStatusService.Instance;
         _distill = distill ?? Sonulab.Distill.Distiller.DistillAsync;
         _distilledDir = distilledDir ?? Path.Combine("NAMFiles", "Distilled");
         _dispatch = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a));
+        _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance;
     }
 
     public ObservableCollection<AmpItemViewModel> Items { get; } = new();
@@ -87,6 +90,29 @@ public partial class AmpListViewModel : ObservableObject
         var slots = await _amps.ListAmpsAsync();
         Items.Clear();
         foreach (var s in slots) Items.Add(new AmpItemViewModel(s));
+        await ApplyUsageAsync();
+    }
+
+    /// <summary>Tag each item with the presets that use it. Highlighting is best-effort: a preset
+    /// read failure must never break the amp list, so its errors are swallowed (logged).</summary>
+    private async Task ApplyUsageAsync()
+    {
+        try
+        {
+            var map = await _usage.GetAsync();
+            foreach (var item in Items)
+                item.UsedInPresets = item.IsEmpty
+                    ? System.Array.Empty<Sonulab.Core.Services.PresetRef>() : map.PresetsUsingAmp(item.Name);
+        }
+        catch (Exception ex) { Log.Warn(ex, "amp preset-usage lookup failed"); }
+    }
+
+    /// <summary>Re-apply preset-usage highlighting without re-listing amps (cheap: cached map, or a
+    /// preset re-scan if the usage cache was invalidated). Called on tab revisit after preset edits.</summary>
+    public async Task RefreshUsageAsync()
+    {
+        if (!CanRefresh) return;
+        await ApplyUsageAsync();
     }
 
     [RelayCommand]
@@ -111,8 +137,9 @@ public partial class AmpListViewModel : ObservableObject
 
     [RelayCommand] private async Task DeleteAsync()
     {
-        if (Selected is { IsEmpty: false } s)
-            await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _amps.DeleteAmpAsync(s.Index));
+        if (Selected is not { IsEmpty: false } s) return;
+        if (s.UsedInPresets.Count > 0) { BlockUsed(s, "delete"); return; }
+        await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _amps.DeleteAmpAsync(s.Index));
     }
 
     [RelayCommand] private async Task CommitRenameAsync(AmpItemViewModel? item)
@@ -120,8 +147,20 @@ public partial class AmpListViewModel : ObservableObject
         if (item is not { IsEditing: true } s) return;      // Escape-then-LostFocus won't re-commit
         var name = (s.EditName ?? "").Trim();
         if (name.Length == 0 || name == s.Name) { s.IsEditing = false; return; }
+        if (s.UsedInPresets.Count > 0) { s.IsEditing = false; BlockUsed(s, "rename"); return; }
         if (!await RunAsync($"Renaming '{s.Name}'…", $"Renamed to '{name}'", () => _amps.RenameAmpAsync(s.Index, name)))
             s.IsEditing = false;                            // gated/failed write: leave edit mode ourselves
+    }
+
+    /// <summary>Refuse a delete/rename of an amp a preset references, and say which presets.
+    /// Renaming/deleting it would leave those presets pointing at a name the device can't resolve.</summary>
+    private void BlockUsed(AmpItemViewModel s, string verb)
+    {
+        var presets = s.UsedInPresets;
+        ErrorMessage =
+            $"This amp file is used in the following presets: {Namager.App.Services.PresetRefFormat.Join(presets)}. " +
+            $"You can only {verb} files that aren't in an active preset.";
+        _status.Failure($"Can't {verb} '{s.Name}' — used by {presets.Count} preset{(presets.Count == 1 ? "" : "s")}.");
     }
 
     // ---- upload panel state ----

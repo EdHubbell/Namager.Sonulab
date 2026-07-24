@@ -841,4 +841,108 @@ public class AmpListViewModelTests : IDisposable
         await vm.DetailsLoadTask!;
         Assert.Equal("b-notes", vm.DetailsNotes);            // and then fill with B's data
     }
+
+    // ---- preset-usage highlight & guards (Task 4) ----
+
+    private (AmpListViewModel vm, FakeAmpDevice dev, FakePresetUsageService usage) MakeWithUsage(
+        FakePresetUsageService usage)
+    {
+        var dev = new FakeAmpDevice();
+        dev.SeedAmp(0, "Clean", RealisticBlob(1));
+        dev.SeedAmp(1, "Crunch", RealisticBlob(2));
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        return (new AmpListViewModel(svc, writesAllowed: true, usage: usage), dev, usage);
+    }
+
+    [Fact]
+    public async Task Refresh_marks_used_amps()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((6, "Lead", new[] { FakePresetUsageService.AmpLine("Clean") }))
+        };
+        var (vm, _, _) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.True(vm.Items[0].IsUsed);                          // "Clean" used by "Lead"
+        Assert.Equal(new[] { new PresetRef(6, "Lead") }, vm.Items[0].UsedInPresets);
+        Assert.False(vm.Items[1].IsUsed);                         // "Crunch" unused
+    }
+
+    [Fact]
+    public async Task Delete_of_a_used_amp_is_blocked_and_lists_slots_ascending()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor(
+                (11, "Solo", new[] { FakePresetUsageService.AmpLine("Clean") }),   // higher slot, listed second
+                (6,  "Lead", new[] { FakePresetUsageService.AmpLine("Clean") }))
+        };
+        var (vm, dev, _) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[0];                                // "Clean"
+
+        await vm.DeleteCommand.ExecuteAsync(null);
+
+        Assert.Equal("Clean", dev.SlotNames[0]);                 // NOT deleted
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Contains("used in the following presets", vm.ErrorMessage);
+        // slot number + name, ascending: "07 Lead" before "12 Solo"
+        Assert.Contains("07 Lead, 12 Solo", vm.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Delete_of_an_unused_amp_proceeds()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((6, "Lead", new[] { FakePresetUsageService.AmpLine("Clean") }))
+        };
+        var (vm, dev, _) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items[1];                                // "Crunch" — unused
+
+        await vm.DeleteCommand.ExecuteAsync(null);
+
+        Assert.Null(dev.SlotNames[1]);                           // deleted
+        Assert.True(vm.Items[1].IsEmpty);
+    }
+
+    [Fact]
+    public async Task Rename_of_a_used_amp_is_blocked()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((6, "Lead", new[] { FakePresetUsageService.AmpLine("Clean") }))
+        };
+        var (vm, dev, _) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var item = vm.Items[0];                                   // "Clean"
+        item.BeginRenameCommand.Execute(null);
+        item.EditName = "Cleaner";
+
+        await vm.CommitRenameCommand.ExecuteAsync(item);
+
+        Assert.Equal("Clean", dev.SlotNames[0]);                 // NOT renamed
+        Assert.False(item.IsEditing);                            // left edit mode
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Contains("07 Lead", vm.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RefreshUsage_reapplies_without_relisting_amps()
+    {
+        var usage = new FakePresetUsageService();                // starts empty
+        var (vm, dev, _) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.Items[0].IsUsed);
+        int listReads = dev.CommandLog.Count(c => c == @"read root\amp");
+
+        usage.Map = FakePresetUsageService.MapFor((6, "Lead", new[] { FakePresetUsageService.AmpLine("Clean") }));
+        await vm.RefreshUsageAsync();
+
+        Assert.True(vm.Items[0].IsUsed);                         // highlight refreshed
+        Assert.Equal(listReads, dev.CommandLog.Count(c => c == @"read root\amp"));  // no amp re-list
+    }
 }
