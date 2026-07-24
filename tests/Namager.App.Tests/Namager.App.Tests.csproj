@@ -31,4 +31,8 @@
     <Compile Include="..\Sonulab.Core.Tests\FakeIrDevice.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\Sonulab.Core.Tests\Fixtures\QuadReverbSM57.pst" Link="Fixtures\QuadReverbSM57.pst" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

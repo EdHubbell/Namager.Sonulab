@@ -1,5 +1,11 @@
 # Handoff — preset-usage highlight scan is far too slow on device
 
+> **STATUS 2026-07-24: FIXED in `feat-preset-usage-guard`** — bug 2 (path-matching) + Options
+> A+B built per `docs/superpowers/plans/2026-07-24-preset-usage-scan-fix.md`: windowed head read
+> (≤32 chunks), SonuClient background lane (1 s foreground-quiet window), progressive
+> non-blocking highlights, fail-closed guards. Paced-overlap pipelining (30 ms) NOT built —
+> documented follow-up. Awaiting on-device validation (docs/HARDWARE-VALIDATION-preset-usage.md).
+
 **Date:** 2026-07-24
 **Branch:** `feat-preset-usage-guard` (built on `fix-connect-reconnect`, which is on `main` tip)
 **Branch tip:** `6e1e029` · **Tests:** 619/619 green · **NOT merged** (was awaiting on-device validation)
