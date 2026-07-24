@@ -164,4 +164,35 @@ public class ReorderServiceTests
         Assert.Equal("", names[1]);
         Assert.Equal("B", names[2]);
     }
+
+    // A device where every dswap succeeds normally EXCEPT the Nth one, which no-ops (simulating a
+    // mid-move firmware hiccup) so the engine's post-swap name verify fails on that step.
+    sealed class FailSwapOnNth : FakePresetDevice
+    {
+        private readonly int _n; private int _count;
+        public FailSwapOnNth(int n) => _n = n;
+        public override Task<string> SendAsync(string command, System.Threading.CancellationToken ct = default)
+        {
+            if (command.StartsWith("dswap ", System.StringComparison.Ordinal) && ++_count == _n)
+                return Task.FromResult("");            // pretend it ran; slots unchanged
+            return base.SendAsync(command, ct);
+        }
+    }
+
+    [Fact] public async Task Move_that_fails_midway_leaves_valid_partial_order()
+    {
+        var d = new FailSwapOnNth(2);
+        d.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        d.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        d.SeedSlot(2, "C", new[] { @"root\app\amp\amp:{""value"":""mC""}" });
+        d.SeedSlot(3, "D", new[] { @"root\app\amp\amp:{""value"":""mD""}" });
+        await d.OpenAsync(); var r = Repo(d);
+
+        // MoveAsync(0,3) bubbles via swap(0,1), swap(1,2), swap(2,3); the 2nd swap no-ops -> verify throws.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new ReorderService(r).MoveAsync(0, 3));
+
+        var names = (await Names(r))[..4];
+        Assert.Equal(new[] { "B", "A", "C", "D" }, names);   // only the first swap applied: a valid partial order
+        Assert.Equal(new[] { "A", "B", "C", "D" }, names.OrderBy(n => n));   // no preset lost or duplicated
+    }
 }
