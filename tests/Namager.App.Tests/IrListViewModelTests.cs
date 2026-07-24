@@ -230,4 +230,72 @@ public class IrListViewModelTests : IDisposable
         Assert.True(vm.Items[0].IsUsed);
         Assert.Equal(listReads, dev.CommandLog.Count(c => c == @"read root\ir"));
     }
+
+    // ---- progressive scan + fail-closed guards (Task 6, mirrors AmpListViewModel Task 5) ----
+
+    private (IrListViewModel vm, FakeIrDevice dev) MakeUsageVm(FakePresetUsageService usage)
+    {
+        var dev = new FakeIrDevice();
+        dev.SeedIr(0, "V30", Enumerable.Repeat((byte)1, 4096).ToArray());
+        dev.SeedIr(1, "Greenback", Enumerable.Repeat((byte)2, 4096).ToArray());
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new IrService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        return (new IrListViewModel(svc, writesAllowed: true, usage: usage, dispatch: a => a()), dev);
+    }
+
+    [Fact]
+    public async Task Refresh_does_not_block_on_an_incomplete_usage_scan()
+    {
+        var usage = new FakePresetUsageService { Complete = false };   // scan "running"
+        var (vm, _) = MakeUsageVm(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.IsBusy);                                       // list is usable NOW
+        Assert.NotEmpty(vm.Items);
+        Assert.Equal(1, usage.EnsureScanningCount);                    // scan was kicked, not awaited
+    }
+
+    [Fact]
+    public async Task Highlights_fill_in_when_the_scan_publishes()
+    {
+        var usage = new FakePresetUsageService { Complete = false };
+        var (vm, _) = MakeUsageVm(usage);                              // must pass dispatch: a => a()
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.All(vm.Items, i => Assert.Empty(i.UsedInPresets));
+
+        usage.Map = FakePresetUsageService.MapFor((0, "Lead", new[]
+            { FakePresetUsageService.IrLine("V30") }));                // V30 = an occupied item name
+        usage.Complete = true;
+        usage.RaiseMapUpdated();
+        Assert.NotEmpty(vm.Items.First(i => i.Name == "V30").UsedInPresets);
+    }
+
+    [Fact]
+    public async Task Delete_with_incomplete_map_finishes_the_scan_and_blocks_when_used()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Complete = false,
+            Map = FakePresetUsageService.MapFor((0, "Lead", new[]
+                { FakePresetUsageService.IrLine("V30") })),
+        };
+        var (vm, _) = MakeUsageVm(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items.First(i => i.Name == "V30");
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Equal(1, usage.EnsureCompleteCount);                    // guard finished the scan
+        Assert.Contains("used in the following presets", vm.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Delete_stays_blocked_when_the_scan_cannot_complete()
+    {
+        var usage = new FakePresetUsageService
+        { Complete = false, FailWith = new InvalidOperationException("link died") };
+        var (vm, dev) = MakeUsageVm(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items.First(i => !i.IsEmpty);
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.NotNull(vm.ErrorMessage);                               // refused, with a message
+        Assert.DoesNotContain(dev.CommandLog, c => c.StartsWith("dwrite"));  // nothing deleted
+    }
 }

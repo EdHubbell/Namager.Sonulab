@@ -16,17 +16,23 @@ public partial class IrListViewModel : ObservableObject
     /// <summary>.wav -> device blob seam — Sonulab.Distill.WavToIr.Convert in the app,
     /// a fake in tests. Conversion is instant and synchronous (no cancel/progress needed).</summary>
     private readonly Func<string, byte[]> _convertWav;
+    private readonly Action<Action> _dispatch;              // marshals worker-thread progress to the UI thread
     private string _uploadSourcePath = "";
 
     public IrListViewModel(IrService irs, bool writesAllowed,
                            Namager.App.Services.IStatusService? status = null,
                            Func<string, byte[]>? convertWav = null,
+                           Action<Action>? dispatch = null,
                            Namager.App.Services.IPresetUsageService? usage = null)
     {
         _irs = irs; _writes = writesAllowed;
         _status = status ?? Namager.App.Services.NullStatusService.Instance;
         _convertWav = convertWav ?? Sonulab.Distill.WavToIr.Convert;
+        _dispatch = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a));
         _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance;
+        // Progressive highlight fill: the background scan publishes after each preset resolves.
+        // MapUpdated may fire on a worker thread — marshal through the dispatch seam.
+        _usage.MapUpdated += () => _dispatch(ApplyUsage);
     }
 
     public ObservableCollection<IrItemViewModel> Items { get; } = new();
@@ -70,32 +76,27 @@ public partial class IrListViewModel : ObservableObject
         var slots = await _irs.ListIrsAsync();
         Items.Clear();
         foreach (var s in slots) Items.Add(new IrItemViewModel(s));
-        await ApplyUsageAsync();
+        ApplyUsage();
+        _usage.EnsureScanning();     // non-blocking: highlights stream in via MapUpdated
     }
 
-    /// <summary>Tag each item with the presets that use it. Best-effort: a preset read failure must
-    /// never break the IR list, so its errors are swallowed (logged).</summary>
-    private Task ApplyUsageAsync()
+    /// <summary>Tag each item with the presets that use it, from the CURRENT (possibly partial
+    /// or stale) map — best-effort by design; the fail-closed check lives in the guards.</summary>
+    private void ApplyUsage()
     {
-        try
-        {
-            var map = _usage.Current;
-            foreach (var item in Items)
-                item.UsedInPresets = item.IsEmpty
-                    ? System.Array.Empty<PresetRef>() : map.PresetsUsingIr(item.Name);
-        }
-        catch (Exception ex) { Log.Warn(ex, "IR preset-usage lookup failed"); }
+        var map = _usage.Current;
+        foreach (var item in Items)
+            item.UsedInPresets = item.IsEmpty
+                ? System.Array.Empty<PresetRef>() : map.PresetsUsingIr(item.Name);
+    }
+
+    /// <summary>Re-apply highlighting from the current map and make sure a scan is running if
+    /// it is incomplete/stale. Never sets IsBusy — the scan streams in via MapUpdated.</summary>
+    public Task RefreshUsageAsync()
+    {
+        ApplyUsage();
+        _usage.EnsureScanning();
         return Task.CompletedTask;
-    }
-
-    /// <summary>Re-apply preset-usage highlighting without re-listing IRs (cached map, or a preset
-    /// re-scan if invalidated). Called on tab revisit after preset edits.</summary>
-    public async Task RefreshUsageAsync()
-    {
-        if (!CanRefresh) return;
-        IsBusy = true;
-        try { await ApplyUsageAsync(); }
-        finally { IsBusy = false; }
     }
 
     [RelayCommand] private async Task RefreshAsync()
@@ -114,10 +115,31 @@ public partial class IrListViewModel : ObservableObject
         finally { IsBusy = false; BusyMessage = ""; }
     }
 
+    /// <summary>Fail-closed guard: resolve the preset-usage of <paramref name="s"/> COMPLETELY
+    /// before a delete/rename. If the map is incomplete, finishes the scan now (foreground reads,
+    /// status-scoped). Returns null when usage cannot be determined — the caller must refuse.</summary>
+    private async Task<IReadOnlyList<PresetRef>?> ResolveUsageAsync(IrItemViewModel s)
+    {
+        if (_usage.IsComplete) return _usage.Current.PresetsUsingIr(s.Name);
+        IsBusy = true; BusyMessage = "Checking preset usage…";
+        using var op = _status.BeginOperation("Checking preset usage…");
+        try { return (await _usage.EnsureCompleteAsync()).PresetsUsingIr(s.Name); }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "usage check failed");
+            ErrorMessage = "Couldn't verify preset usage — try again.";
+            _status.Failure("Couldn't verify preset usage.");
+            return null;
+        }
+        finally { IsBusy = false; BusyMessage = ""; }
+    }
+
     [RelayCommand] private async Task DeleteAsync()
     {
         if (Selected is not { IsEmpty: false } s) return;
-        if (s.UsedInPresets.Count > 0) { BlockUsed(s, "delete"); return; }
+        if (await ResolveUsageAsync(s) is not { } refs) return;        // unknown → refuse
+        s.UsedInPresets = refs;
+        if (refs.Count > 0) { BlockUsed(s, "delete"); return; }
         await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _irs.DeleteIrAsync(s.Index));
     }
 
@@ -126,7 +148,9 @@ public partial class IrListViewModel : ObservableObject
         if (item is not { IsEditing: true } s) return;      // Escape-then-LostFocus won't re-commit
         var name = (s.EditName ?? "").Trim();
         if (name.Length == 0 || name == s.Name) { s.IsEditing = false; return; }
-        if (s.UsedInPresets.Count > 0) { s.IsEditing = false; BlockUsed(s, "rename"); return; }
+        if (await ResolveUsageAsync(s) is not { } refs) { s.IsEditing = false; return; }
+        s.UsedInPresets = refs;
+        if (refs.Count > 0) { s.IsEditing = false; BlockUsed(s, "rename"); return; }
         if (!await RunAsync($"Renaming '{s.Name}'…", $"Renamed to '{name}'", () => _irs.RenameIrAsync(s.Index, name)))
             s.IsEditing = false;                            // gated/failed write: leave edit mode ourselves
     }
