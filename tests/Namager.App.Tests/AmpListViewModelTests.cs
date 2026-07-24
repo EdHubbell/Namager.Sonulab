@@ -945,4 +945,25 @@ public class AmpListViewModelTests : IDisposable
         Assert.True(vm.Items[0].IsUsed);                         // highlight refreshed
         Assert.Equal(listReads, dev.CommandLog.Count(c => c == @"read root\amp"));  // no amp re-list
     }
+
+    [Fact]
+    public async Task RefreshUsage_holds_the_busy_gate_while_scanning()
+    {
+        var usage = new FakePresetUsageService();                // open (ungated) for the initial load
+        var (vm, _, _) = MakeWithUsage(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);               // initial load completes normally
+        Assert.True(vm.CanMutate);
+
+        usage.Gate = new System.Threading.Tasks.TaskCompletionSource();
+        var t = vm.RefreshUsageAsync();                           // not awaited — observe the in-flight state
+
+        Assert.True(vm.IsBusy);
+        Assert.False(vm.CanMutate);
+
+        usage.Gate.SetResult();
+        await t;
+
+        Assert.False(vm.IsBusy);
+        Assert.True(vm.CanMutate);
+    }
 }

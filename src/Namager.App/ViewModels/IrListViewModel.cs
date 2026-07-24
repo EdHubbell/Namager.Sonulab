@@ -92,7 +92,9 @@ public partial class IrListViewModel : ObservableObject
     public async Task RefreshUsageAsync()
     {
         if (!CanRefresh) return;
-        await ApplyUsageAsync();
+        IsBusy = true;
+        try { await ApplyUsageAsync(); }
+        finally { IsBusy = false; }
     }
 
     [RelayCommand] private async Task RefreshAsync()

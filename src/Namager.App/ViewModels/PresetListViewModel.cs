@@ -36,8 +36,8 @@ public partial class PresetListViewModel : ObservableObject
         try
         {
             await work();
+            _usage.Invalidate();          // the device mutation happened → amp/IR "used" highlights are now stale
             await ReloadAsync();
-            _usage.Invalidate();          // presets changed → amp/IR "used" highlights are now stale
             _status.Success(success);
             return true;
         }

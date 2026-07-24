@@ -7,8 +7,16 @@ public sealed class FakePresetUsageService : IPresetUsageService
     public PresetUsageMap Map { get; set; } = PresetUsageMap.Empty;
     public int InvalidateCount { get; private set; }
     public int GetCount { get; private set; }
-    public System.Threading.Tasks.Task<PresetUsageMap> GetAsync()
-    { GetCount++; return System.Threading.Tasks.Task.FromResult(Map); }
+
+    // When set, GetAsync awaits this before returning — lets a test hold a usage scan in flight.
+    public System.Threading.Tasks.TaskCompletionSource? Gate { get; set; }
+
+    public async System.Threading.Tasks.Task<PresetUsageMap> GetAsync()
+    {
+        GetCount++;
+        if (Gate is not null) await Gate.Task;
+        return Map;
+    }
     public void Invalidate() { InvalidateCount++; }
 
     // Build a map from raw amp/IR node lines. Each preset carries its 0-based slot.
