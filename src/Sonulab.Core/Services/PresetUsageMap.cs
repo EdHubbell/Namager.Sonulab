@@ -60,6 +60,46 @@ public sealed class PresetUsageMap
         IReadOnlyDictionary<string, IReadOnlyList<PresetRef>> map, string name) =>
         map.TryGetValue(name.Trim(), out var list) ? list : Array.Empty<PresetRef>();
 
+    /// <summary>Return a new map with the effect of moving a preset from slot <paramref name="from"/>
+    /// to slot <paramref name="to"/>: every ref index inside the affected range is rotated (the moved
+    /// preset takes <paramref name="to"/>; the others shift by one). Names ride along with content
+    /// (dswap moves both), so only indices change. The map-side mirror of the reorder engine.</summary>
+    public PresetUsageMap WithMovedSlot(int from, int to)
+    {
+        if (from == to) return this;
+        int min = Math.Min(from, to), max = Math.Max(from, to), step = from < to ? -1 : 1;
+        return Rebuild(r =>
+        {
+            if (r.Index < min || r.Index > max) return r;
+            int ni = r.Index == from ? to : r.Index + step;
+            return r with { Index = ni };
+        });
+    }
+
+    /// <summary>Return a new map with the preset at <paramref name="index"/> renamed.</summary>
+    public PresetUsageMap WithRenamedPreset(int index, string newName) =>
+        Rebuild(r => r.Index == index ? r with { Name = newName } : r);
+
+    /// <summary>Return a new map with all refs to the preset at <paramref name="index"/> removed.</summary>
+    public PresetUsageMap WithoutSlot(int index) =>
+        Rebuild(r => r.Index == index ? (PresetRef?)null : r);
+
+    private PresetUsageMap Rebuild(Func<PresetRef, PresetRef?> f) =>
+        new(Map(_amp, f), Map(_ir, f));
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<PresetRef>> Map(
+        IReadOnlyDictionary<string, IReadOnlyList<PresetRef>> src, Func<PresetRef, PresetRef?> f)
+    {
+        var result = new Dictionary<string, IReadOnlyList<PresetRef>>(src.Count);
+        foreach (var (key, list) in src)
+        {
+            var next = list.Select(f).Where(r => r.HasValue).Select(r => r!.Value)
+                           .OrderBy(r => r.Index).ToList();
+            if (next.Count > 0) result[key] = next;   // drop keys that lost all refs
+        }
+        return result;
+    }
+
     public static PresetUsageMap Build(IEnumerable<(int SlotIndex, string PresetName, PresetDocument Doc)> occupiedPresets)
     {
         var amp = new Dictionary<string, List<PresetRef>>();
