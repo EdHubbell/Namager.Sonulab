@@ -38,6 +38,9 @@ public partial class AmpListViewModel : ObservableObject
         _distilledDir = distilledDir ?? Path.Combine("NAMFiles", "Distilled");
         _dispatch = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a));
         _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance;
+        // Progressive highlight fill: the background scan publishes after each preset resolves.
+        // MapUpdated may fire on a worker thread — marshal through the dispatch seam.
+        _usage.MapUpdated += () => _dispatch(ApplyUsage);
     }
 
     public ObservableCollection<AmpItemViewModel> Items { get; } = new();
@@ -90,32 +93,27 @@ public partial class AmpListViewModel : ObservableObject
         var slots = await _amps.ListAmpsAsync();
         Items.Clear();
         foreach (var s in slots) Items.Add(new AmpItemViewModel(s));
-        await ApplyUsageAsync();
+        ApplyUsage();
+        _usage.EnsureScanning();     // non-blocking: highlights stream in via MapUpdated
     }
 
-    /// <summary>Tag each item with the presets that use it. Highlighting is best-effort: a preset
-    /// read failure must never break the amp list, so its errors are swallowed (logged).</summary>
-    private Task ApplyUsageAsync()
+    /// <summary>Tag each item with the presets that use it, from the CURRENT (possibly partial
+    /// or stale) map — best-effort by design; the fail-closed check lives in the guards.</summary>
+    private void ApplyUsage()
     {
-        try
-        {
-            var map = _usage.Current;
-            foreach (var item in Items)
-                item.UsedInPresets = item.IsEmpty
-                    ? System.Array.Empty<Sonulab.Core.Services.PresetRef>() : map.PresetsUsingAmp(item.Name);
-        }
-        catch (Exception ex) { Log.Warn(ex, "amp preset-usage lookup failed"); }
+        var map = _usage.Current;
+        foreach (var item in Items)
+            item.UsedInPresets = item.IsEmpty
+                ? System.Array.Empty<Sonulab.Core.Services.PresetRef>() : map.PresetsUsingAmp(item.Name);
+    }
+
+    /// <summary>Re-apply highlighting from the current map and make sure a scan is running if
+    /// it is incomplete/stale. Never sets IsBusy — the scan streams in via MapUpdated.</summary>
+    public Task RefreshUsageAsync()
+    {
+        ApplyUsage();
+        _usage.EnsureScanning();
         return Task.CompletedTask;
-    }
-
-    /// <summary>Re-apply preset-usage highlighting without re-listing amps (cheap: cached map, or a
-    /// preset re-scan if the usage cache was invalidated). Called on tab revisit after preset edits.</summary>
-    public async Task RefreshUsageAsync()
-    {
-        if (!CanRefresh) return;
-        IsBusy = true;
-        try { await ApplyUsageAsync(); }
-        finally { IsBusy = false; }
     }
 
     [RelayCommand]
@@ -138,10 +136,31 @@ public partial class AmpListViewModel : ObservableObject
         finally { IsBusy = false; BusyMessage = ""; }
     }
 
+    /// <summary>Fail-closed guard: resolve the preset-usage of <paramref name="s"/> COMPLETELY
+    /// before a delete/rename. If the map is incomplete, finishes the scan now (foreground reads,
+    /// status-scoped). Returns null when usage cannot be determined — the caller must refuse.</summary>
+    private async Task<IReadOnlyList<Sonulab.Core.Services.PresetRef>?> ResolveUsageAsync(AmpItemViewModel s)
+    {
+        if (_usage.IsComplete) return _usage.Current.PresetsUsingAmp(s.Name);
+        IsBusy = true; BusyMessage = "Checking preset usage…";
+        using var op = _status.BeginOperation("Checking preset usage…");
+        try { return (await _usage.EnsureCompleteAsync()).PresetsUsingAmp(s.Name); }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "usage check failed");
+            ErrorMessage = "Couldn't verify preset usage — try again.";
+            _status.Failure("Couldn't verify preset usage.");
+            return null;
+        }
+        finally { IsBusy = false; BusyMessage = ""; }
+    }
+
     [RelayCommand] private async Task DeleteAsync()
     {
         if (Selected is not { IsEmpty: false } s) return;
-        if (s.UsedInPresets.Count > 0) { BlockUsed(s, "delete"); return; }
+        if (await ResolveUsageAsync(s) is not { } refs) return;        // unknown → refuse
+        s.UsedInPresets = refs;
+        if (refs.Count > 0) { BlockUsed(s, "delete"); return; }
         await RunAsync($"Deleting '{s.Name}'…", $"Deleted '{s.Name}'", () => _amps.DeleteAmpAsync(s.Index));
     }
 
@@ -150,7 +169,9 @@ public partial class AmpListViewModel : ObservableObject
         if (item is not { IsEditing: true } s) return;      // Escape-then-LostFocus won't re-commit
         var name = (s.EditName ?? "").Trim();
         if (name.Length == 0 || name == s.Name) { s.IsEditing = false; return; }
-        if (s.UsedInPresets.Count > 0) { s.IsEditing = false; BlockUsed(s, "rename"); return; }
+        if (await ResolveUsageAsync(s) is not { } refs) { s.IsEditing = false; return; }
+        s.UsedInPresets = refs;
+        if (refs.Count > 0) { s.IsEditing = false; BlockUsed(s, "rename"); return; }
         if (!await RunAsync($"Renaming '{s.Name}'…", $"Renamed to '{name}'", () => _amps.RenameAmpAsync(s.Index, name)))
             s.IsEditing = false;                            // gated/failed write: leave edit mode ourselves
     }

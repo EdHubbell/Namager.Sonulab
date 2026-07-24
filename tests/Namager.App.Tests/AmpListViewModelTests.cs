@@ -944,10 +944,82 @@ public class AmpListViewModelTests : IDisposable
 
         Assert.True(vm.Items[0].IsUsed);                         // highlight refreshed
         Assert.Equal(listReads, dev.CommandLog.Count(c => c == @"read root\amp"));  // no amp re-list
+        Assert.False(vm.IsBusy);                                 // non-blocking: never gates IsBusy
     }
 
     // RefreshUsage_holds_the_busy_gate_while_scanning intentionally removed (Task 4): the new
     // IPresetUsageService bridge (`_usage.Current`, no await) never gates IsBusy on a scan — that
     // was the OLD blocking-cache behavior. The plan's Task 5 replaces it with a non-blocking
     // RefreshUsageAsync (progressive fill via MapUpdated); no equivalent busy-gate assertion applies.
+
+    // ---- progressive highlight fill + fail-closed guards (Task 5) ----
+
+    /// <summary>Usage-test VM builder consistent with <see cref="MakeWithUsage"/>, but also wires
+    /// dispatch: a =&gt; a() so FakePresetUsageService.RaiseMapUpdated's MapUpdated -&gt; ApplyUsage
+    /// marshal runs synchronously in-test (no live Avalonia dispatcher in unit tests).</summary>
+    private (AmpListViewModel vm, FakeAmpDevice dev) MakeUsageVm(FakePresetUsageService usage)
+    {
+        var dev = new FakeAmpDevice();
+        dev.SeedAmp(0, "AmpA", RealisticBlob(1));
+        dev.SeedAmp(1, "AmpB", RealisticBlob(2));
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var svc = new AmpService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
+        return (new AmpListViewModel(svc, writesAllowed: true, usage: usage, dispatch: a => a()), dev);
+    }
+
+    [Fact]
+    public async Task Refresh_does_not_block_on_an_incomplete_usage_scan()
+    {
+        var usage = new FakePresetUsageService { Complete = false };   // scan "running"
+        var (vm, _) = MakeUsageVm(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.False(vm.IsBusy);                                       // list is usable NOW
+        Assert.NotEmpty(vm.Items);
+        Assert.Equal(1, usage.EnsureScanningCount);                    // scan was kicked, not awaited
+    }
+
+    [Fact]
+    public async Task Highlights_fill_in_when_the_scan_publishes()
+    {
+        var usage = new FakePresetUsageService { Complete = false };
+        var (vm, _) = MakeUsageVm(usage);                              // must pass dispatch: a => a()
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.All(vm.Items, i => Assert.Empty(i.UsedInPresets));
+
+        usage.Map = FakePresetUsageService.MapFor((0, "Lead", new[]
+            { FakePresetUsageService.AmpLine("AmpA") }));              // AmpA = an occupied item name
+        usage.Complete = true;
+        usage.RaiseMapUpdated();
+        Assert.NotEmpty(vm.Items.First(i => i.Name == "AmpA").UsedInPresets);
+    }
+
+    [Fact]
+    public async Task Delete_with_incomplete_map_finishes_the_scan_and_blocks_when_used()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Complete = false,
+            Map = FakePresetUsageService.MapFor((0, "Lead", new[]
+                { FakePresetUsageService.AmpLine("AmpA") })),
+        };
+        var (vm, _) = MakeUsageVm(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items.First(i => i.Name == "AmpA");
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.Equal(1, usage.EnsureCompleteCount);                    // guard finished the scan
+        Assert.Contains("used in the following presets", vm.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task Delete_stays_blocked_when_the_scan_cannot_complete()
+    {
+        var usage = new FakePresetUsageService
+        { Complete = false, FailWith = new InvalidOperationException("link died") };
+        var (vm, dev) = MakeUsageVm(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.Selected = vm.Items.First(i => !i.IsEmpty);
+        await vm.DeleteCommand.ExecuteAsync(null);
+        Assert.NotNull(vm.ErrorMessage);                               // refused, with a message
+        Assert.DoesNotContain(dev.CommandLog, c => c.StartsWith("dwrite"));  // nothing deleted
+    }
 }
