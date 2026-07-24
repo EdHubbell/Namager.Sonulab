@@ -56,6 +56,11 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   a true cold boot connects on attempt ~3). **Device names cap ~31 chars.**
 - **Device writes are destructive & need explicit user consent**; always back up first (BackupService;
   backups land in `docs/backups/`, gitignored). Reorder/write paths read-back-verify + roll back on failure.
+- **Link death is typed:** transports throw `DeviceDisconnectedException` (Sonulab.Core/Transport) and
+  close their own port; `SonuClient` latches the first one, raises `Disconnected` once, and fails all
+  later sends instantly. The app enters a dead state (Connect disabled, "reconnect and restart");
+  HwCheck prints `DEVICE LOST:` and exits 2. Reconnect-in-place is deliberately NOT supported —
+  re-opening a live session resets the ESP32 and wedges the pedal.
 - Parameter editor exposure is a **blocklist** (`hidden-params.json`) so new firmware params auto-appear.
 - `.pcapng` captures live in the PARENT dir `..\` (not committed).
 - UI colors come from Styles/SonulabTheme.axaml tokens (Sonulab.*Brush, both theme variants) — never hardcode hex in .axaml; Fluent accent ramp is overridden in App.axaml.
@@ -80,3 +85,5 @@ restore, riding review minors): `docs/superpowers/2026-07-24-post-scan-fix-next-
 Amp metadata hardware validation (docs/HARDWARE-VALIDATION-amp-metadata.md) pending — run before relying on SSMD blocks on-device. IR-slot metadata not designed.
 UI-polish visual checklist (docs/HARDWARE-VALIDATION-ui-polish.md) pending.
 Tone3000 live checklist (docs/HARDWARE-VALIDATION-tone3000.md) pending.
+Disconnect handling is SHIPPED (typed `DeviceDisconnectedException`, `SonuClient` latch, app dead
+state, HwCheck exit 2); on-device checks pending in `docs/HARDWARE-VALIDATION-disconnect.md`.

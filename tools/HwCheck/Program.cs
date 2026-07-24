@@ -23,6 +23,20 @@ using Sonulab.Core.Model;
 using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
 
+// Last-resort guard. Without it an IOException mid-batch killed this harness outright with a raw
+// stack trace. Exit 2 = the device went away; 1 = any other unhandled failure. The existing
+// 0/3/4 result codes are unaffected.
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+{
+    if (e.ExceptionObject is DeviceDisconnectedException dx)
+    {
+        Console.Error.WriteLine($"DEVICE LOST: {dx.Message}");
+        Environment.Exit(2);
+    }
+    Console.Error.WriteLine($"FAILED: {e.ExceptionObject}");
+    Environment.Exit(1);
+};
+
 static int? ArgAfter(string[] a, string flag)
 {
     int i = Array.IndexOf(a, flag);
