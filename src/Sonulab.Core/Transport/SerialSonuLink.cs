@@ -10,10 +10,22 @@ public sealed class SerialSonuLink : ISonuLink
     private readonly string _portName;
     private readonly int _baud;
     private readonly SerialLinkOptions _options;
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
+    private readonly Func<long> _tick;
+    private readonly Func<int, CancellationToken, Task> _delay;
 
-    public SerialSonuLink(ISerialPortStream port, string portName, int baudRate, SerialLinkOptions? options = null)
+    /// <param name="tickSource">Millisecond clock for the response-collection loops. Defaults to
+    /// this instance's Stopwatch — NOT Environment.TickCount64, whose ~15.6 ms Windows resolution
+    /// cannot express the 30 ms pipelining pace. Tests inject a virtual clock.</param>
+    /// <param name="delay">Awaited between read polls. Defaults to Task.Delay; tests inject a
+    /// function that advances the virtual clock instead of really waiting.</param>
+    public SerialSonuLink(ISerialPortStream port, string portName, int baudRate,
+        SerialLinkOptions? options = null, Func<long>? tickSource = null,
+        Func<int, CancellationToken, Task>? delay = null)
     {
         _port = port; _portName = portName; _baud = baudRate; _options = options ?? new SerialLinkOptions();
+        _tick = tickSource ?? (() => _clock.ElapsedMilliseconds);
+        _delay = delay ?? ((ms, ct) => Task.Delay(ms, ct));
     }
 
     public bool IsOpen => _port.IsOpen;
@@ -35,11 +47,11 @@ public sealed class SerialSonuLink : ISonuLink
         _port.Write(Nul, 0, 1);
 
         var sb = new StringBuilder();
-        var sw = Stopwatch.StartNew();
+        long start = _tick();
         long lastData = 0;
         bool sawData = false;
 
-        while (sw.ElapsedMilliseconds < _options.MaxWaitMs)
+        while (_tick() - start < _options.MaxWaitMs)
         {
             ct.ThrowIfCancellationRequested();
             int avail = _port.BytesToRead;
@@ -49,20 +61,90 @@ public sealed class SerialSonuLink : ISonuLink
                 int n = _port.Read(buf, 0, avail);
                 sb.Append(Encoding.ASCII.GetString(buf, 0, n));
                 sawData = true;
-                lastData = sw.ElapsedMilliseconds;
+                lastData = _tick() - start;
                 // Device terminates each response with a NUL byte — stop as soon as we see it
                 // (deterministic and size-independent; the idle gap below is only a fallback).
                 if (Array.IndexOf(buf, (byte)0, 0, n) >= 0) break;
             }
             else
             {
-                if (sawData && sw.ElapsedMilliseconds - lastData >= _options.IdleGapMs) break;
+                if (sawData && _tick() - start - lastData >= _options.IdleGapMs) break;
                 // No-response command (e.g. a write): if nothing has arrived by the first-byte
                 // timeout, stop instead of blocking the full MaxWaitMs.
-                if (!sawData && sw.ElapsedMilliseconds >= _options.FirstByteTimeoutMs) break;
-                await Task.Delay(_options.PollMs, ct);
+                if (!sawData && _tick() - start >= _options.FirstByteTimeoutMs) break;
+                await _delay(_options.PollMs, ct);
             }
         }
         return sb.ToString();
+    }
+
+    /// <summary>Paced-overlap pipelining (PROTOCOL.md "dread limits &amp; hazards"): the firmware
+    /// drops zero-gap command bursts, but it DOES accept the next command while still streaming
+    /// the previous response. So we self-clock — send N+1 once the first byte of response N has
+    /// arrived — with PipelineMinPaceMs as a hard floor (30 ms proven; 25 ms is the cliff).
+    /// Measured ~33 ms/chunk vs ~57 lockstep.
+    ///
+    /// Per the interface contract, the returned windows are NOT positionally aligned with
+    /// <paramref name="commands"/>; callers match responses by content.</summary>
+    public async Task<IReadOnlyList<string>> SendBatchAsync(IReadOnlyList<string> commands, CancellationToken ct = default)
+    {
+        if (!_port.IsOpen) throw new InvalidOperationException("Serial link is not open.");
+        if (commands.Count == 0) return Array.Empty<string>();
+        if (!_options.PipelineEnabled || commands.Count == 1)
+        {
+            var seq = new List<string>(commands.Count);
+            foreach (var c in commands) seq.Add(await SendAsync(c, ct));
+            return seq;
+        }
+
+        // ONE discard, before the first send. A mid-batch discard would destroy responses that
+        // are still in flight — which is exactly what pipelining creates.
+        _port.DiscardInBuffer();
+
+        var windows = new List<string>(commands.Count);
+        var pending = new StringBuilder();          // bytes accumulated since the last NUL
+        var buf = new byte[4096];
+        int sent = 0;
+        long lastSendAt = 0;
+        bool sawByteSinceSend = false;
+        long start = _tick();
+        long deadline = _options.MaxWaitMs + (long)_options.PipelineMinPaceMs * commands.Count;
+
+        while (_tick() - start < deadline && (sent < commands.Count || windows.Count < commands.Count))
+        {
+            ct.ThrowIfCancellationRequested();
+
+            long now = _tick();
+            bool paceOk = sent == 0 || now - lastSendAt >= _options.PipelineMinPaceMs;
+            // Self-clock: the previous response has STARTED arriving, so the device is listening
+            // again. FirstByteTimeoutMs is the escape hatch — if the device ate the previous
+            // command, nothing will ever arrive and the batch must not stall on it.
+            bool previousMoving = sent == 0 || sawByteSinceSend
+                                  || now - lastSendAt >= _options.FirstByteTimeoutMs;
+            if (sent < commands.Count && paceOk && previousMoving)
+            {
+                var bytes = Encoding.ASCII.GetBytes(commands[sent]);
+                _port.Write(bytes, 0, bytes.Length);
+                _port.Write(Nul, 0, 1);
+                sent++;
+                lastSendAt = _tick();
+                sawByteSinceSend = false;
+                continue;
+            }
+
+            int avail = _port.BytesToRead;
+            if (avail > 0)
+            {
+                int n = _port.Read(buf, 0, Math.Min(avail, buf.Length));
+                sawByteSinceSend = true;
+                for (int i = 0; i < n; i++)
+                {
+                    if (buf[i] == 0) { windows.Add(pending.ToString()); pending.Clear(); }
+                    else pending.Append((char)buf[i]);
+                }
+            }
+            else await _delay(_options.PipelinePollMs, ct);
+        }
+        return windows;
     }
 }
