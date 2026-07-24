@@ -102,8 +102,30 @@ public class PresetUsageServiceTests
         var repo = new DeviceRepository(new SonuClient(link, backgroundQuietMs: 0));
         var svc = new PresetUsageService(repo);
 
+        // The tear is permanent (every attempt hits it), so all 3 bounded retries fail and the
+        // scan still gives up — guards stay closed. (Not asserting attempt count: that's the
+        // retry loop's business, not this test's.)
         await Assert.ThrowsAnyAsync<Exception>(() => svc.EnsureCompleteAsync());
         Assert.False(svc.IsComplete);
+    }
+
+    [Fact]
+    public async Task Transient_read_failure_is_retried_and_the_scan_completes()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "Lead", new[] { Amp("Plexi") });
+        dev.SeedSlot(1, "Rhythm", new[] { Amp("Plexi") });
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var link = new FlakyOnceLink(dev);
+        var repo = new DeviceRepository(new SonuClient(link, backgroundQuietMs: 0));
+        var svc = new PresetUsageService(repo);
+
+        var map = await svc.EnsureCompleteAsync();
+
+        Assert.True(svc.IsComplete);
+        Assert.Equal(new[] { new PresetRef(0, "Lead"), new PresetRef(1, "Rhythm") },
+                     map.PresetsUsingAmp("Plexi"));
+        Assert.True(link.ListAttempts >= 2, $"expected a retry, got {link.ListAttempts} attempt(s)");
     }
 
     /// <summary>Link wrapper that returns an empty response ("torn read") for any dread targeting
@@ -125,6 +147,30 @@ public class PresetUsageServiceTests
             if (command.StartsWith("dread ", StringComparison.Ordinal)
                 && command.Contains($"\"index\":{_tearIndex}", StringComparison.Ordinal))
                 return Task.FromResult("");
+            return _inner.SendAsync(command, ct);
+        }
+    }
+
+    /// <summary>Link wrapper that fails the preset-list read ("" — a torn/empty record, matching
+    /// the WiFi glitch this fix targets) on the FIRST attempt only; every later attempt (and every
+    /// other command) passes through untouched — proves a transient failure is retried rather
+    /// than killing the scan.</summary>
+    private sealed class FlakyOnceLink : Sonulab.Core.Transport.ISonuLink
+    {
+        private readonly Sonulab.Core.Transport.ISonuLink _inner;
+        private bool _failedOnce;
+        public int ListAttempts;
+        public FlakyOnceLink(Sonulab.Core.Transport.ISonuLink inner) => _inner = inner;
+        public bool IsOpen => _inner.IsOpen;
+        public Task OpenAsync(CancellationToken ct = default) => _inner.OpenAsync(ct);
+        public void Close() => _inner.Close();
+        public Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (command.StartsWith(@"read root\presets", StringComparison.Ordinal))
+            {
+                ListAttempts++;
+                if (!_failedOnce) { _failedOnce = true; return Task.FromResult(""); }
+            }
             return _inner.SendAsync(command, ct);
         }
     }

@@ -101,41 +101,68 @@ public sealed class PresetUsageService : IPresetUsageService
 
     public void Stop() => _cts.Cancel();
 
+    /// <summary>Bounded-retry wrapper: on WiFi the pedal intermittently returns a torn/empty
+    /// record, and a single transient glitch must not kill the whole background scan. Up to
+    /// <see cref="MaxAttempts"/> full passes (list read included) are attempted, 500 ms apart;
+    /// only after the last attempt fails does the scan give up (fail-closed: <see cref="_isComplete"/>
+    /// stays false, EnsureCompleteAsync still throws). OperationCanceledException (Stop() or a
+    /// caller cancel) exits immediately without retrying.</summary>
+    private const int MaxAttempts = 3;
+
     private async Task ScanLoopAsync(CancellationToken ct)
     {
-        try
+        for (int attempt = 1; attempt <= MaxAttempts; attempt++)
         {
-            while (true)
+            try
             {
-                int version; lock (_sync) version = _version;
-                var slots = _urgent
-                    ? await _repo.ListPresetsAsync(ct)
-                    : await _repo.ListPresetsBackgroundAsync(ct);
-                var resolved = new List<(int, string, Sonulab.Core.Model.PresetDocument)>();
-                bool restart = false;
-                foreach (var s in slots)
+                await RunScanPassAsync(ct);
+                return;                                     // completed (or a version-restart ran its course)
+            }
+            catch (OperationCanceledException) { return; }  // Stop() or caller cancel — no retry
+            catch (Exception ex)
+            {
+                if (attempt >= MaxAttempts)
                 {
-                    if (s.IsEmpty) continue;
-                    ct.ThrowIfCancellationRequested();
-                    lock (_sync) { if (_version != version) { restart = true; } }
-                    if (restart) break;
-                    var doc = await _repo.ReadPresetHeadAsync(s.Index, background: !_urgent, ct);
-                    resolved.Add((s.Index, s.Name, doc));
-                    _current = PresetUsageMap.Build(resolved);
-                    MapUpdated?.Invoke();
+                    // Best-effort: a link failure ends the scan quietly (highlights stay partial/stale).
+                    // EnsureCompleteAsync observes the incomplete state and throws — guards stay CLOSED.
+                    Log.Warn(ex, "preset-usage scan aborted after {Attempt} attempts", attempt);
+                    return;
                 }
-                if (restart) continue;                       // stale version: rescan from the top
-                lock (_sync) { if (_version == version) _isComplete = true; else continue; }
-                MapUpdated?.Invoke();
-                return;
+                Log.Warn(ex, "preset-usage scan attempt {Attempt} failed; retrying", attempt);
+                try { await Task.Delay(500, ct); }
+                catch (OperationCanceledException) { return; }
             }
         }
-        catch (OperationCanceledException) { /* Stop() or caller cancel */ }
-        catch (Exception ex)
+    }
+
+    /// <summary>One scan pass: list the occupied slots, then head-read each one, restarting from
+    /// the top whenever Invalidate() bumps the version mid-pass. Exceptions propagate to the
+    /// caller's retry loop; this method makes no attempt to swallow them.</summary>
+    private async Task RunScanPassAsync(CancellationToken ct)
+    {
+        while (true)
         {
-            // Best-effort: a link failure ends the scan quietly (highlights stay partial/stale).
-            // EnsureCompleteAsync observes the incomplete state and throws — guards stay CLOSED.
-            Log.Warn(ex, "preset-usage scan aborted");
+            int version; lock (_sync) version = _version;
+            var slots = _urgent
+                ? await _repo.ListPresetsAsync(ct)
+                : await _repo.ListPresetsBackgroundAsync(ct);
+            var resolved = new List<(int, string, Sonulab.Core.Model.PresetDocument)>();
+            bool restart = false;
+            foreach (var s in slots)
+            {
+                if (s.IsEmpty) continue;
+                ct.ThrowIfCancellationRequested();
+                lock (_sync) { if (_version != version) { restart = true; } }
+                if (restart) break;
+                var doc = await _repo.ReadPresetHeadAsync(s.Index, background: !_urgent, ct);
+                resolved.Add((s.Index, s.Name, doc));
+                _current = PresetUsageMap.Build(resolved);
+                MapUpdated?.Invoke();
+            }
+            if (restart) continue;                       // stale version: rescan from the top
+            lock (_sync) { if (_version == version) _isComplete = true; else continue; }
+            MapUpdated?.Invoke();
+            return;
         }
     }
 }

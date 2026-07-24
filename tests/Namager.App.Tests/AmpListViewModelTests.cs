@@ -1022,4 +1022,20 @@ public class AmpListViewModelTests : IDisposable
         Assert.NotNull(vm.ErrorMessage);                               // refused, with a message
         Assert.DoesNotContain(dev.CommandLog, c => c.StartsWith("dwrite"));  // nothing deleted
     }
+
+    [Fact]
+    public async Task Rename_stays_blocked_when_the_scan_cannot_complete()
+    {
+        var usage = new FakePresetUsageService
+        { Complete = false, FailWith = new InvalidOperationException("link died") };
+        var (vm, dev) = MakeUsageVm(usage);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        var item = vm.Items.First(i => !i.IsEmpty);
+        item.IsEditing = true;
+        item.EditName = item.Name + " renamed";
+        await vm.CommitRenameCommand.ExecuteAsync(item);
+        Assert.NotNull(vm.ErrorMessage);                               // refused, with a message
+        Assert.False(item.IsEditing);                                  // edit mode exited
+        Assert.DoesNotContain(dev.CommandLog, c => c.StartsWith("dwrite"));  // nothing renamed
+    }
 }

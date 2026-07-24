@@ -11,7 +11,7 @@
 //   dotnet run --project tools/HwCheck -- --upload-ir <irblob> <slotIndex> [--name <n>]  # guarded IR upload (backup+write+verify)
 //   dotnet run --project tools/HwCheck -- --delete-ir <slotIndex>              # guarded IR delete (backup+clear name)
 //   dotnet run --project tools/HwCheck -- --preset-dwrite-probe [--src <idx>] [--dst <idx>]  # guarded, timed re-test of preset dwrite
-//   dotnet run --project tools/HwCheck -- --dread-arg-probe [--idx <n>]   # read-only fuzz: does dread accept a batch/size arg?
+//   dotnet run --project tools/HwCheck -- --dread-arg-probe [--idx <n>] [--include-crash-variants]  # read-only fuzz: does dread accept a batch/size arg? (crash variants opt-in)
 //   dotnet run --project tools/HwCheck -- --pipeline-probe [--idx <n>] [--depth <d>]  # read-only: pipelined dread burst timing (serial only)
 //   dotnet run --project tools/HwCheck -- --dswap-probe [--a <idx>] [--b <idx>]  # guarded probe of the undocumented dswap verb (backup + self-reversing)
 //   dotnet run --project tools/HwCheck -- --wifi [--ip <addr>] [...]  # any mode over WiFi (mDNS discovery; --ip pins the endpoint)
@@ -296,7 +296,7 @@ if (dap >= 0)
     Console.WriteLine($"baseline chunk1: hex={baseHex?.Length ?? 0} chars");
     if (baseHex is not { Length: 256 }) { Console.WriteLine("RESULT: DREAD-ARG-PROBE ABORT — baseline dread failed"); aPort.Close(); return 4; }
 
-    var variants = new (string Label, string Cmd)[]
+    var variants = new List<(string Label, string Cmd)>
     {
         ("count:4",     $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"count\":4}}"),
         ("chunks:4",    $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"chunks\":4}}"),
@@ -305,13 +305,20 @@ if (dap >= 0)
         ("num:4",       $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"num\":4}}"),
         ("to:4",        $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"to\":4}}"),
         ("end:4",       $"dread root\\presets:{{\"index\":{n},\"chunk\":1,\"end\":4}}"),
-        ("range-str",   $"dread root\\presets:{{\"index\":{n},\"chunk\":\"1-4\"}}"),
-        ("array",       $"dread root\\presets:{{\"index\":{n},\"chunk\":[1,2,3,4]}}"),
+        // range-str/array are appended below only with --include-crash-variants: a non-numeric
+        // chunk value calls abort() in fw 2.5.1 (ESP32 reboots — PROTOCOL.md "dread limits & hazards").
         ("from/to",     $"dread root\\presets:{{\"index\":{n},\"from\":1,\"to\":4}}"),
         ("no-chunk",    $"dread root\\presets:{{\"index\":{n}}}"),
         ("read+json",   $"read root\\presets:{{\"index\":{n}}}"),
         ("browse+json", $"browse root\\presets:{{\"index\":{n}}}"),
     };
+    if (Array.IndexOf(args, "--include-crash-variants") >= 0)
+    {
+        variants.Add(("range-str", $"dread root\\presets:{{\"index\":{n},\"chunk\":\"1-4\"}}"));
+        variants.Add(("array", $"dread root\\presets:{{\"index\":{n},\"chunk\":[1,2,3,4]}}"));
+    }
+    else
+        Console.WriteLine("(skipping range-str/array — known to abort() fw 2.5.1; pass --include-crash-variants to run them)");
     bool finding = false;
     foreach (var (label, cmd) in variants)
     {

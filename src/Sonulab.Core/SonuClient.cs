@@ -211,8 +211,9 @@ public sealed class SonuClient
         return bytes.ToArray();
     }
 
-    /// <summary>Background twin of <see cref="ReadListAsync"/> (single attempt — the scanner
-    /// retries at its own cadence instead of the WiFi-quirk retry loop). FAIL-CLOSED: no parseable
+    /// <summary>Background twin of <see cref="ReadListAsync"/> (single attempt — instead of the
+    /// WiFi-quirk retry loop, the scanner retries a failed pass up to 3 times, 500 ms apart).
+    /// FAIL-CLOSED: no parseable
     /// list record throws rather than returning an empty list — an empty list here silently reads
     /// upstream as "30 empty slots", which would make the preset-usage scan complete with a map
     /// missing real amp/IR references (a device with genuinely zero presets still answers with a
