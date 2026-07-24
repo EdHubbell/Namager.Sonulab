@@ -40,6 +40,51 @@ public sealed class DeviceRepository
         return PresetDocument.Parse(bytes);
     }
 
+    /// <summary>Head-read window: the amp ref sits near chunk 7, primary IR near 11, secondary
+    /// IR near 23 (measured, real captures — see the 2026-07-24 perf handoff). 32 gives slack
+    /// for value-length drift; past it we assume an unexpected layout and fall back to a full read.</summary>
+    public const int HeadChunkCap = 32;
+
+    public async Task<IReadOnlyList<PresetSlot>> ListPresetsBackgroundAsync(CancellationToken ct = default)
+    {
+        var names = await _client.ReadListBackgroundAsync(PresetsList, ct);
+        var slots = new List<PresetSlot>(SlotCount);
+        for (int i = 0; i < SlotCount; i++)
+            slots.Add(new PresetSlot(i, i < names.Count ? names[i] : ""));
+        return slots;
+    }
+
+    /// <summary>Reads only the HEAD of a preset document — chunk by chunk until the amp and both
+    /// IR reference lines are complete (<see cref="PresetUsageMap.HeadComplete"/>), the content-end
+    /// NUL appears, or <see cref="HeadChunkCap"/> is hit (then: full-read fallback). Built for the
+    /// preset-usage scan: ~14–25 chunks instead of 64 (~2.5×). <paramref name="background"/>=true
+    /// rides the SonuClient background lane (default; the scan must yield to user bursts);
+    /// false uses the foreground lane (EnsureCompleteAsync's urgent finish).</summary>
+    public async Task<PresetDocument> ReadPresetHeadAsync(int index, bool background = true, CancellationToken ct = default)
+    {
+        Task<byte[]> ReadChunks(int first, int count) => background
+            ? _client.DReadChunkRangeBackgroundAsync(PresetsList, index, first, count, ct)
+            : _client.DReadChunkRangeAsync(PresetsList, index, first, count, ct);
+
+        var bytes = new List<byte>(HeadChunkCap * 128);
+        for (int chunk = 1; chunk <= HeadChunkCap; chunk++)
+        {
+            var seg = await ReadChunks(chunk, 1);
+            bytes.AddRange(seg);
+            // Content ends at the first NUL (the rest of the blob is zero padding) — or a torn
+            // chunk came back empty; either way there is nothing more to learn from this slot.
+            if (seg.Length == 0 || Array.IndexOf(seg, (byte)0) >= 0)
+                return PresetDocument.Parse(bytes.ToArray());
+            if (PresetUsageMap.HeadComplete(System.Text.Encoding.ASCII.GetString(bytes.ToArray())))
+                return PresetDocument.Parse(bytes.ToArray());
+        }
+        // Unexpected layout (refs not found in the head window): fall back to the full document
+        // so the guard logic never runs on silently truncated data.
+        var rest = await ReadChunks(HeadChunkCap + 1, PresetChunks - HeadChunkCap);
+        bytes.AddRange(rest);
+        return PresetDocument.Parse(bytes.ToArray());
+    }
+
     /// <summary>
     /// Writes <paramref name="doc"/> into slot <paramref name="index"/> via name → replay → save → verify.
     /// PRECONDITION: <paramref name="name"/> must be UNIQUE across all occupied slots — the device's
