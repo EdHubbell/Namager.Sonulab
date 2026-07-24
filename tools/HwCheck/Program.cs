@@ -493,16 +493,110 @@ if (ppb >= 0)
 
 // --dswap-probe [--a <idx>] [--b <idx>] : GUARDED probe of the undocumented `dswap` verb found in
 // VoidX's app.so string pool ('dswap ' + ',"index2":' — same builder pattern as dread/dwrite).
-// Hypothesis: firmware-native slot swap = dswap root\presets:{"index":A,"index2":B}. Backs up both
-// slots' full content first, checks names+content after the command, and restores by swapping back
-// (or, if the device is left in any other state, by rewriting both slots from the backup).
-// Presets only for now — the restore path (BackupService) exists only for presets.
+// Hypothesis: firmware-native slot swap = dswap root\presets:{"index":A,"index2":B}. Presets
+// (--path root\presets, the default) back up both slots' full content first, check names+content
+// after the command, and restore by swapping back (or, if the device is left in any other state,
+// by rewriting both slots from the backup) — the restore path (BackupService) exists only for
+// presets. --path root\amp / root\ir run a generic, self-contained probe instead: no .pst file
+// backup exists for those blocks, so safety relies entirely on dswap being self-inverse — both
+// slots are read-verified (name + first chunks) and the swap is ALWAYS reversed unconditionally,
+// never skipped based on the "no effect" finding (that gate is preset-only; see task-1 fix notes).
 int dsp = Array.IndexOf(args, "--dswap-probe");
 if (dsp >= 0)
 {
     if (!c.WritesAllowed) { Console.WriteLine("writes not allowed; abort."); session.Disconnect(); return 3; }
     int dspPath = Array.IndexOf(args, "--path");
     string swapPath = dspPath >= 0 && dspPath + 1 < args.Length ? args[dspPath + 1] : @"root\presets";
+
+    if (swapPath != @"root\presets")
+    {
+        // Generic, always-reversing probe for root\amp / root\ir. Unlike the preset branch below,
+        // there is NO BackupService/.pst fallback here — the only safety net is sending the same
+        // dswap command a second time (self-inverse) and read-verifying both slots afterward.
+        var gClient = session.Client!;
+        int chunkCount = swapPath == @"root\amp" ? 96 : swapPath == @"root\ir" ? 32 : 0;
+        if (chunkCount == 0)
+        {
+            Console.WriteLine($"RESULT: DSWAP-PROBE ABORT — unknown --path '{swapPath}' (expected root\\presets, root\\amp, or root\\ir).");
+            session.Disconnect();
+            return 1;
+        }
+
+        async Task<string[]> ReadNamesAsync()
+        {
+            var raw = await gClient.ReadListAsync(swapPath);
+            return Enumerable.Range(0, 30).Select(i => i < raw.Count ? raw[i] : "").ToArray();
+        }
+
+        var gNamesBefore = await ReadNamesAsync();
+        var gOccupied = Enumerable.Range(0, 30).Where(i => !string.IsNullOrEmpty(gNamesBefore[i])).ToList();
+        if (gOccupied.Count < 2)
+        {
+            Console.WriteLine($"RESULT: DSWAP-PROBE ABORT — need two occupied slots at {swapPath}.");
+            session.Disconnect();
+            return 1;
+        }
+        int gA = ArgAfter(args, "--a") ?? gOccupied[0];
+        int gB = ArgAfter(args, "--b") ?? gOccupied[1];
+        bool gOk = gA != gB && gA is >= 0 and < 30 && gB is >= 0 and < 30
+                   && !string.IsNullOrEmpty(gNamesBefore[gA]) && !string.IsNullOrEmpty(gNamesBefore[gB]);
+        if (!gOk)
+        {
+            Console.WriteLine($"RESULT: DSWAP-PROBE ABORT — need two distinct occupied slots in [0,30) at {swapPath} (got {gA},{gB}).");
+            session.Disconnect();
+            return 1;
+        }
+
+        Console.WriteLine($"\n--- DSWAP PROBE (guarded, generic): {swapPath} idx {gA} ('{gNamesBefore[gA]}') <-> idx {gB} ('{gNamesBefore[gB]}') ---");
+        Console.WriteLine($"[warn] --path {swapPath}: no .pst file backup for this block — safety relies on dswap being self-inverse; both slots are read-verified and swapped back automatically.");
+
+        int K = Math.Min(8, chunkCount);
+        var gABefore = await gClient.DReadChunkRangeAsync(swapPath, gA, 1, K);
+        var gBBefore = await gClient.DReadChunkRangeAsync(swapPath, gB, 1, K);
+
+        var gSwapCmd = $"dswap {swapPath}:{{\"index\":{gA},\"index2\":{gB}}}";
+        Console.WriteLine($"[probe] {gSwapCmd}");
+        var gSw = Stopwatch.StartNew();
+        var gSwapResp = await gClient.SendRawAsync(gSwapCmd);
+        gSw.Stop();
+        var gRespRecs = Sonulab.Core.Protocol.ResponseParser.NonMeterRecords(gSwapResp).ToList();
+        Console.WriteLine($"[probe] responded in {gSw.ElapsedMilliseconds} ms; records: {(gRespRecs.Count == 0 ? "(none)" : string.Join(" | ", gRespRecs.Select(r => r.Length > 70 ? r[..70] + "…" : r)))}");
+        await Task.Delay(800);
+
+        var gNamesAfter = await ReadNamesAsync();
+        var gAAfter = await gClient.DReadChunkRangeAsync(swapPath, gA, 1, K);
+        var gBAfter = await gClient.DReadChunkRangeAsync(swapPath, gB, 1, K);
+        bool gNamesSwapped = gNamesAfter[gA] == gNamesBefore[gB] && gNamesAfter[gB] == gNamesBefore[gA];
+        bool gNamesUnchanged = gNamesAfter[gA] == gNamesBefore[gA] && gNamesAfter[gB] == gNamesBefore[gB];
+        bool gContentSwapped = gAAfter.AsSpan().SequenceEqual(gBBefore) && gBAfter.AsSpan().SequenceEqual(gABefore);
+        bool gContentStayed = gAAfter.AsSpan().SequenceEqual(gABefore) && gBAfter.AsSpan().SequenceEqual(gBBefore);
+        Console.WriteLine($"[check] names: [{gA}]='{gNamesAfter[gA]}' [{gB}]='{gNamesAfter[gB]}'  swapped={gNamesSwapped} unchanged={gNamesUnchanged}");
+        Console.WriteLine($"[check] content (first {K} chunks): swapped={gContentSwapped} stayed={gContentStayed}");
+        Console.WriteLine(
+            gNamesSwapped && gContentSwapped ? $"   => FINDING: dswap WORKS on {swapPath} — full slot swap in {gSw.ElapsedMilliseconds} ms!" :
+            gNamesSwapped && gContentStayed ? "   => FINDING: dswap swaps NAMES ONLY — desyncs name/content, NOT usable as-is" :
+            gNamesUnchanged && gContentStayed ? "   => FINDING: dswap had NO effect (verb ignored or wrong arg shape)" :
+            "   => FINDING: AMBIGUOUS state — see restore below");
+
+        // ALWAYS reverse — unlike the preset branch, there is no "nothing happened, nothing to
+        // restore" shortcut here: dswap is self-inverse, so sending it again is always safe and
+        // always attempted, regardless of the finding above.
+        Console.WriteLine("[restore] sending dswap again to swap back (unconditional)...");
+        await gClient.SendRawAsync(gSwapCmd);
+        await Task.Delay(800);
+        var gNamesR = await ReadNamesAsync();
+        var gAR = await gClient.DReadChunkRangeAsync(swapPath, gA, 1, K);
+        var gBR = await gClient.DReadChunkRangeAsync(swapPath, gB, 1, K);
+        bool gRestored = gNamesR[gA] == gNamesBefore[gA] && gNamesR[gB] == gNamesBefore[gB]
+                          && gAR.AsSpan().SequenceEqual(gABefore) && gBR.AsSpan().SequenceEqual(gBBefore);
+        Console.WriteLine(gRestored
+            ? "[restore] original names + content (first K chunks) verified"
+            : $"[restore] STILL OFF — swap back MANUALLY: dswap {swapPath}:{{\"index\":{gA},\"index2\":{gB}}}");
+        session.Disconnect();
+        Console.WriteLine($"RESULT: DSWAP-PROBE COMPLETE (restored={gRestored})");
+        return gRestored ? 0 : 5;
+    }
+
     bool activeTest = Array.IndexOf(args, "--active") >= 0;
     var sClient = session.Client!;
     var occupied = slots.Where(s => !s.IsEmpty).Select(s => s.Index).ToList();
