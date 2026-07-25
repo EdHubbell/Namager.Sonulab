@@ -249,4 +249,35 @@ public partial class MainWindowViewModel : ObservableObject
             amps.BeginUploadPrefilled(path, notes, url);
         }
     }
+
+    /// <summary>Where one backup run writes: Documents\NAMager Backups\yyyy-MM-dd HHmm. A fresh
+    /// timestamped folder per run, so a backup can never overwrite an earlier one and there is no
+    /// destination to prompt for. `now` is a parameter so the format is testable.</summary>
+    public static string NewBackupFolder(System.DateTime now) => System.IO.Path.Combine(
+        System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
+        "NAMager Backups", now.ToString("yyyy-MM-dd HHmm"));
+
+    /// <summary>How a backup run turned out — the view uses it to offer "Open Folder".</summary>
+    public sealed record BackupResult(int Count, string Folder);
+
+    /// <summary>Snapshot every occupied preset to a new timestamped folder. Returns null when
+    /// there is no connection or the run failed (the status bar carries the reason). Never throws.</summary>
+    public async Task<BackupResult?> BackupPresetsAsync()
+    {
+        if (Connection.Repository is not { } repo) return null;
+        var folder = NewBackupFolder(System.DateTime.Now);
+        using var op = Status.BeginOperation("Backing up presets…");
+        try
+        {
+            int n = await new Sonulab.Core.Services.BackupService(repo).SnapshotAllAsync(folder);
+            Status.Success($"Backed up {n} preset{(n == 1 ? "" : "s")}.");
+            return new BackupResult(n, folder);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "preset backup failed");
+            Status.Failure($"Backup failed: {ex.Message}");
+            return null;
+        }
+    }
 }

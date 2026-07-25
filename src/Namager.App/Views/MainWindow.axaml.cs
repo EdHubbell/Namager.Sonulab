@@ -36,6 +36,27 @@ public partial class MainWindow : Window
             try { await new AboutDialog().ShowDialog(this); }
             catch { /* async void-style handler: a throw here would kill the process */ }
         };
+        BackupMenuItem.Click += async (_, _) => await BackupAsync();
+    }
+
+    private async System.Threading.Tasks.Task BackupAsync()
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        try
+        {
+            if (await vm.BackupPresetsAsync() is not { } result) return;
+            bool open = await ConfirmDialog.ShowAsync(this, "Backup complete",
+                $"Backed up {result.Count} preset{(result.Count == 1 ? "" : "s")} to:\n\n{result.Folder}",
+                "Open Folder", "Close");
+            if (open)
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(result.Folder) { UseShellExecute = true });
+        }
+        catch (System.Exception ex)
+        {
+            // async void handler: never let this escape.
+            vm.Status.Failure($"Backup failed: {ex.Message}");
+        }
     }
 
     private void OnNavSelectionChanged(object? sender, SelectionChangedEventArgs e)

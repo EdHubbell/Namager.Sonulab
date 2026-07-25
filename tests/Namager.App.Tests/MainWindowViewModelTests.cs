@@ -205,4 +205,18 @@ public class MainWindowViewModelTests
             new Namager.App.Services.AppSettings { Theme = "Light" }, path);
         Assert.Equal("Light", new MainWindowViewModel(path).Theme);
     }
+
+    [Fact] public void NewBackupFolder_is_a_timestamped_folder_under_Documents()
+    {
+        var folder = MainWindowViewModel.NewBackupFolder(new System.DateTime(2026, 7, 25, 14, 3, 0));
+        Assert.EndsWith(System.IO.Path.Combine("NAMager Backups", "2026-07-25 1403"), folder);
+        Assert.StartsWith(
+            System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments), folder);
+    }
+
+    [Fact] public async Task BackupPresets_returns_null_when_not_connected()
+    {
+        var vm = new MainWindowViewModel();
+        Assert.Null(await vm.BackupPresetsAsync());
+    }
 }
