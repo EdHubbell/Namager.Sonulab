@@ -98,17 +98,7 @@ public partial class MainWindowViewModel : ObservableObject
         // the only serial device.
         var options = new SerialLinkOptions
         { OpenSettleMs = 250, ProbeAttempts = 8, ProbeRetryDelayMs = 150 };
-        var providers = new List<ILinkProvider>
-        {
-            // Fresh port enumeration per connect: a pedal replugged onto a new COM number
-            // is found without restarting the app.
-            new SerialLinkProvider(() => new SystemSerialPort(), options),
-            // WiFi fallback: ~3s mDNS browse (query re-sent every 2s); returns null silently
-            // when no network / multicast blocked / no pedal on the LAN.
-            new Sonulab.Transport.Wifi.WifiLinkProvider(
-                new Sonulab.Transport.Wifi.UdpMdnsQuerier(), TimeSpan.FromSeconds(3)),
-        };
-        var session = new DeviceSession(providers, new CompatibilityChecker(FirmwareCatalog.Default));
+        var session = new DeviceSession(BuildProviders(options), new CompatibilityChecker(FirmwareCatalog.Default));
 
         _connection = new ConnectionViewModel(session, new UsagePingService(), Status);
         // The scan's link is dead; its task must not keep polling a corpse. (SonuClient's latch
@@ -164,6 +154,22 @@ public partial class MainWindowViewModel : ObservableObject
 
         Status.SetIdleSummary("Not connected");
     }
+
+    /// <summary>The transports the app will try, in order. USB ONLY — the WiFi/TCP transport
+    /// (src/Sonulab.Transport.Wifi) still exists and is exercised by HwCheck's wifi mode and its own
+    /// tests, but it is deliberately not offered to users: the pedal answers mDNS intermittently,
+    /// the link needs a bespoke response-debt resync layer, and a pedal that vanishes without a
+    /// FIN/RST produces no disconnect signal at all. See
+    /// docs/superpowers/specs/2026-07-25-disable-wifi-in-app-design.md.
+    ///
+    /// Extracted from the constructor so LinkProviderWiringTests can assert the list stays
+    /// single-entry — re-adding a fallback should fail a test, not slip through review.</summary>
+    internal static IReadOnlyList<ILinkProvider> BuildProviders(SerialLinkOptions options) => new List<ILinkProvider>
+    {
+        // Fresh port enumeration per connect: a pedal replugged onto a new COM number
+        // is found without restarting the app.
+        new SerialLinkProvider(() => new SystemSerialPort(), options),
+    };
 
     /// <summary>Tone3000 handoff: switch to the Amps or IRs tab and open the upload panel
     /// prefilled. Nav indices match MainWindow's NavList (0 presets, 1 amps, 2 irs, 4 t3k).
