@@ -88,7 +88,7 @@ public class CrashGuardTests
     public async Task Editor_load_for_preset_on_dead_link_surfaces_error_without_crashing()
     {
         var vm = new ParameterEditorViewModel(DeadClient());
-        await vm.LoadForCommand.ExecuteAsync("Some Preset"); // fired on preset selection
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Some Preset")); // fired on preset selection
         Assert.False(vm.IsLoading);
         Assert.False(string.IsNullOrWhiteSpace(vm.ErrorMessage));
     }

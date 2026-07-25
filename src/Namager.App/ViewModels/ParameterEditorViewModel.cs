@@ -5,6 +5,7 @@ using Namager.App.Services;
 using Sonulab.Core;
 using Sonulab.Core.Model;
 using Sonulab.Core.Protocol;
+// Sonulab.Core.Services.DeviceRepository is referenced fully-qualified below to avoid a broad using.
 
 namespace Namager.App.ViewModels;
 
@@ -18,15 +19,21 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     private readonly LabelService _labels;
     private readonly ParameterExposure _exposure;
     private readonly IStatusService _status;
+    private readonly Sonulab.Core.Services.DeviceRepository? _repo;
+    private readonly IPresetUsageService _usage;
 
     public ParameterEditorViewModel(SonuClient client, LabelService? labels = null,
                                      ParameterExposure? exposure = null,
-                                     IStatusService? status = null)
+                                     IStatusService? status = null,
+                                     Sonulab.Core.Services.DeviceRepository? repo = null,
+                                     IPresetUsageService? usage = null)
     {
         _client = client;
         _labels = labels ?? LabelService.Default;
         _exposure = exposure ?? ParameterExposure.Default;
         _status = status ?? NullStatusService.Instance;
+        _repo = repo;
+        _usage = usage ?? NullPresetUsageService.Instance;
     }
 
     public ObservableCollection<BlockSectionViewModel> Blocks { get; } = new();
@@ -36,6 +43,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     /// <summary>Last device-operation failure, shown to the user. Null when the last op succeeded.</summary>
     [ObservableProperty] private string? _errorMessage;
     private string? _loadedName;
+
+    /// <summary>0-based device slot of the loaded preset, or -1 when nothing is loaded.</summary>
+    public int LoadedIndex { get; private set; } = -1;
 
     // Per-session expansion memory, keyed by block path (root\app\<block>) so it survives
     // header relabeling; reapplied on every rebuild (preset switch). Intentionally NOT
@@ -133,24 +143,29 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         IsDirty = false;
     }
 
-    /// <summary>Activate <paramref name="presetName"/> on the device, then load its params. No-op if already loaded.</summary>
+    /// <summary>Activate <paramref name="target"/> on the device, then load its params.
+    /// The content load is skipped when the same preset is already loaded, but the slot index is
+    /// updated regardless: a reorder moves the selected preset to a new slot without changing its
+    /// name, and a stale index would make the post-save usage update patch the wrong slot.</summary>
     [RelayCommand]
-    private async Task LoadForAsync(string presetName)
+    private async Task LoadForAsync(PresetTarget? target)
     {
-        if (string.IsNullOrEmpty(presetName) || presetName == _loadedName) return;
+        if (target is null || string.IsNullOrEmpty(target.Name)) return;
+        LoadedIndex = target.Index;
+        if (target.Name == _loadedName) return;
         IsLoading = true; ErrorMessage = null;
         try
         {
-            await _client.WriteAsync(@"root\app\preset", JsonString.Quote(presetName));   // select/activate on device
-            await LoadCoreAsync();                                                      // browse + rebuild blocks
-            PresetName = presetName;
-            _loadedName = presetName;   // only marked loaded on success — reselecting retries
+            await _client.WriteAsync(@"root\app\preset", JsonString.Quote(target.Name));   // select/activate on device
+            await LoadCoreAsync();                                                        // browse + rebuild blocks
+            PresetName = target.Name;
+            _loadedName = target.Name;   // only marked loaded on success — reselecting retries
         }
         catch (Exception ex)
         {
             // Fired on preset selection (PropertyChanged -> Execute) — an escape here is an
             // unhandled UI-thread rethrow, i.e. process death. Surface and stay alive.
-            Log.Warn(ex, "parameter load-for '{0}' failed", presetName);
+            Log.Warn(ex, "parameter load-for '{0}' failed", target.Name);
             ErrorMessage = $"Load failed: {ex.Message}";
         }
         finally { IsLoading = false; }
@@ -170,6 +185,15 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             foreach (var f in AllFields()) f.MarkClean();
             IsDirty = false;
             _status.Success("Saved");
+
+            // Targeted usage-map maintenance: an amp/IR change made here must be visible on the
+            // Amps/IRs tabs immediately, or the delete guard keeps blocking an amp nothing uses.
+            // Wrapped separately so a map failure can never be reported as a failed save.
+            if (LoadedIndex >= 0)
+            {
+                try { await _usage.NotifyPresetContentChangedAsync(LoadedIndex, PresetName); }
+                catch (Exception ex) { Log.Warn(ex, "usage map update after save failed"); }
+            }
         }
         catch (Exception ex)
         {

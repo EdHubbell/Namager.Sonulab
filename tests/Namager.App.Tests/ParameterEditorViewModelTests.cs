@@ -170,7 +170,7 @@ public class ParameterEditorViewModelTests
         var (vm, link) = LoadForVm();
         var states = new System.Collections.Generic.List<bool>();
         vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ParameterEditorViewModel.IsLoading)) states.Add(vm.IsLoading); };
-        await vm.LoadForCommand.ExecuteAsync("Quad Reverb");
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(1, "Quad Reverb"));
         Assert.Equal("Quad Reverb", vm.PresetName);
         Assert.NotEmpty(vm.Blocks);
         Assert.Equal(1, link.PresetWrites);                 // activated on device
@@ -181,8 +181,8 @@ public class ParameterEditorViewModelTests
     [Fact] public async Task LoadFor_dedups_same_preset_name()
     {
         var (vm, link) = LoadForVm();
-        await vm.LoadForCommand.ExecuteAsync("X");
-        await vm.LoadForCommand.ExecuteAsync("X");           // same name -> no-op
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(2, "X"));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(2, "X"));           // same name -> no-op
         Assert.Equal(1, link.PresetWrites);
         Assert.Equal(1, link.Browses);
     }
@@ -230,7 +230,7 @@ public class ParameterEditorViewModelTests
     [Fact] public async Task Blocks_start_collapsed()
     {
         var (vm, _) = LoadForVm();
-        await vm.LoadForCommand.ExecuteAsync("P1");
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P1"));
         Assert.All(vm.Blocks, b => Assert.False(b.IsExpanded));
     }
 
@@ -242,10 +242,10 @@ public class ParameterEditorViewModelTests
             "root\\app\\delay\\fdbk:{\"desc\":\"Feedback\",\"value\":30.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0}");
         await dev.OpenAsync();
         var vm = VmFor(dev);
-        await vm.LoadForCommand.ExecuteAsync("P1");
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P1"));
         vm.Blocks.First(b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase)).IsExpanded = true;
 
-        await vm.LoadForCommand.ExecuteAsync("P2");          // rebuilds all sections
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(1, "P2"));          // rebuilds all sections
         Assert.True(vm.Blocks.First(b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase)).IsExpanded);
         Assert.False(vm.Blocks.First(b => b.Header.Equals("delay", StringComparison.OrdinalIgnoreCase)).IsExpanded);
     }
@@ -253,11 +253,11 @@ public class ParameterEditorViewModelTests
     [Fact] public async Task Collapsing_again_is_also_remembered()
     {
         var (vm, _) = LoadForVm();
-        await vm.LoadForCommand.ExecuteAsync("P1");
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P1"));
         var block = vm.Blocks[0];
         block.IsExpanded = true;
         block.IsExpanded = false;
-        await vm.LoadForCommand.ExecuteAsync("P2");
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(1, "P2"));
         Assert.False(vm.Blocks[0].IsExpanded);
     }
 
@@ -292,6 +292,55 @@ public class ParameterEditorViewModelTests
             new LabelService(new Dictionary<string, string>()), new ParameterExposure(System.Array.Empty<string>()));
         await vm.LoadCommand.ExecuteAsync(null);
         Assert.Equal(0, link.ListReads);          // fails before the fix (prefetch included "item")
+    }
+
+    // ---- slot tracking + usage-map refresh on save (v0.9.7 Task 3) ----
+
+    static ParameterEditorViewModel VmWithUsage(FakeSonuLink d, FakePresetUsageService usage) =>
+        new(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()),
+            new ParameterExposure(new[] { @"root\app\amp\sag" }),
+            usage: usage);
+
+    [Fact] public async Task LoadFor_records_the_slot_index()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var usage = new FakePresetUsageService();
+        var vm = VmWithUsage(d, usage);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(4, "Clean"));
+        Assert.Equal(4, vm.LoadedIndex);
+        Assert.Equal("Clean", vm.PresetName);
+    }
+
+    [Fact] public async Task LoadFor_updates_the_slot_index_even_when_the_preset_is_already_loaded()
+    {
+        // A reorder moves the SAME preset to a new slot: the content load is correctly skipped,
+        // but the recorded index must follow, or a later save patches the wrong slot.
+        var d = Dev(); await d.OpenAsync();
+        var vm = VmWithUsage(d, new FakePresetUsageService());
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(4, "Clean"));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(5, "Clean"));
+        Assert.Equal(5, vm.LoadedIndex);
+    }
+
+    [Fact] public async Task Save_notifies_the_usage_service_for_the_loaded_slot()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var usage = new FakePresetUsageService();
+        var vm = VmWithUsage(d, usage);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(4, "Clean"));
+        await vm.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(1, usage.ContentChangedCount);
+        Assert.Equal((4, "Clean"), usage.LastContentChanged);
+    }
+
+    [Fact] public async Task Save_without_a_loaded_preset_does_not_notify()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var usage = new FakePresetUsageService();
+        var vm = VmWithUsage(d, usage);
+        await vm.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(0, usage.ContentChangedCount);
     }
 
     [Fact] public async Task Expansion_state_keyed_by_block_path_survives_header_relabel()
