@@ -8,6 +8,9 @@ public sealed class FakeSonuLink : ISonuLink
     private readonly Dictionary<string, string[]> _lists = new();          // path -> 30 names
     private readonly Dictionary<(string, int, int), string> _chunks = new(); // (path,index,chunk) -> hex
     private readonly Dictionary<string, string> _browse = new(); // path -> full CRLF response text
+    private readonly List<string> _log = new();
+
+    public IReadOnlyList<string> CommandLog => _log;
 
     public bool IsOpen { get; private set; }
     public Task OpenAsync(CancellationToken ct = default) { IsOpen = true; return Task.CompletedTask; }
@@ -27,6 +30,7 @@ public sealed class FakeSonuLink : ISonuLink
     public Task<string> SendAsync(string command, CancellationToken ct = default)
     {
         if (!IsOpen) throw new InvalidOperationException("link not open");
+        _log.Add(command);
 
         Match m;
         if ((m = DWriteRx.Match(command)).Success)

@@ -1,6 +1,8 @@
 using Namager.App.ViewModels;
+using Namager.App.Services;
 using Sonulab.Core;
 using Sonulab.Core.Services;
+using Sonulab.Core.Transport;
 using Xunit;
 
 public class MainWindowViewModelTests
@@ -130,5 +132,44 @@ public class MainWindowViewModelTests
         if (vm.PendingTabLoad is { } t2) await t2;
 
         Assert.True(amps.Items[0].IsUsed);
+    }
+
+    // Editor over a fake link with one amp-ref field, sharing `catalog` with the caller.
+    private static ParameterEditorViewModel EditorVm(CatalogVersion catalog, out FakeSonuLink dev)
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\amp:{\"desc\":\"Model\",\"value\":\"mA\",\"type\":\"plist\",\"ref\":\"root\\\\amp\"}");
+        d.SeedList(@"root\amp", new[] { "mA", "mB" });
+        d.OpenAsync().GetAwaiter().GetResult();
+        dev = d;
+        return new ParameterEditorViewModel(new SonuClient(d), catalog: catalog);
+    }
+
+    [Fact] public void EnsureTabLoaded_zero_is_a_noop_when_no_editor_exists()
+    {
+        var vm = new MainWindowViewModel();
+        vm.EnsureTabLoaded(0);                   // not connected: must not throw
+        Assert.Null(vm.Editor);
+    }
+
+    [Fact] public async Task EnsureTabLoaded_zero_rereads_the_amp_list_after_a_catalog_bump()
+    {
+        var catalog = new CatalogVersion();
+        var editor = EditorVm(catalog, out var dev);
+        var vm = new MainWindowViewModel { Editor = editor };
+        await editor.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        int Reads() => dev.CommandLog.Count(c => c == @"read root\amp");
+        int afterLoad = Reads();
+
+        vm.EnsureTabLoaded(0);
+        if (vm.PendingTabLoad is { } t1) await t1;
+        Assert.Equal(afterLoad, Reads());        // catalog unmoved: no extra device traffic
+
+        catalog.Bump();
+        vm.EnsureTabLoaded(0);
+        if (vm.PendingTabLoad is { } t2) await t2;
+        Assert.Equal(afterLoad + 1, Reads());    // bumped: exactly one re-read
     }
 }
