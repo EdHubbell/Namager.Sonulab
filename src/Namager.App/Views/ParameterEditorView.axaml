@@ -4,12 +4,14 @@
   <Grid>
     <DockPanel IsEnabled="{Binding !IsLoading}">
       <StackPanel DockPanel.Dock="Top" Classes="slot-toolbar" Orientation="Horizontal" Spacing="4">
-        <Button Command="{Binding SaveCommand}" ToolTip.Tip="Save preset to pedal">
-          <PathIcon Data="{StaticResource Icon.Save}" Width="16" Height="16"/>
-        </Button>
+        <!-- Download first, then Save, so the unsaved-changes dot sits next to the button it
+             refers to rather than next to Download. -->
         <Button x:Name="DownloadButton" IsEnabled="{Binding CanDownload}"
                 ToolTip.Tip="Download preset to PC">
           <PathIcon Data="{StaticResource Icon.Download}" Width="16" Height="16"/>
+        </Button>
+        <Button Command="{Binding SaveCommand}" ToolTip.Tip="Save preset to pedal">
+          <PathIcon Data="{StaticResource Icon.Save}" Width="16" Height="16"/>
         </Button>
         <TextBlock Text="●" IsVisible="{Binding IsDirty}" Foreground="{DynamicResource Sonulab.WarningBrush}"
                    VerticalAlignment="Center" Margin="6,0,0,0" ToolTip.Tip="Unsaved changes"/>

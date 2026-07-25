@@ -71,6 +71,44 @@ public class LayoutContractTests
         Assert.Contains("Classes=\"slot-toolbar\"", xaml);
     }
 
+    /// <summary>Delete is destructive and was too easy to hit sitting next to the constructive
+    /// buttons. All three list toolbars must dock it to the right, under a name the code-behind
+    /// can attach a confirmation to.</summary>
+    [Theory, MemberData(nameof(ListViews))]
+    public void List_view_docks_a_named_delete_button_to_the_right(string file)
+    {
+        var xaml = View(file);
+        Assert.Contains("x:Name=\"DeleteButton\"", xaml);
+        Assert.Contains("DockPanel.Dock=\"Right\"", xaml);
+        // Bound Command would fire without the confirmation the code-behind adds.
+        Assert.DoesNotContain("Command=\"{Binding DeleteCommand}\"", xaml);
+    }
+
+    /// <summary>Every delete path routes through a confirmation dialog before the command runs.</summary>
+    [Theory]
+    [InlineData("PresetListView.axaml.cs")]
+    [InlineData("AmpListView.axaml.cs")]
+    [InlineData("IrListView.axaml.cs")]
+    public void List_view_confirms_before_deleting(string file)
+    {
+        var cs = File.ReadAllText(Path.Combine(RepoRoot(), "src", "Namager.App", "Views", file));
+        Assert.Contains("ConfirmDialog.ShowAsync", cs);
+        Assert.Contains("DeleteCommand", cs);
+    }
+
+    /// <summary>The unsaved-changes dot must sit next to Save, so Download comes first.</summary>
+    [Fact]
+    public void Editor_toolbar_orders_download_then_save_then_the_dirty_dot()
+    {
+        var xaml = View("ParameterEditorView.axaml");
+        int download = xaml.IndexOf("Icon.Download", StringComparison.Ordinal);
+        int save = xaml.IndexOf("Icon.Save", StringComparison.Ordinal);
+        int dot = xaml.IndexOf("IsVisible=\"{Binding IsDirty}\"", StringComparison.Ordinal);
+        Assert.True(download >= 0 && save >= 0 && dot >= 0);
+        Assert.True(download < save, "Download must precede Save.");
+        Assert.True(save < dot, "The dirty dot must follow Save.");
+    }
+
     [Fact]
     public void Both_detail_panes_take_the_same_gap_token()
     {

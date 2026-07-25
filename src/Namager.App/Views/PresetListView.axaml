@@ -8,20 +8,25 @@
   <DockPanel>
 
     <!-- Icon command bar -->
-    <StackPanel DockPanel.Dock="Top" Classes="slot-toolbar" Orientation="Horizontal" Spacing="4">
-      <Button Command="{Binding RefreshCommand}" ToolTip.Tip="Refresh">
-        <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
-      </Button>
-      <Button Command="{Binding DuplicateCommand}" ToolTip.Tip="Duplicate">
-        <PathIcon Data="{StaticResource Icon.Copy}" Width="16" Height="16"/>
-      </Button>
-      <Button Command="{Binding DeleteCommand}" ToolTip.Tip="Delete">
+    <!-- Delete docks right, away from the constructive actions: it is destructive and was too
+         easy to hit by accident. Click is handled in code-behind so it can confirm first. -->
+    <DockPanel DockPanel.Dock="Top" Classes="slot-toolbar" LastChildFill="False">
+      <Button x:Name="DeleteButton" DockPanel.Dock="Right"
+              IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Delete preset">
         <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
       </Button>
-      <Button x:Name="UploadButton" IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Upload preset from PC">
-        <PathIcon Data="{StaticResource Icon.Upload}" Width="16" Height="16"/>
-      </Button>
-    </StackPanel>
+      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="4">
+        <Button Command="{Binding RefreshCommand}" ToolTip.Tip="Refresh">
+          <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
+        </Button>
+        <Button Command="{Binding DuplicateCommand}" ToolTip.Tip="Duplicate">
+          <PathIcon Data="{StaticResource Icon.Copy}" Width="16" Height="16"/>
+        </Button>
+        <Button x:Name="UploadButton" IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Upload preset from PC">
+          <PathIcon Data="{StaticResource Icon.Upload}" Width="16" Height="16"/>
+        </Button>
+      </StackPanel>
+    </DockPanel>
 
     <!-- Preset list -->
     <ListBox x:Name="PresetList" Classes="slot-list" ItemsSource="{Binding Items}"

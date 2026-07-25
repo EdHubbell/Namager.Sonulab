@@ -16,20 +16,25 @@
 
     <!-- ===== Left: command bar + slot list ===== -->
     <DockPanel Grid.Column="0">
-      <StackPanel DockPanel.Dock="Top" Classes="slot-toolbar" Orientation="Horizontal" Spacing="4">
-        <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
-          <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
-        </Button>
-        <Button x:Name="UploadNamButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Distill a .nam and upload it to an empty slot">
-          <TextBlock Text="Upload .nam…"/>
-        </Button>
-        <Button x:Name="UploadVxampButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Upload an already-distilled .vxamp to an empty slot">
-          <TextBlock Text="Upload .vxamp…"/>
-        </Button>
-        <Button Command="{Binding DeleteCommand}" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete (backs up first)">
+      <!-- Delete docks right, away from the constructive actions: it is destructive and was too
+           easy to hit by accident. Click is handled in code-behind so it can confirm first. -->
+      <DockPanel DockPanel.Dock="Top" Classes="slot-toolbar" LastChildFill="False">
+        <Button x:Name="DeleteButton" DockPanel.Dock="Right"
+                IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete (backs up first)">
           <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
         </Button>
-      </StackPanel>
+        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="4">
+          <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding CanRefresh}" ToolTip.Tip="Refresh">
+            <PathIcon Data="{StaticResource Icon.Refresh}" Width="16" Height="16"/>
+          </Button>
+          <Button x:Name="UploadNamButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Distill a .nam and upload it to an empty slot">
+            <TextBlock Text="Upload .nam…"/>
+          </Button>
+          <Button x:Name="UploadVxampButton" IsEnabled="{Binding CanMutate}" ToolTip.Tip="Upload an already-distilled .vxamp to an empty slot">
+            <TextBlock Text="Upload .vxamp…"/>
+          </Button>
+        </StackPanel>
+      </DockPanel>
 
       <TextBlock DockPanel.Dock="Top" Classes="slot-message"
                  Foreground="{DynamicResource Sonulab.DangerBrush}"

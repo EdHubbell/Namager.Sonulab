@@ -12,6 +12,29 @@ public partial class IrListView : UserControl
         InitializeComponent();
         UploadWavButton.Click += async (_, _) => await PickAndBeginAsync("WAV file", "*.wav");
         UploadIrblobButton.Click += async (_, _) => await PickAndBeginAsync("IR blob", "*.irblob");
+        DeleteButton.Click += async (_, _) => await DeleteAsync();
+    }
+
+    /// <summary>Confirm before deleting. The slot is archived first, so this is recoverable —
+    /// the dialog says where, because a user who can't find the copy will treat it as gone.</summary>
+    private async System.Threading.Tasks.Task DeleteAsync()
+    {
+        if (DataContext is not IrListViewModel vm) return;
+        if (vm.Selected is not { IsEmpty: false } sel) return;
+        if (TopLevel.GetTopLevel(this) is not Window owner) return;
+        try
+        {
+            bool go = await ConfirmDialog.ShowAsync(owner, "Delete IR",
+                $"Delete IR {sel.Index + 1:00} — “{sel.Name}”?\n\n" +
+                $"A copy is saved to {Namager.App.Services.AppPaths.DeletedSlotBackups} first.",
+                "Delete", "Cancel");
+            if (go) await vm.DeleteCommand.ExecuteAsync(null);
+        }
+        catch (Exception ex)
+        {
+            // async void handler: a throw here would kill the process.
+            vm.ErrorMessage = $"Delete failed: {ex.Message}";
+        }
     }
 
     private async System.Threading.Tasks.Task PickAndBeginAsync(string label, string pattern)

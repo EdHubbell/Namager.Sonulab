@@ -79,12 +79,15 @@
        Every list pane is [toolbar row of ToolbarHeight] + [list]. Pinning the row height means
        an icon-only toolbar and a toolbar with text buttons occupy the same band, so the list
        and the detail pane beside it always start at the same y. -->
-  <Style Selector="StackPanel.slot-toolbar">
+  <!-- Class-based, not element-based: the three list toolbars are DockPanels (so Delete can dock
+       right), while the editor toolbar is still a StackPanel. Both must take the same band. -->
+  <Style Selector=":is(Panel).slot-toolbar">
     <Setter Property="Margin" Value="{StaticResource Sonulab.PageInset}"/>
     <Setter Property="Height" Value="{StaticResource Sonulab.ToolbarHeight}"/>
   </Style>
-  <!-- Buttons fill the band exactly, so text and icon content cannot produce different heights. -->
-  <Style Selector="StackPanel.slot-toolbar > Button">
+  <!-- Buttons fill the band exactly, so text and icon content cannot produce different heights.
+       Descendant selector, not child: the DockPanel toolbars nest their left group in a StackPanel. -->
+  <Style Selector=":is(Panel).slot-toolbar Button">
     <Setter Property="Height" Value="{StaticResource Sonulab.ToolbarHeight}"/>
     <Setter Property="MinHeight" Value="0"/>
     <Setter Property="VerticalAlignment" Value="Stretch"/>

@@ -22,6 +22,8 @@
                   IsEnabled="{Binding CanBackup}"/>
         <MenuItem x:Name="RestoreMenuItem" Header="_Restore Presets…"
                   IsEnabled="{Binding CanRestore}"/>
+        <MenuItem x:Name="RestorePresetMenuItem" Header="Restore _Preset…"
+                  IsEnabled="{Binding CanRestore}"/>
         <Separator/>
         <MenuItem x:Name="ExitMenuItem" Header="E_xit"/>
       </MenuItem>

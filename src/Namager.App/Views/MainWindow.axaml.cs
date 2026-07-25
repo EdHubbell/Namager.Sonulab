@@ -41,6 +41,20 @@ public partial class MainWindow : Window
         };
         BackupMenuItem.Click += async (_, _) => await BackupAsync();
         RestoreMenuItem.Click += async (_, _) => await RestoreAsync();
+        RestorePresetMenuItem.Click += async (_, _) => await RestoreSinglePresetAsync();
+    }
+
+    /// <summary>File ▸ Restore Preset… — the menu twin of the up-arrow above the preset list.
+    /// Both run <see cref="PresetUploadFlow"/> so they cannot drift apart.</summary>
+    private async System.Threading.Tasks.Task RestoreSinglePresetAsync()
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        if (vm.Presets is not { } presets)
+        {
+            vm.Status.Failure("Connect to the pedal first.");
+            return;
+        }
+        await PresetUploadFlow.RunAsync(this, presets);
     }
 
     private async System.Threading.Tasks.Task BackupAsync()
