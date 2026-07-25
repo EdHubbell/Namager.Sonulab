@@ -70,20 +70,6 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
     private static readonly string[] EditableTypes = { "float", "enum", "plist" };
 
-    [RelayCommand]
-    private async Task LoadAsync()
-    {
-        // Crash-guard (field crash class, v0.9.3 test build): a device failure — e.g. the WiFi link
-        // dying mid-session — must surface as ErrorMessage, never escape the [RelayCommand].
-        ErrorMessage = null;
-        try { await LoadCoreAsync(); }
-        catch (Exception ex)
-        {
-            Log.Warn(ex, "parameter load failed");
-            ErrorMessage = $"Load failed: {ex.Message}";
-        }
-    }
-
     private async Task LoadCoreAsync()
     {
         Blocks.Clear();

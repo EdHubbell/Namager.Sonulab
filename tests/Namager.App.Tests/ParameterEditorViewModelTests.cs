@@ -34,7 +34,7 @@ public class ParameterEditorViewModelTests
     {
         var d = Dev(); await d.OpenAsync();
         var vm = Vm(d);
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         Assert.Equal(new[] { "amp", "delay" }, vm.Blocks.Select(b => b.Header.ToLowerInvariant()).ToArray());
     }
 
@@ -42,7 +42,7 @@ public class ParameterEditorViewModelTests
     {
         var d = Dev(); await d.OpenAsync();
         var vm = Vm(d);
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         var amp = vm.Blocks.First(b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(amp.Fields, f => f.Path.EndsWith(@"\sag"));     // blocklisted
         Assert.Contains(amp.Fields, f => f.Path.EndsWith(@"\gain"));
@@ -54,7 +54,7 @@ public class ParameterEditorViewModelTests
     {
         var d = Dev(); await d.OpenAsync();
         var vm = Vm(d);
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         var delay = vm.Blocks.First(b => b.Header.Equals("delay", StringComparison.OrdinalIgnoreCase));
         var sub = Assert.Single(delay.SubGroups);
         Assert.Contains(sub.Fields, f => f.Path.EndsWith(@"\tape"));
@@ -64,7 +64,7 @@ public class ParameterEditorViewModelTests
     {
         var d = Dev(); await d.OpenAsync();
         var vm = Vm(d);
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         Assert.DoesNotContain(vm.Blocks, b => b.Header.Equals("output", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -73,7 +73,7 @@ public class ParameterEditorViewModelTests
         var d = Dev(); await d.OpenAsync();
         var vm = Vm(d);
         vm.PresetName = "P";
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         var gain = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\gain"));
         gain.Number = -6.0;
         await vm.SaveCommand.ExecuteAsync(null);
@@ -88,7 +88,7 @@ public class ParameterEditorViewModelTests
             new LabelService(new Dictionary<string, string>()),
             new ParameterExposure(new[] { @"root\app\amp\sag" }),
             status);
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P0"));
         vm.PresetName = "P1";                     // makes SaveAsync issue the device save
         await vm.SaveCommand.ExecuteAsync(null);
         Assert.Contains("Saved", status.Succeeded);
@@ -111,7 +111,7 @@ public class ParameterEditorViewModelTests
             "root\\app\\eq\\low:{\"desc\":\"Low\",\"value\":0.0,\"type\":\"float\",\"min\":-15.0,\"max\":15.0}");
         await d.OpenAsync();
         var vm = VmFor(d);
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         bool? En(string h) => vm.Blocks.First(b => b.Header.Equals(h, StringComparison.OrdinalIgnoreCase)).Enabled;
         Assert.True(En("amp"));
         Assert.False(En("gate"));
@@ -126,7 +126,7 @@ public class ParameterEditorViewModelTests
             "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}");
         await d.OpenAsync();
         var vm = VmFor(d);
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         var amp = vm.Blocks.First(b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase));
         Assert.True(amp.Enabled);
         bool raised = false;
@@ -203,7 +203,7 @@ public class ParameterEditorViewModelTests
     [Fact] public async Task Ref_field_gets_options_from_device_list()
     {
         var vm = VmFor(RefDev("Clean", "Lead", "", "", "Rhythm"));   // empties are slot padding
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         var field = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\amp"));
         Assert.Equal(new[] { "Clean", "Lead", "Rhythm" }, field.Options);   // non-empty names only
         Assert.Equal("plist", field.Kind);
@@ -212,7 +212,7 @@ public class ParameterEditorViewModelTests
     [Fact] public async Task Ref_field_with_deleted_current_value_still_shows_it()
     {
         var vm = VmFor(RefDev("Clean", "Rhythm"));                   // "Lead" not on the device
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         var field = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\amp"));
         Assert.Equal(new[] { "Lead", "Clean", "Rhythm" }, field.Options);
     }
@@ -220,7 +220,7 @@ public class ParameterEditorViewModelTests
     [Fact] public async Task Missing_ref_list_degrades_without_failing_the_load()
     {
         var vm = VmFor(RefDev());                                    // no root\amp seeded at all
-        await vm.LoadCommand.ExecuteAsync(null);                     // must not throw
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));   // must not throw
         var field = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\amp"));
         Assert.Empty(field.Options);                                 // renders as today
     }
@@ -290,7 +290,7 @@ public class ParameterEditorViewModelTests
         var link = new ListReadCountingLink(d);
         var vm = new ParameterEditorViewModel(new SonuClient(link),
             new LabelService(new Dictionary<string, string>()), new ParameterExposure(System.Array.Empty<string>()));
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         Assert.Equal(0, link.ListReads);          // fails before the fix (prefetch included "item")
     }
 
@@ -376,11 +376,13 @@ public class ParameterEditorViewModelTests
             [@"root\app\delay"] = "Same",
         });
         var vm = new ParameterEditorViewModel(new SonuClient(d), labels, new ParameterExposure(System.Array.Empty<string>()));
-        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P1"));
         var amp = vm.Blocks.First(b => b.Header == "Same" && b.Fields.Any(f => f.Path.EndsWith(@"\gain")));
         var delay = vm.Blocks.First(b => b.Header == "Same" && b.Fields.Any(f => f.Path.EndsWith(@"\fdbk")));
         amp.IsExpanded = true;
-        await vm.LoadCommand.ExecuteAsync(null);   // rebuild: reapplies expansion state keyed by block path
+        // Distinct name from the load above: LoadForCommand no-ops when the requested name equals
+        // the one already loaded, and this second call must force an actual rebuild to test anything.
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P2"));   // rebuild: reapplies expansion state keyed by block path
         var ampAfter = vm.Blocks.First(b => b.Fields.Any(f => f.Path.EndsWith(@"\gain")));
         var delayAfter = vm.Blocks.First(b => b.Fields.Any(f => f.Path.EndsWith(@"\fdbk")));
         Assert.True(ampAfter.IsExpanded);

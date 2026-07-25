@@ -18,6 +18,9 @@
       <Button Command="{Binding DeleteCommand}" ToolTip.Tip="Delete">
         <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
       </Button>
+      <Button x:Name="UploadButton" IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Upload preset from PC">
+        <PathIcon Data="{StaticResource Icon.Upload}" Width="16" Height="16"/>
+      </Button>
     </StackPanel>
 
     <!-- Preset list -->
