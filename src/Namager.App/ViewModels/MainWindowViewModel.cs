@@ -281,4 +281,46 @@ public partial class MainWindowViewModel : ObservableObject
             return null;
         }
     }
+
+    /// <summary>Write each planned file to its slot, in slot order, reporting "n/m — Name" through
+    /// <paramref name="progress"/> and honouring cancellation BETWEEN slots (a chunked write is
+    /// never interrupted mid-flight — that would leave a torn preset). Roughly 10 s per slot.
+    /// A per-slot failure is counted and the run continues; the summary says how many.
+    /// Returns the human-readable summary. Never throws.</summary>
+    public async Task<string> RestorePresetsAsync(
+        Namager.App.Services.RestorePlan plan,
+        IProgress<string>? progress,
+        CancellationToken ct)
+    {
+        if (Connection.Repository is not { } repo || !Connection.WritesAllowed)
+            return "Not connected — nothing was restored.";
+
+        var backup = new Sonulab.Core.Services.BackupService(repo);
+        int done = 0, failed = 0;
+        using var op = Status.BeginOperation("Restoring presets…", determinate: true);
+        foreach (var item in plan.Items)
+        {
+            if (ct.IsCancellationRequested) break;
+            progress?.Report($"{done + failed + 1}/{plan.Items.Count} — {item.Name}");
+            op.Report($"Restoring {done + failed + 1}/{plan.Items.Count}: {item.Name}");
+            try { await backup.RestoreSlotAsync(item.Index, item.Path, ct); done++; }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "restore of slot {0} failed", item.Index);
+                failed++;
+            }
+            op.Report((double)(done + failed) / plan.Items.Count);
+        }
+
+        // Many slots changed at once — a full rescan is the honest choice here, not a patch.
+        _usageService?.Invalidate();
+        if (Presets is { } p) { try { await p.RefreshCommand.ExecuteAsync(null); } catch { /* list resync is best effort */ } }
+
+        var summary = $"Restored {done} preset{(done == 1 ? "" : "s")}"
+                    + (failed > 0 ? $", {failed} failed" : "")
+                    + (plan.Skipped.Count > 0 ? $", {plan.Skipped.Count} skipped" : "") + ".";
+        if (failed > 0) Status.Failure(summary); else Status.Success(summary);
+        return summary;
+    }
 }

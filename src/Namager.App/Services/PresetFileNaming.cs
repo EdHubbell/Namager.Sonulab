@@ -50,9 +50,51 @@ public static class PresetFileNaming
         throw new System.InvalidOperationException($"No free name based on '{desired}'.");
     }
 
+    /// <summary>Inverse of <see cref="FileNameFor"/>: "07 - Clean Verb.pst" -> (7, "Clean Verb").
+    /// Null when the name carries no usable "NN - " slot prefix or names a slot that does not
+    /// exist on the device.</summary>
+    public static (int Index, string Name)? ParseBackupFileName(string path)
+    {
+        var stem = System.IO.Path.GetFileNameWithoutExtension(path);
+        if (stem.Length < 5 || !char.IsAsciiDigit(stem[0]) || !char.IsAsciiDigit(stem[1])
+            || !stem.AsSpan(2, 3).SequenceEqual(" - ")) return null;
+
+        int index = (stem[0] - '0') * 10 + (stem[1] - '0');
+        if (index < 0 || index >= Sonulab.Core.Services.DeviceRepository.SlotCount) return null;
+
+        var name = stem[5..].Trim();
+        if (name.Length == 0) return null;
+        return (index, name.Length > NameMaxChars ? name[..NameMaxChars].TrimEnd() : name);
+    }
+
+    /// <summary>Sort a folder's .pst files into what restore will write (slot-ascending) and what
+    /// it will skip. First file wins for a duplicated slot number, so the outcome is deterministic
+    /// regardless of directory-enumeration order.</summary>
+    public static RestorePlan PlanRestore(IEnumerable<string> pstPaths)
+    {
+        var items = new List<RestoreItem>();
+        var skipped = new List<string>();
+        foreach (var p in pstPaths.OrderBy(p => p, System.StringComparer.OrdinalIgnoreCase))
+        {
+            if (ParseBackupFileName(p) is { } hit && !items.Any(i => i.Index == hit.Index))
+                items.Add(new RestoreItem(hit.Index, hit.Name, p));
+            else
+                skipped.Add(System.IO.Path.GetFileName(p));
+        }
+        return new RestorePlan(items.OrderBy(i => i.Index).ToList(), skipped);
+    }
+
     private static string Sanitize(string name)
     {
         foreach (var c in System.IO.Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
         return name;
     }
 }
+
+/// <summary>One file a restore will write, and where it goes.</summary>
+public sealed record RestoreItem(int Index, string Name, string Path);
+
+/// <summary>What a restore run will do: the files it can place, and the file NAMES it will not
+/// touch. Skipped files are reported rather than guessed at — writing a preset to a slot the user
+/// did not ask for is worse than skipping it.</summary>
+public sealed record RestorePlan(IReadOnlyList<RestoreItem> Items, IReadOnlyList<string> Skipped);

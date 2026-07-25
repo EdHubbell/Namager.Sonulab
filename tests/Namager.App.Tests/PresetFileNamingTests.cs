@@ -1,3 +1,4 @@
+using System.Linq;
 using Namager.App.Services;
 using Xunit;
 
@@ -42,5 +43,44 @@ public class PresetFileNamingTests
         var result = PresetFileNaming.ResolveUnique(longName, new[] { longName });
         Assert.True(result.Length <= 31);
         Assert.EndsWith(" #2", result);
+    }
+
+    [Fact] public void ParseBackupFileName_reads_the_zero_based_slot_and_name()
+    {
+        var hit = PresetFileNaming.ParseBackupFileName(@"C:\b\07 - Clean Verb.pst");
+        Assert.NotNull(hit);
+        Assert.Equal(7, hit!.Value.Index);
+        Assert.Equal("Clean Verb", hit.Value.Name);
+    }
+
+    [Theory]
+    [InlineData(@"C:\b\Clean Verb.pst")]      // no slot prefix
+    [InlineData(@"C:\b\30 - Too High.pst")]   // beyond the 30 slots
+    [InlineData(@"C:\b\99 - Way Off.pst")]
+    [InlineData(@"C:\b\07 - .pst")]           // no name
+    public void ParseBackupFileName_rejects_names_it_cannot_place(string path)
+        => Assert.Null(PresetFileNaming.ParseBackupFileName(path));
+
+    [Fact] public void PlanRestore_sorts_by_slot_and_reports_what_it_skipped()
+    {
+        var plan = PresetFileNaming.PlanRestore(new[]
+        {
+            @"C:\b\05 - Five.pst",
+            @"C:\b\01 - One.pst",
+            @"C:\b\notes.pst",
+        });
+        Assert.Equal(new[] { 1, 5 }, plan.Items.Select(i => i.Index));
+        Assert.Equal(new[] { "notes.pst" }, plan.Skipped);
+    }
+
+    [Fact] public void PlanRestore_keeps_the_first_file_for_a_duplicated_slot_and_skips_the_rest()
+    {
+        var plan = PresetFileNaming.PlanRestore(new[]
+        {
+            @"C:\b\03 - A.pst",
+            @"C:\b\03 - B.pst",
+        });
+        Assert.Equal("A", Assert.Single(plan.Items).Name);
+        Assert.Equal(new[] { "03 - B.pst" }, plan.Skipped);
     }
 }
