@@ -41,6 +41,16 @@ public interface IPresetUsageService
     /// <summary>A verified delete happened: drop refs at <paramref name="index"/> in place.</summary>
     void NotifyPresetDeleted(int index);
 
+    /// <summary>A verified single-slot WRITE happened and the caller already holds the document
+    /// (upload / restore): replace that slot's refs in Current with no device I/O.</summary>
+    void NotifyPresetContentWritten(int index, string name, Sonulab.Core.Model.PresetDocument doc);
+
+    /// <summary>A verified in-place content change happened and the caller does NOT hold the
+    /// document (parameter-editor save): head-read that slot ONLY and replace its refs. Never
+    /// throws — a failed read degrades to <see cref="Invalidate"/> so the map is rebuilt rather
+    /// than left silently wrong.</summary>
+    Task NotifyPresetContentChangedAsync(int index, string name, CancellationToken ct = default);
+
     /// <summary>Cancel any background work (disconnect / reconnect).</summary>
     void Stop();
 }
@@ -112,6 +122,27 @@ public sealed class PresetUsageService : IPresetUsageService
     public void NotifyPresetMoved(int from, int to) => Apply(m => m.WithMovedSlot(from, to));
     public void NotifyPresetRenamed(int index, string newName) => Apply(m => m.WithRenamedPreset(index, newName));
     public void NotifyPresetDeleted(int index) => Apply(m => m.WithoutSlot(index));
+
+    public void NotifyPresetContentWritten(int index, string name, Sonulab.Core.Model.PresetDocument doc)
+        => Apply(m => m.WithUpdatedPreset(index, name, doc));
+
+    public async Task NotifyPresetContentChangedAsync(int index, string name, CancellationToken ct = default)
+    {
+        try
+        {
+            // Foreground lane: this runs right after a user-initiated save, so it must not sit
+            // behind the background scan's quiet-period wait.
+            var doc = await _repo.ReadPresetHeadAsync(index, background: false, ct);
+            NotifyPresetContentWritten(index, name, doc);
+        }
+        catch (Exception ex)
+        {
+            // Includes cancellation: whatever the reason, a map we can't update targetedly must be
+            // rebuilt, not trusted. Never rethrown — the caller's save already succeeded.
+            Log.Warn(ex, "targeted usage update for slot {0} failed; falling back to a full rescan", index);
+            Invalidate();
+        }
+    }
 
     // Transform Current in place and notify. IsComplete is intentionally UNTOUCHED: if the map was
     // complete it stays complete (targeted maintenance); if a rescan is mid-flight it stays
@@ -205,6 +236,9 @@ public sealed class NullPresetUsageService : IPresetUsageService
     public void NotifyPresetMoved(int from, int to) { }
     public void NotifyPresetRenamed(int index, string newName) { }
     public void NotifyPresetDeleted(int index) { }
+    public void NotifyPresetContentWritten(int index, string name, Sonulab.Core.Model.PresetDocument doc) { }
+    public Task NotifyPresetContentChangedAsync(int index, string name, CancellationToken ct = default)
+        => Task.CompletedTask;
     public void Stop() { }
 }
 

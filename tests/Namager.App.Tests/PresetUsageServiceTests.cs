@@ -223,6 +223,71 @@ public class PresetUsageServiceTests
         }
     }
 
+    [Fact] public async Task NotifyPresetContentChanged_repoints_a_single_slot_without_a_full_rescan()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        await dev.OpenAsync();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var svc = new PresetUsageService(repo);
+
+        await svc.EnsureCompleteAsync();
+        Assert.Equal(2, svc.Current.PresetsUsingAmp("mA").Count);
+
+        dev.SeedSlot(1, "B", new[] { @"root\app\amp\amp:{""value"":""mB""}" });
+        await svc.NotifyPresetContentChangedAsync(1, "B");
+
+        Assert.Equal(new[] { 0 }, svc.Current.PresetsUsingAmp("mA").Select(r => r.Index));
+        Assert.Equal(new[] { 1 }, svc.Current.PresetsUsingAmp("mB").Select(r => r.Index));
+        Assert.True(svc.IsComplete);          // targeted maintenance must NOT drop completeness
+    }
+
+    [Fact] public async Task NotifyPresetContentChanged_raises_MapUpdated()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        await dev.OpenAsync();
+        var svc = new PresetUsageService(new DeviceRepository(new SonuClient(dev)));
+        await svc.EnsureCompleteAsync();
+
+        int raised = 0;
+        svc.MapUpdated += () => raised++;
+        await svc.NotifyPresetContentChangedAsync(0, "A");
+        Assert.True(raised > 0);
+    }
+
+    [Fact] public async Task NotifyPresetContentChanged_falls_back_to_Invalidate_when_the_read_fails()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        await dev.OpenAsync();
+        var svc = new PresetUsageService(new DeviceRepository(new SonuClient(dev)));
+        await svc.EnsureCompleteAsync();
+        Assert.True(svc.IsComplete);
+
+        dev.Close();                                              // every later read throws
+        await svc.NotifyPresetContentChangedAsync(0, "A");        // must NOT throw
+
+        Assert.False(svc.IsComplete);                             // degraded to "rescan needed"
+    }
+
+    [Fact] public async Task NotifyPresetContentWritten_applies_the_document_with_no_device_read()
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "A", new[] { @"root\app\amp\amp:{""value"":""mA""}" });
+        await dev.OpenAsync();
+        var svc = new PresetUsageService(new DeviceRepository(new SonuClient(dev)));
+        await svc.EnsureCompleteAsync();
+
+        dev.Close();                                              // proves no read happens
+        svc.NotifyPresetContentWritten(0, "A", FakePresetUsageService.DocFor(
+            @"root\app\amp\amp:{""value"":""mZ""}"));
+
+        Assert.Equal(new[] { 0 }, svc.Current.PresetsUsingAmp("mZ").Select(r => r.Index));
+        Assert.Empty(svc.Current.PresetsUsingAmp("mA"));
+    }
+
     private sealed class CountingLink : Sonulab.Core.Transport.ISonuLink
     {
         private readonly Sonulab.Core.Transport.ISonuLink _inner;

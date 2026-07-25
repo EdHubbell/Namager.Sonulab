@@ -14,6 +14,13 @@ public sealed class FakePresetUsageService : IPresetUsageService
     public (int From, int To)? LastMoved { get; private set; }
     public int RenamedCount { get; private set; }
     public int DeletedCount { get; private set; }
+    public int ContentWrittenCount { get; private set; }
+    public int ContentChangedCount { get; private set; }
+    public (int Index, string Name)? LastContentChanged { get; private set; }
+
+    /// <summary>When set, NotifyPresetContentChangedAsync applies this instead of reading the
+    /// device — lets a VM test assert the map actually moved, not just that the call happened.</summary>
+    public Sonulab.Core.Model.PresetDocument? NextContentDoc { get; set; }
 
     // When set, EnsureCompleteAsync awaits this — lets a test hold a guard check in flight.
     public System.Threading.Tasks.TaskCompletionSource? Gate { get; set; }
@@ -39,6 +46,32 @@ public sealed class FakePresetUsageService : IPresetUsageService
     public void NotifyPresetMoved(int from, int to) { MovedCount++; LastMoved = (from, to); Map = Map.WithMovedSlot(from, to); RaiseMapUpdated(); }
     public void NotifyPresetRenamed(int index, string newName) { RenamedCount++; Map = Map.WithRenamedPreset(index, newName); RaiseMapUpdated(); }
     public void NotifyPresetDeleted(int index) { DeletedCount++; Map = Map.WithoutSlot(index); RaiseMapUpdated(); }
+
+    public void NotifyPresetContentWritten(int index, string name, Sonulab.Core.Model.PresetDocument doc)
+    {
+        ContentWrittenCount++;
+        LastContentChanged = (index, name);
+        Map = Map.WithUpdatedPreset(index, name, doc);
+        RaiseMapUpdated();
+    }
+
+    public System.Threading.Tasks.Task NotifyPresetContentChangedAsync(
+        int index, string name, System.Threading.CancellationToken ct = default)
+    {
+        ContentChangedCount++;
+        LastContentChanged = (index, name);
+        if (NextContentDoc is { } d) { Map = Map.WithUpdatedPreset(index, name, d); RaiseMapUpdated(); }
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+    /// <summary>Build a PresetDocument from raw node lines (same encoding as MapFor).</summary>
+    public static Sonulab.Core.Model.PresetDocument DocFor(params string[] lines)
+    {
+        var blob = new byte[Sonulab.Core.Model.PresetDocument.BlobSize];
+        System.Text.Encoding.ASCII.GetBytes(string.Join("\r\n", lines)).CopyTo(blob, 0);
+        return Sonulab.Core.Model.PresetDocument.Parse(blob);
+    }
+
     public void Stop() { }
 
     // Build a map from raw amp/IR node lines. Each preset carries its 0-based slot.
