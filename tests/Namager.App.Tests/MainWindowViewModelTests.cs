@@ -172,4 +172,37 @@ public class MainWindowViewModelTests
         if (vm.PendingTabLoad is { } t2) await t2;
         Assert.Equal(afterLoad + 1, Reads());    // bumped: exactly one re-read
     }
+
+    static string TempSettings() => System.IO.Path.Combine(
+        System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"), "settings.json");
+
+    [Fact] public void SetTheme_updates_the_selected_flags_and_persists()
+    {
+        var path = TempSettings();
+        var vm = new MainWindowViewModel(path);
+        vm.SetThemeCommand.Execute("Dark");
+
+        Assert.Equal("Dark", vm.Theme);
+        Assert.True(vm.IsThemeDark);
+        Assert.False(vm.IsThemeLight);
+        Assert.False(vm.IsThemeSystem);
+        Assert.Equal("Dark", Namager.App.Services.AppSettingsStore.Load(path).Theme);
+    }
+
+    [Fact] public void SetTheme_ignores_an_unknown_value()
+    {
+        var path = TempSettings();
+        var vm = new MainWindowViewModel(path);
+        vm.SetThemeCommand.Execute("Chartreuse");
+        Assert.Equal("System", vm.Theme);
+        Assert.False(System.IO.File.Exists(path));      // nothing persisted for a rejected value
+    }
+
+    [Fact] public void A_new_view_model_starts_from_the_persisted_theme()
+    {
+        var path = TempSettings();
+        Namager.App.Services.AppSettingsStore.Save(
+            new Namager.App.Services.AppSettings { Theme = "Light" }, path);
+        Assert.Equal("Light", new MainWindowViewModel(path).Theme);
+    }
 }

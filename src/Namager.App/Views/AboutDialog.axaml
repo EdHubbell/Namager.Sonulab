@@ -1,0 +1,15 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Namager.App.Views.AboutDialog"
+        Title="About NAMager"
+        Width="380" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False" ShowInTaskbar="False"
+        Background="{DynamicResource Sonulab.SurfaceBrush}">
+  <StackPanel Margin="24" Spacing="8">
+    <TextBlock Text="NAMager for Sonulab" FontSize="18" FontWeight="SemiBold"/>
+    <TextBlock x:Name="VersionText" Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
+    <TextBlock Text="Created by ed@gsdware.com" Margin="0,8,0,0"/>
+    <Button Content="Close" Click="OnCloseClick" HorizontalAlignment="Right" Margin="0,12,0,0"/>
+  </StackPanel>
+</Window>

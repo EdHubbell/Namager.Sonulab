@@ -25,6 +25,17 @@ public partial class MainWindow : Window
             if (DataContext is MainWindowViewModel vm)
                 _ = vm.CheckForUpdatesAsync(new UpdateCheckService());
         };
+
+        ExitMenuItem.Click += (_, _) =>
+        {
+            try { Close(); }
+            catch { /* handler must not escape onto the UI thread */ }
+        };
+        AboutMenuItem.Click += async (_, _) =>
+        {
+            try { await new AboutDialog().ShowDialog(this); }
+            catch { /* async void-style handler: a throw here would kill the process */ }
+        };
     }
 
     private void OnNavSelectionChanged(object? sender, SelectionChangedEventArgs e)

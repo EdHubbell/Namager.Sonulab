@@ -27,6 +27,36 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private Tone3000ViewModel _tone3000;
     [ObservableProperty] private UpdateInfo? _updateAvailable;
 
+    /// <summary>The persisted theme choice: "System", "Light", or "Dark".</summary>
+    [ObservableProperty] private string _theme = Namager.App.Services.ThemeSettings.System;
+
+    public bool IsThemeSystem => Theme == Namager.App.Services.ThemeSettings.System;
+    public bool IsThemeLight => Theme == Namager.App.Services.ThemeSettings.Light;
+    public bool IsThemeDark => Theme == Namager.App.Services.ThemeSettings.Dark;
+
+    partial void OnThemeChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsThemeSystem));
+        OnPropertyChanged(nameof(IsThemeLight));
+        OnPropertyChanged(nameof(IsThemeDark));
+    }
+
+    /// <summary>Apply and persist a theme choice. Applying is immediate — Avalonia re-resolves the
+    /// theme dictionaries, and every colour in this app comes from a token with Light and Dark
+    /// variants, so no restart is needed.</summary>
+    [RelayCommand]
+    private void SetTheme(string? theme)
+    {
+        if (theme is not (Namager.App.Services.ThemeSettings.System
+                       or Namager.App.Services.ThemeSettings.Light
+                       or Namager.App.Services.ThemeSettings.Dark)) return;
+        Theme = theme;
+        if (Avalonia.Application.Current is { } app)
+            app.RequestedThemeVariant = Namager.App.Services.ThemeSettings.ToVariant(theme);
+        Namager.App.Services.AppSettingsStore.Save(
+            new Namager.App.Services.AppSettings { Theme = theme }, _settingsPath);
+    }
+
     /// <summary>Raised when a flow needs the window to switch nav tabs (index into NavList).</summary>
     public event Action<int>? NavigateRequested;
 
@@ -77,8 +107,16 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand]
     private void DismissUpdate() => UpdateAvailable = null;
 
-    public MainWindowViewModel()
+    /// <summary>Where the theme preference is read from and written to. Null = the real
+    /// %APPDATA%\Namager\settings.json. Tests pass a temp path — a test that saves settings must
+    /// never touch the developer's own preferences.</summary>
+    private readonly string? _settingsPath;
+
+    public MainWindowViewModel() : this(null) { }
+
+    public MainWindowViewModel(string? settingsPath)
     {
+        _settingsPath = settingsPath;
         // Tone3000 (Browse Tones) exists from startup - browsing needs no pedal. Null config
         // = the tab shows its "add your keys" card.
         var t3kConfig = Namager.Tone3000.T3kConfig.TryLoad();
@@ -160,6 +198,8 @@ public partial class MainWindowViewModel : ObservableObject
             await presets.RefreshCommand.ExecuteAsync(null);
             Log.Info("PERF connect presets-list={0}ms", sw.ElapsedMilliseconds);
         }
+
+        _theme = Namager.App.Services.AppSettingsStore.Load(_settingsPath).Theme;
 
         Status.SetIdleSummary("Not connected");
     }

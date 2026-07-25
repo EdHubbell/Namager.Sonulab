@@ -15,6 +15,34 @@
 
   <DockPanel>
 
+    <!-- ===== Application menu ===== -->
+    <Menu DockPanel.Dock="Top" Background="{DynamicResource Sonulab.SurfaceAltBrush}">
+      <MenuItem Header="_File">
+        <MenuItem x:Name="BackupMenuItem" Header="_Backup Presets…"
+                  IsEnabled="{Binding Connection.IsConnected}"/>
+        <MenuItem x:Name="RestoreMenuItem" Header="_Restore Presets…"
+                  IsEnabled="{Binding Connection.IsConnected}"/>
+        <Separator/>
+        <MenuItem x:Name="ExitMenuItem" Header="E_xit"/>
+      </MenuItem>
+      <MenuItem Header="_Settings">
+        <MenuItem Header="_Theme">
+          <MenuItem Header="_System" ToggleType="Radio" GroupName="Theme"
+                    IsChecked="{Binding IsThemeSystem, Mode=OneWay}"
+                    Command="{Binding SetThemeCommand}" CommandParameter="System"/>
+          <MenuItem Header="_Light" ToggleType="Radio" GroupName="Theme"
+                    IsChecked="{Binding IsThemeLight, Mode=OneWay}"
+                    Command="{Binding SetThemeCommand}" CommandParameter="Light"/>
+          <MenuItem Header="_Dark" ToggleType="Radio" GroupName="Theme"
+                    IsChecked="{Binding IsThemeDark, Mode=OneWay}"
+                    Command="{Binding SetThemeCommand}" CommandParameter="Dark"/>
+        </MenuItem>
+      </MenuItem>
+      <MenuItem Header="_Help">
+        <MenuItem x:Name="AboutMenuItem" Header="_About"/>
+      </MenuItem>
+    </Menu>
+
     <!-- ===== Top connection bar ===== -->
     <Border DockPanel.Dock="Top" Padding="12,8"
             Background="{DynamicResource Sonulab.SurfaceAltBrush}"
