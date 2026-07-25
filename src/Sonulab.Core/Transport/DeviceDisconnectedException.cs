@@ -36,9 +36,14 @@ public sealed class DeviceDisconnectedException : IOException
     }
 
     /// <summary>A copy carrying slot context. Callers that know which slot was in play attach it on
-    /// the way out (SlotBlobService.UploadAsync).</summary>
+    /// the way out (SlotBlobService.UploadAsync).
+    ///
+    /// Chains on <c>this</c>, not on <see cref="Exception.InnerException"/>: the transport-level
+    /// instance carries the throw site inside SerialSonuLink/TcpSonuLink, and the raw
+    /// IOException/SocketException stays reachable one link further down. Same shape as
+    /// <see cref="Repeat"/>, so log forensics never loses a hop.</summary>
     public DeviceDisconnectedException ForSlot(string noun, int index, bool writing) =>
-        new(Transport, InnerException, noun, index, writing);
+        new(Transport, this, noun, index, writing);
 
     /// <summary>A fresh instance wrapping this one, for SonuClient's latch. Rethrowing a single
     /// stored instance would overwrite its stack trace on every throw.</summary>

@@ -247,6 +247,10 @@ public sealed class SlotBlobService
                     clearStatus = $"ATTENTION: clearing the slot may have FAILED (no ACK) — verify slot {slot} on the device before use.";
                 }
             }
+            // A dead link is not "the clear may have failed" — it is the whole session ending, and
+            // UploadAsync above needs the typed exception to attribute the slot. Everything else
+            // is absorbed so the verify failure below is still what the caller sees.
+            catch (DeviceDisconnectedException) { throw; }
             catch
             {
                 // Clear-write itself threw; don't mask the verify failure.

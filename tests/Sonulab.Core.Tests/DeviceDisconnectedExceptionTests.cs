@@ -39,12 +39,18 @@ public class DeviceDisconnectedExceptionTests
         Assert.Equal(3, ex.SlotIndex);
     }
 
-    [Fact] public void ForSlot_preserves_transport_and_inner()
+    [Fact] public void ForSlot_preserves_transport_and_the_whole_chain()
     {
-        var inner = new System.IO.IOException("port gone");
-        var ex = new DeviceDisconnectedException("WiFi", inner).ForSlot("IR", 1, writing: true);
+        // ForSlot chains on the transport-level instance (which carries the throw site inside
+        // SerialSonuLink), not on its inner — the raw exception stays reachable one hop further
+        // down, so nothing is lost for log forensics.
+        var raw = new System.IO.IOException("port gone");
+        var fromTransport = new DeviceDisconnectedException("WiFi", raw);
+        var ex = fromTransport.ForSlot("IR", 1, writing: true);
+
         Assert.Equal("WiFi", ex.Transport);
-        Assert.Same(inner, ex.InnerException);
+        Assert.Same(fromTransport, ex.InnerException);
+        Assert.Same(raw, ex.InnerException!.InnerException);   // original still reachable
     }
 
     [Fact] public void Repeat_returns_a_distinct_instance_wrapping_the_original()

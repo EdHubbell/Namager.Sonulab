@@ -5,6 +5,7 @@ namespace Sonulab.Core.Transport;
 
 public sealed class SerialSonuLink : ISonuLink
 {
+    private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
     private static readonly byte[] Nul = { 0 };
     private readonly ISerialPortStream _port;
     private readonly string _portName;
@@ -258,7 +259,9 @@ public sealed class SerialSonuLink : ISonuLink
     /// SerialPort reports IsOpen == true after an unplug until someone closes it.</summary>
     private DeviceDisconnectedException Fault(Exception inner)
     {
-        try { _port.Close(); } catch { /* already gone — the throw below is the real signal */ }
+        // Swallowed on purpose — the throw below is the real signal and a failing close must not
+        // mask it — but logged, so a genuinely weird close failure is diagnosable.
+        try { _port.Close(); } catch (Exception ex) { Log.Debug(ex, "close after fault failed"); }
         return new DeviceDisconnectedException("USB", inner);
     }
 }
