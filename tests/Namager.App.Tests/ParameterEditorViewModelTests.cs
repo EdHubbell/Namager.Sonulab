@@ -323,6 +323,27 @@ public class ParameterEditorViewModelTests
         Assert.Equal(5, vm.LoadedIndex);
     }
 
+    [Fact] public async Task LoadFor_failure_rolls_back_LoadedIndex_to_the_previously_loaded_slot()
+    {
+        // Fix round 1 finding: LoadedIndex was assigned unconditionally before the device write,
+        // and (correctly) left unassigned-back on failure — so PresetName/_loadedName kept
+        // describing the OLD preset while LoadedIndex pointed at the slot that failed to load.
+        // A later download/usage-notify keyed off LoadedIndex would then target the wrong slot
+        // under the wrong name. A failed load must leave the editor exactly as it was.
+        var d = Dev(); await d.OpenAsync();
+        var vm = VmWithUsage(d, new FakePresetUsageService());
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(4, "Clean"));
+        Assert.Equal(4, vm.LoadedIndex);
+        Assert.Equal("Clean", vm.PresetName);
+
+        d.Close();                                          // next device call now throws ("link not open")
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(7, "Other"));
+
+        Assert.Equal(4, vm.LoadedIndex);                     // rolled back, not left at the failed slot
+        Assert.Equal("Clean", vm.PresetName);                // still describes the previously loaded preset
+        Assert.False(string.IsNullOrWhiteSpace(vm.ErrorMessage));
+    }
+
     [Fact] public async Task Save_notifies_the_usage_service_for_the_loaded_slot()
     {
         var d = Dev(); await d.OpenAsync();

@@ -151,6 +151,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     private async Task LoadForAsync(PresetTarget? target)
     {
         if (target is null || string.IsNullOrEmpty(target.Name)) return;
+        int previousIndex = LoadedIndex;
         LoadedIndex = target.Index;
         if (target.Name == _loadedName) return;
         IsLoading = true; ErrorMessage = null;
@@ -165,8 +166,12 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         {
             // Fired on preset selection (PropertyChanged -> Execute) — an escape here is an
             // unhandled UI-thread rethrow, i.e. process death. Surface and stay alive.
+            // LoadedIndex is rolled back too: PresetName/_loadedName still describe the
+            // PREVIOUSLY loaded preset on failure, so the index must match or a later
+            // download/usage-notify targets the wrong slot under the wrong name.
             Log.Warn(ex, "parameter load-for '{0}' failed", target.Name);
             ErrorMessage = $"Load failed: {ex.Message}";
+            LoadedIndex = previousIndex;
         }
         finally { IsLoading = false; }
     }
