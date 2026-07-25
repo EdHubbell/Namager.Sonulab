@@ -77,8 +77,14 @@ public partial class MainWindow : Window
 
             if (plan.Items.Count == 0)
             {
-                await ConfirmDialog.ShowAsync(this, "Nothing to restore",
-                    $"No files named \"NN - Name.pst\" were found in:\n\n{dir}", "Close", "Close");
+                // Skipped files are named even here: a user who hand-curated filenames and got
+                // every one wrong deserves "here's why", not "your folder is empty" — the two look
+                // identical without this (plan.Skipped was silently dropped before this fix).
+                var nothingMessage = $"No files named \"NN - Name.pst\" were found in:\n\n{dir}"
+                    + (plan.Skipped.Count > 0
+                        ? $"\n\nSkipped: {string.Join(", ", plan.Skipped)}"
+                        : "");
+                await ConfirmDialog.ShowAsync(this, "Nothing to restore", nothingMessage, confirmText: null, cancelText: "Close");
                 return;
             }
 
@@ -87,8 +93,11 @@ public partial class MainWindow : Window
                 $"{plan.Items.Count} preset{(plan.Items.Count == 1 ? "" : "s")} will be written to slot{(plan.Items.Count == 1 ? "" : "s")} {slots}.\n\n" +
                 "Those slots will be overwritten. Every other slot is left untouched.\n\n" +
                 $"This takes about {plan.Items.Count * 10} seconds." +
+                // "Skipped" alone, not "no NN - slot number": PlanRestore also routes a file with a
+                // VALID but DUPLICATE slot number here (first file for a slot wins), so a reason
+                // tied to "no slot number" would be wrong for that case.
                 (plan.Skipped.Count > 0
-                    ? $"\n\nSkipped (no \"NN - \" slot number): {string.Join(", ", plan.Skipped)}"
+                    ? $"\n\nSkipped: {string.Join(", ", plan.Skipped)}"
                     : "");
 
             if (!await ConfirmDialog.ShowAsync(this, "Restore presets", message, "Restore", "Cancel"))

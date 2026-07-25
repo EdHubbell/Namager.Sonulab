@@ -12,12 +12,17 @@ public partial class ConfirmDialog : Window
 
     public ConfirmDialog() => InitializeComponent();
 
+    /// <summary>Pass <paramref name="confirmText"/> null for a single-button, dismiss-only dialog
+    /// (e.g. an informational "Close") — this collapses the confirm button instead of showing two
+    /// buttons that would both read "Close". The return value is meaningless in that mode; callers
+    /// use it purely to await the dialog closing.</summary>
     public static async Task<bool> ShowAsync(Window owner, string title, string message,
-                                             string confirmText = "OK", string cancelText = "Cancel")
+                                             string? confirmText = "OK", string cancelText = "Cancel")
     {
         var dlg = new ConfirmDialog { Title = title };
         dlg.MessageText.Text = message;
-        dlg.ConfirmButton.Content = confirmText;
+        dlg.ConfirmButton.IsVisible = confirmText is not null;
+        if (confirmText is not null) dlg.ConfirmButton.Content = confirmText;
         dlg.CancelButton.Content = cancelText;
         await dlg.ShowDialog(owner);
         return dlg._result;
