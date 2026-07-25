@@ -78,4 +78,37 @@ public class SonuConnectorTests
         var link = await connector.ConnectAsync(new[] { "COM4", "COM5" }, new[] { 9600 });
         Assert.Null(link);
     }
+
+    /// <summary>Port that dies on the first write, like a cable pulled mid-probe. SerialSonuLink
+    /// classifies the IOException, so the connector sees a DeviceDisconnectedException.</summary>
+    private sealed class DyingPort : ISerialPortStream
+    {
+        public bool IsOpen { get; private set; }
+        public void Open(string portName, int baudRate) => IsOpen = true;
+        public void Close() => IsOpen = false;
+        public int BytesToRead => 0;
+        public void DiscardInBuffer() { }
+        public void Write(byte[] buffer, int offset, int count) => throw new System.IO.IOException("cable pulled");
+        public int Read(byte[] buffer, int offset, int count) => 0;
+        public void Dispose() { }
+    }
+
+    [Fact] public async Task A_probe_time_disconnect_advances_to_the_next_port()
+    {
+        // The connect path is the one place the new exception type crosses code that predates it,
+        // and it is all that stands between a user and "the app won't find my pedal". A device
+        // drop while probing a port that isn't the pedal must be absorbed per port, exactly like a
+        // busy/denied port, and probing must continue.
+        var dying = new DyingPort();
+        var good = MakePort(115200);
+        var ports = new Queue<ISerialPortStream>(new ISerialPortStream[] { dying, good });
+        var connector = new SonuConnector(() => ports.Dequeue(), Fast);
+
+        var link = await connector.ConnectAsync(new[] { "COM4", "COM6" }, new[] { 115200 });
+
+        Assert.NotNull(link);
+        Assert.True(link!.IsOpen);
+        Assert.True(good.IsOpen);       // the second port is the one that connected
+        Assert.False(dying.IsOpen);     // and the dead one was closed on the way past
+    }
 }
