@@ -36,6 +36,22 @@ public class CrashGuardTests
             => Dead ? throw new InvalidOperationException("TCP link is not open.") : inner.SendAsync(command, ct);
     }
 
+    /// <summary>Lets the preset SELECT write (<c>write root\app\preset:…</c>) succeed but fails the
+    /// content BROWSE (<c>browse root\app</c>) that follows it — isolates a failure inside
+    /// <c>LoadCoreAsync</c> (post-select, while reading preset content) from a failure at selection
+    /// itself. <c>LoadForAsync</c> does select-then-browse in that order, so a link that fails on
+    /// EVERY send (like <see cref="DeadLink"/>) can only ever exercise the select-failure path.</summary>
+    private sealed class BrowseFailsLink : ISonuLink
+    {
+        public bool IsOpen => true;
+        public Task OpenAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public void Close() { }
+        public Task<string> SendAsync(string command, CancellationToken ct = default)
+            => command.StartsWith("browse ", StringComparison.Ordinal)
+                ? throw new InvalidOperationException("TCP link is not open.")
+                : Task.FromResult("");
+    }
+
     private static SonuClient DeadClient() => new(new DeadLink(), readRetryAttempts: 1, readRetryDelayMs: 0);
 
     private static string TempBlobFile(string name, int bytes)
@@ -76,10 +92,13 @@ public class CrashGuardTests
     }
 
     [Fact]
-    public async Task Editor_load_on_dead_link_surfaces_error_without_crashing()
+    public async Task Editor_load_content_on_dead_link_surfaces_error_without_crashing()
     {
-        var vm = new ParameterEditorViewModel(DeadClient());
-        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));   // preset load (select+browse)
+        // The select write succeeds; the browse that reads preset CONTENT is what fails here —
+        // proves a failure inside LoadCoreAsync surfaces as ErrorMessage instead of escaping the
+        // [RelayCommand]. (Failure at selection itself is the adjacent test below.)
+        var vm = new ParameterEditorViewModel(new SonuClient(new BrowseFailsLink(), readRetryAttempts: 1, readRetryDelayMs: 0));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         Assert.False(vm.IsLoading);
         Assert.False(string.IsNullOrWhiteSpace(vm.ErrorMessage));
     }
