@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sonulab.Core.Model;
 using Sonulab.Core.Services;
 
 namespace Namager.App.ViewModels;
@@ -110,6 +111,57 @@ public partial class PresetListViewModel : ObservableObject
         int dest = Items.FirstOrDefault(i => i.IsEmpty)?.Index ?? -1;
         if (dest < 0) return;
         await RunAsync($"Duplicating '{s.Name}'…", $"Duplicated '{s.Name}'", () => _repo.DuplicateAsync(s.Index, dest, s.Name + " copy"));
+    }
+
+    /// <summary>Upload a .pst from disk. The VIEW picks <paramref name="path"/> and supplies
+    /// <paramref name="chooseSlot"/>, which is invoked ONLY when every slot is occupied and returns
+    /// the 0-based slot to overwrite (null cancels). Not a [RelayCommand] because it takes two
+    /// arguments; the view calls it directly.</summary>
+    public async Task UploadAsync(string path, Func<Task<int?>> chooseSlot)
+    {
+        if (!_writes) return;
+        ErrorMessage = null;
+
+        PresetDocument doc;
+        try
+        {
+            doc = PresetDocument.Parse(await File.ReadAllBytesAsync(path));
+        }
+        catch (Exception ex)
+        {
+            // Parse/read failures happen BEFORE any device contact — nothing to roll back.
+            Log.Warn(ex, "preset upload could not read '{0}'", path);
+            ErrorMessage = $"Couldn't read that preset file: {ex.Message}";
+            _status.Failure("Upload failed — unreadable file.");
+            return;
+        }
+        if (doc.Lines.Count == 0 || doc.Lines.All(string.IsNullOrWhiteSpace))
+        {
+            ErrorMessage = "That .pst file has no preset data in it.";
+            _status.Failure("Upload failed — empty file.");
+            return;
+        }
+
+        var desired = Namager.App.Services.PresetFileNaming.NameFromFile(path);
+        if (desired.Length == 0) desired = "Preset";
+        var name = Namager.App.Services.PresetFileNaming.ResolveUnique(desired, Items.Select(i => i.Name));
+
+        int slot = Items.FirstOrDefault(i => i.IsEmpty)?.Index ?? -1;
+        if (slot < 0)
+        {
+            if (await chooseSlot() is not { } chosen) return;      // user cancelled: no write
+            slot = chosen;
+        }
+
+        int target = slot;
+        if (await RunAsync($"Uploading '{name}'…", $"Uploaded '{name}' to slot {target + 1}",
+                () => _repo.WritePresetToSlotAsync(target, name, doc, verify: true),
+                () => _usage.NotifyPresetContentWritten(target, name, doc))
+            && !string.Equals(name, desired, StringComparison.Ordinal))
+        {
+            // Overrides RunAsync's success line so the rename is the thing the user actually reads.
+            _status.Success($"Uploaded as '{name}' — a preset named '{desired}' already exists.");
+        }
     }
 
     [RelayCommand] private async Task DeleteAsync()

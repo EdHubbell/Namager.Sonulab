@@ -63,4 +63,104 @@ public class PresetTransferTests
 
         Assert.Contains(nameof(ParameterEditorViewModel.CanDownload), raised);
     }
+
+    static (PresetListViewModel vm, FakePresetDevice dev, FakePresetUsageService usage) List(int occupied)
+    {
+        var dev = new FakePresetDevice();
+        for (int i = 0; i < occupied; i++)
+            dev.SeedSlot(i, $"P{i}", new[] { $@"root\app\amp\amp:{{""value"":""m{i}""}}" });
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var repo = new DeviceRepository(new SonuClient(dev));
+        var usage = new FakePresetUsageService();
+        var vm = new PresetListViewModel(repo, new ReorderService(repo), writesAllowed: true, usage: usage);
+        vm.RefreshCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        return (vm, dev, usage);
+    }
+
+    static string WritePst(string dir, string fileName, params string[] lines)
+    {
+        System.IO.Directory.CreateDirectory(dir);
+        var blob = new byte[PresetDocument.BlobSize];
+        System.Text.Encoding.ASCII.GetBytes(string.Join("\r\n", lines)).CopyTo(blob, 0);
+        var path = System.IO.Path.Combine(dir, fileName);
+        System.IO.File.WriteAllBytes(path, blob);
+        return path;
+    }
+
+    [Fact] public async Task Upload_lands_in_the_first_empty_slot_with_the_name_from_the_file()
+    {
+        var (vm, _, usage) = List(occupied: 2);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        var file = WritePst(dir, "09 - Imported.pst", @"root\app\amp\amp:{""value"":""mZ""}");
+
+        await vm.UploadAsync(file, () => Task.FromResult<int?>(null));
+
+        Assert.Equal("Imported", vm.Items[2].Name);
+        Assert.Equal(1, usage.ContentWrittenCount);
+        Assert.Equal((2, "Imported"), usage.LastContentChanged);
+        System.IO.Directory.Delete(dir, true);
+    }
+
+    [Fact] public async Task Upload_renames_on_a_name_clash()
+    {
+        var (vm, _, _) = List(occupied: 2);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        var file = WritePst(dir, "00 - P0.pst", @"root\app\amp\amp:{""value"":""mZ""}");
+
+        await vm.UploadAsync(file, () => Task.FromResult<int?>(null));
+
+        Assert.Equal("P0 #2", vm.Items[2].Name);
+        System.IO.Directory.Delete(dir, true);
+    }
+
+    [Fact] public async Task Upload_asks_for_a_slot_only_when_the_pedal_is_full()
+    {
+        var (vm, _, _) = List(occupied: 30);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        var file = WritePst(dir, "00 - Imported.pst", @"root\app\amp\amp:{""value"":""mZ""}");
+
+        bool asked = false;
+        await vm.UploadAsync(file, () => { asked = true; return Task.FromResult<int?>(5); });
+
+        Assert.True(asked);
+        Assert.Equal("Imported", vm.Items[5].Name);
+        System.IO.Directory.Delete(dir, true);
+    }
+
+    [Fact] public async Task Upload_writes_nothing_when_the_slot_prompt_is_cancelled()
+    {
+        var (vm, _, usage) = List(occupied: 30);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        var file = WritePst(dir, "00 - Imported.pst", @"root\app\amp\amp:{""value"":""mZ""}");
+
+        await vm.UploadAsync(file, () => Task.FromResult<int?>(null));
+
+        Assert.DoesNotContain(vm.Items, i => i.Name == "Imported");
+        Assert.Equal(0, usage.ContentWrittenCount);
+        System.IO.Directory.Delete(dir, true);
+    }
+
+    [Fact] public async Task Upload_rejects_an_empty_file_without_touching_the_device()
+    {
+        var (vm, _, usage) = List(occupied: 2);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(dir);
+        var file = System.IO.Path.Combine(dir, "00 - Bad.pst");
+        System.IO.File.WriteAllBytes(file, new byte[PresetDocument.BlobSize]);   // all zeros -> no lines
+
+        await vm.UploadAsync(file, () => Task.FromResult<int?>(null));
+
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Equal(0, usage.ContentWrittenCount);
+        Assert.True(vm.Items[2].IsEmpty);
+        System.IO.Directory.Delete(dir, true);
+    }
+
+    [Fact] public async Task Upload_rejects_a_missing_file_without_throwing()
+    {
+        var (vm, _, usage) = List(occupied: 2);
+        await vm.UploadAsync(@"C:\definitely\not\here.pst", () => Task.FromResult<int?>(null));
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Equal(0, usage.ContentWrittenCount);
+    }
 }
