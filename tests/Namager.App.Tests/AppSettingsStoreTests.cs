@@ -42,4 +42,22 @@ public class AppSettingsStoreTests
     [InlineData("nonsense")]
     public void ToVariant_falls_back_to_Default(string theme)
         => Assert.Equal(Avalonia.Styling.ThemeVariant.Default, ThemeSettings.ToVariant(theme));
+
+    [Fact] public void DefaultPath_is_computed_on_demand_and_never_throws()
+    {
+        var first = AppSettingsStore.DefaultPath;
+        var second = AppSettingsStore.DefaultPath;
+        Assert.NotEmpty(first);
+        Assert.NotEmpty(second);
+        Assert.EndsWith("settings.json", first);
+        Assert.EndsWith("settings.json", second);
+    }
+
+    [Fact] public void Load_normalises_an_explicit_null_theme_to_System()
+    {
+        var path = TempFile();
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        System.IO.File.WriteAllText(path, "{\"Theme\":null}");
+        Assert.Equal("System", AppSettingsStore.Load(path).Theme);
+    }
 }

@@ -15,9 +15,22 @@ public sealed record AppSettings
 /// throwing: a bad settings file must never stop the app from starting.</summary>
 public static class AppSettingsStore
 {
-    public static string DefaultPath { get; } = System.IO.Path.Combine(
-        System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
-        "Namager", "settings.json");
+    /// <summary>%APPDATA%\Namager\settings.json. Computed on demand inside a guard rather than in a
+    /// static initializer: a throwing type initializer would poison every later call to this class,
+    /// including the ones inside Load's own try block, and startup calls Load unguarded.</summary>
+    public static string DefaultPath
+    {
+        get
+        {
+            try
+            {
+                return System.IO.Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
+                    "Namager", "settings.json");
+            }
+            catch { return "settings.json"; }
+        }
+    }
 
     public static AppSettings Load(string? path = null)
     {
@@ -25,8 +38,12 @@ public static class AppSettingsStore
         {
             var file = path ?? DefaultPath;
             if (!System.IO.File.Exists(file)) return new AppSettings();
-            return JsonSerializer.Deserialize<AppSettings>(System.IO.File.ReadAllText(file))
-                   ?? new AppSettings();
+            var loaded = JsonSerializer.Deserialize<AppSettings>(System.IO.File.ReadAllText(file))
+                         ?? new AppSettings();
+            // Normalise null or whitespace Theme to "System"
+            if (string.IsNullOrWhiteSpace(loaded.Theme))
+                loaded = loaded with { Theme = "System" };
+            return loaded;
         }
         catch { return new AppSettings(); }
     }
