@@ -76,11 +76,16 @@ public sealed class SonuClient
 
     private async Task<string> SendAsync(string command, CancellationToken ct)
     {
-        ThrowIfDead();
+        ThrowIfDead();                 // cheap: a latched client fails in microseconds, never queues
         await _gate.WaitAsync(ct);
         Volatile.Write(ref _lastForegroundTicks, _tick());
         var sw = Stopwatch.StartNew();
-        try { return await _link.SendAsync(command, ct); }
+        // Re-checked INSIDE the guard: the caller may have passed the check above and then waited
+        // while the link died. Touching the link now gets the transport's own precondition throw
+        // ("Serial link is not open.", raised OUTSIDE its classification try) — the raw string this
+        // whole feature exists to eliminate. Latch() is a CompareExchange no-op when already
+        // latched, so re-throwing Repeat() from in here is harmless.
+        try { ThrowIfDead(); return await _link.SendAsync(command, ct); }
         catch (DeviceDisconnectedException ex) { Latch(ex); throw; }
         finally
         {
@@ -113,7 +118,8 @@ public sealed class SonuClient
         await _gate.WaitAsync(ct);
         Volatile.Write(ref _lastForegroundTicks, _tick());
         var sw = Stopwatch.StartNew();
-        try { return await Task.Run(() => _link.SendBatchAsync(commands, ct), ct); }
+        // Re-checked under the gate for the same reason as SendAsync above.
+        try { ThrowIfDead(); return await Task.Run(() => _link.SendBatchAsync(commands, ct), ct); }
         catch (DeviceDisconnectedException ex) { Latch(ex); throw; }
         finally
         {

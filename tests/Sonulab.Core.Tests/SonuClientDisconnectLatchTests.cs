@@ -24,6 +24,43 @@ public class SonuClientDisconnectLatchTests
         }
     }
 
+    /// <summary>Models what a REAL transport does, which <see cref="DyingLink"/> deliberately does
+    /// not: it throws <see cref="DeviceDisconnectedException"/> ONCE and closes its own port, so
+    /// every later send trips the precondition check that sits OUTSIDE the classification try
+    /// (SerialSonuLink.cs:98 / TcpSonuLink.cs:59) and raises a raw
+    /// <see cref="InvalidOperationException"/> instead.
+    ///
+    /// The first send parks until the test releases it, so a second caller can be pinned in the
+    /// one state that matters: past SonuClient's PRE-gate ThrowIfDead, queued on the gate, and
+    /// therefore about to touch a link that will be dead by the time it is let through.</summary>
+    private sealed class DyingThenClosedLink : ISonuLink
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _sends;
+
+        /// <summary>Completes once the first send is inside the link, holding SonuClient's gate.</summary>
+        public Task Entered => _entered.Task;
+        public void ReleaseAndDie() => _release.TrySetResult();
+
+        public bool IsOpen { get; private set; } = true;
+        public Task OpenAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public void Close() => IsOpen = false;
+
+        public async Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (Interlocked.Increment(ref _sends) == 1)
+            {
+                _entered.TrySetResult();
+                await _release.Task;
+                IsOpen = false;                       // SerialSonuLink.Fault() closes the port…
+                throw new DeviceDisconnectedException("USB", new IOException("cable pulled"));
+            }
+            // …so from here on the transport's own precondition check fires, unclassified.
+            throw new InvalidOperationException("Serial link is not open.");
+        }
+    }
+
     static SonuClient Client(ISonuLink link) =>
         new(link, readRetryAttempts: 1, readRetryDelayMs: 0, backgroundQuietMs: 0,
             tickSource: () => 0, backgroundPollDelay: _ => Task.CompletedTask);
@@ -105,5 +142,50 @@ public class SonuClientDisconnectLatchTests
         var c = Client(new DyingLink(dieOnSend: 1));
         await Assert.ThrowsAsync<DeviceDisconnectedException>(() => c.SendBackgroundAsync("read x"));
         Assert.True(c.IsDisconnected);
+    }
+
+    [Fact] public async Task A_caller_queued_on_the_gate_still_gets_a_typed_disconnect()
+    {
+        // The pre-gate ThrowIfDead alone is not enough: a caller that passed it BEFORE the link
+        // died then waits on the gate and touches an already-closed port, whose raw
+        // "Serial link is not open." is exactly the unreadable string this feature exists to
+        // eliminate. Two foreground calls contending on the gate is normal in the app
+        // (MainWindowViewModel fires LoadInitialAsync and NavigateToUploadAsync fire-and-forget).
+        var link = new DyingThenClosedLink();
+        var c = Client(link);
+
+        var first = Task.Run(() => c.SendRawAsync("read x"));
+        await link.Entered;                       // A is inside the link, holding the gate
+
+        // Started on THIS thread on purpose: SendAsync runs synchronously through the pre-gate
+        // ThrowIfDead (the client is still alive) and only then parks on _gate.WaitAsync — no
+        // sleep needed to pin the interleaving.
+        var queued = c.SendRawAsync("read y");
+        Assert.False(queued.IsCompleted);         // genuinely queued behind A
+
+        link.ReleaseAndDie();
+        await Assert.ThrowsAsync<DeviceDisconnectedException>(() => first);
+
+        var ex = await Assert.ThrowsAsync<DeviceDisconnectedException>(() => queued);
+        Assert.Equal("Device disconnected (USB).", ex.Message);
+    }
+
+    [Fact] public async Task A_batch_queued_on_the_gate_still_gets_a_typed_disconnect()
+    {
+        // Same trace through SendBatchGatedAsync, which has its own copy of the gate dance.
+        var link = new DyingThenClosedLink();
+        var c = Client(link);
+
+        var first = Task.Run(() => c.SendRawAsync("read x"));
+        await link.Entered;
+
+        var queued = c.DReadChunkRangeAsync(@"root\amp", 0, 1, 4);   // >1 chunk = batch path
+        Assert.False(queued.IsCompleted);
+
+        link.ReleaseAndDie();
+        await Assert.ThrowsAsync<DeviceDisconnectedException>(() => first);
+
+        var ex = await Assert.ThrowsAsync<DeviceDisconnectedException>(() => queued);
+        Assert.Equal("Device disconnected (USB).", ex.Message);
     }
 }
