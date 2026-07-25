@@ -9,6 +9,33 @@ Users can also add notes to their amp models, and those notes are stored on the 
 
 ![NAMager for Sonulab — preset list and amp editor](NAMagerScreenshot.png)
 
+## NAMager vs VoidX-Control
+
+VoidX-Control is the app that ships with the pedal. It does things NAMager doesn't, and the reverse.
+Here's the honest version:
+
+| | NAMager | VoidX-Control |
+|---|---|---|
+| Reorder preset slots | ✅ | ❌ |
+| Reorder amp / IR slots | ✅ | ❌ |
+| Rename a preset in place (F2) | ✅ | ⚠️ awkward |
+| Duplicate a preset | ✅ | ❓ |
+| Back up / restore presets to your PC | ✅ | ❓ |
+| Browse and install Tone3000 tones in-app | ✅ | ❌ |
+| Tone3000 amp metadata stored on the pedal | ✅ | ❌ |
+| Upload a raw `.nam` (distilled in-app) | ✅ | ❓ |
+| See which presets use an amp / IR | ✅ | ❌ |
+| USB | ✅ | ✅ |
+| WiFi | ❌ | ✅ |
+| Bluetooth | ❌ | ✅ |
+| Windows / macOS / Linux / iOS / Android | Windows only | ✅ all |
+| Firmware update | ❌ | ❓ |
+| Live control while playing | ❌ | ❓ |
+| Tuner, global settings, footswitch config | ❌ | ❓ |
+
+❓ = not verified. If you know, [open an issue](https://github.com/EdHubbell/Namager.Sonulab/issues)
+and this table gets corrected.
+
 ## Install
 
 ### Windows
