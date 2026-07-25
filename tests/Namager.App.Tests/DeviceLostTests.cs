@@ -149,7 +149,7 @@ public class DeviceLostTests
         Assert.False(vm.IsConnected);
     }
 
-    [Fact] public async Task Status_bar_gets_the_slot_naming_message()
+    static (ConnectionViewModel Vm, KillableLink Link, FakeStatusService Status) ConnectedWithStatus()
     {
         var status = new FakeStatusService();
         var link = new KillableLink();
@@ -157,11 +157,45 @@ public class DeviceLostTests
             new ILinkProvider[] { new FixedProvider("USB", link) },
             new CompatibilityChecker(FirmwareCatalog.Default));
         var vm = new ConnectionViewModel(session, null, status, dispatch: a => a());
-        await vm.ConnectCommand.ExecuteAsync(null);
+        vm.ConnectCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        return (vm, link, status);
+    }
+
+    [Fact] public async Task Status_bar_reports_the_disconnect()
+    {
+        // The handler deliberately pushes NO Failure of its own. The exception the Disconnected
+        // event carries is the BARE one the transport threw — enrichment with the at-risk slot
+        // happens above SonuClient (SlotBlobService.UploadAsync), on the instance rethrown to ITS
+        // caller, which never reaches this event. A Failure here could therefore only ever repeat
+        // the generic message, and would stomp the enriched one (see the anti-stomp test below).
+        var (vm, link, status) = ConnectedWithStatus();
 
         link.Kill = true;
         await Assert.ThrowsAsync<DeviceDisconnectedException>(() => vm.Client!.SendRawAsync("read x"));
 
-        Assert.Contains(status.Failed, f => f.Contains("Device disconnected"));
+        // The dead state IS reported — through the two channels the handler owns.
+        Assert.Equal("Device disconnected — reconnect the pedal and restart NAMager", vm.Status);
+        Assert.Contains("Device disconnected", status.IdleSummaries);
+        // …and not through a Failure push. (The failing operation's own catch reports that; here
+        // the test called SendRawAsync directly, so nothing else reported anything.)
+        Assert.Empty(status.Failed);
+    }
+
+    [Fact] public async Task Enriched_upload_failure_is_not_stomped_by_the_dead_state_handler()
+    {
+        // Real ordering in an interrupted upload: AmpListViewModel's catch (IOException) reports
+        // the ENRICHED, slot-naming message synchronously; only afterwards does the UI thread pump
+        // the Dispatcher.UIThread.Post from OnDeviceDisconnected. A Failure(ex.Message) in that
+        // handler would make the generic message the status bar's last word.
+        var (vm, link, status) = ConnectedWithStatus();
+        var enriched = new DeviceDisconnectedException("USB").ForSlot("Amp", 12, writing: true);
+        status.Failure(enriched.Message);          // stands in for the upload's own catch
+
+        link.Kill = true;
+        await Assert.ThrowsAsync<DeviceDisconnectedException>(() => vm.Client!.SendRawAsync("read x"));
+
+        Assert.Equal(
+            "Device disconnected (USB). Amp slot 12 may be partially written — verify it after reconnecting.",
+            status.Failed[^1]);
     }
 }

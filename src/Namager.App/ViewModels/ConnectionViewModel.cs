@@ -99,14 +99,22 @@ public partial class ConnectionViewModel : ObservableObject
     }
 
     /// <summary>Fires on the thread of the failing send, so marshal before touching bound state.
-    /// Idempotent: SonuClient raises this once, but the guard keeps a second source harmless.</summary>
+    /// Idempotent: SonuClient raises this once, but the guard keeps a second source harmless.
+    ///
+    /// <paramref name="ex"/> is deliberately NOT reported to the status bar. It is the BARE
+    /// exception the transport threw — SonuClient.Latch receives it straight from the link, while
+    /// the slot-naming enrichment happens strictly above SonuClient (SlotBlobService.UploadAsync)
+    /// on the instance rethrown to ITS caller, which never reaches this event. So a Failure() here
+    /// could only repeat the generic message, and because the interrupted operation's own catch
+    /// (e.g. AmpListViewModel's catch (IOException)) runs BEFORE this posted handler, it would
+    /// overwrite that catch's enriched, slot-naming message with the less informative one. Status,
+    /// the idle summary, and the operation's own catch already cover the reporting.</summary>
     private void OnDeviceDisconnected(DeviceDisconnectedException ex) => _dispatch(() =>
     {
         if (IsDeviceLost) return;
         IsDeviceLost = true;                  // BEFORE IsConnected: CanConnect must already be false
         IsConnected = false;
         Status = "Device disconnected — reconnect the pedal and restart NAMager";
-        _statusService.Failure(ex.Message);   // carries the at-risk slot when an upload was cut short
         _statusService.SetIdleSummary("Device disconnected");
         try { _session.Disconnect(); } catch { /* the transport already closed itself */ }
         // A throwing subscriber here would otherwise replace the DeviceDisconnectedException at
