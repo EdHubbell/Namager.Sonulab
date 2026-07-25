@@ -142,18 +142,39 @@ public partial class PresetListViewModel : ObservableObject
             return;
         }
 
-        var desired = Namager.App.Services.PresetFileNaming.NameFromFile(path);
-        if (desired.Length == 0) desired = "Preset";
-        var name = Namager.App.Services.PresetFileNaming.ResolveUnique(desired, Items.Select(i => i.Name));
-
-        int slot = Items.FirstOrDefault(i => i.IsEmpty)?.Index ?? -1;
-        if (slot < 0)
+        int target;
+        string name;
+        string desired;
+        try
         {
-            if (await chooseSlot() is not { } chosen) return;      // user cancelled: no write
-            slot = chosen;
+            int slot = Items.FirstOrDefault(i => i.IsEmpty)?.Index ?? -1;
+            if (slot < 0)
+            {
+                if (await chooseSlot() is not { } chosen) return;      // user cancelled: no write
+                slot = chosen;
+            }
+            target = slot;
+
+            desired = Namager.App.Services.PresetFileNaming.NameFromFile(path);
+            if (desired.Length == 0) desired = "Preset";
+            // Exclude the destination slot's own current occupant from the "taken" set: overwriting
+            // a slot with an edited copy of its own preset (or restoring a backup over its own slot)
+            // must not read as a name clash against itself and pick up a needless " #2".
+            var others = Items.Where(i => i.Index != target).Select(i => i.Name);
+            name = Namager.App.Services.PresetFileNaming.ResolveUnique(desired, others);
+        }
+        catch (Exception ex)
+        {
+            // chooseSlot is a caller-supplied delegate (a modal dialog in the real app) that can
+            // throw for ordinary UI reasons. UploadAsync is called from a UI event handler, so an
+            // escaping exception here would kill the process — the crash class this app already
+            // shipped twice (v0.9.1, v0.9.3). Surface it and write nothing instead.
+            Log.Warn(ex, "preset upload slot/name resolution failed for '{0}'", path);
+            ErrorMessage = $"Upload failed: {ex.Message}";
+            _status.Failure("Upload failed.");
+            return;
         }
 
-        int target = slot;
         if (await RunAsync($"Uploading '{name}'…", $"Uploaded '{name}' to slot {target + 1}",
                 () => _repo.WritePresetToSlotAsync(target, name, doc, verify: true),
                 () => _usage.NotifyPresetContentWritten(target, name, doc))

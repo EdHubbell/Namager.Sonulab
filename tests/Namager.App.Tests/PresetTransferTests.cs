@@ -163,4 +163,32 @@ public class PresetTransferTests
         Assert.NotNull(vm.ErrorMessage);
         Assert.Equal(0, usage.ContentWrittenCount);
     }
+
+    [Fact] public async Task Upload_overwriting_a_slot_with_its_own_name_does_not_get_renamed()
+    {
+        // Full pedal. The user re-uploads an edited copy of "P5" and picks slot 5 (which already
+        // holds "P5") to overwrite. That must NOT read as a name clash against itself.
+        var (vm, _, usage) = List(occupied: 30);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        var file = WritePst(dir, "05 - P5.pst", @"root\app\amp\amp:{""value"":""mZ""}");
+
+        await vm.UploadAsync(file, () => Task.FromResult<int?>(5));
+
+        Assert.Equal("P5", vm.Items[5].Name);
+        Assert.Equal(1, usage.ContentWrittenCount);
+        System.IO.Directory.Delete(dir, true);
+    }
+
+    [Fact] public async Task Upload_survives_a_throwing_slot_prompt_without_writing()
+    {
+        var (vm, _, usage) = List(occupied: 30);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        var file = WritePst(dir, "00 - Imported.pst", @"root\app\amp\amp:{""value"":""mZ""}");
+
+        await vm.UploadAsync(file, () => throw new System.InvalidOperationException("dialog blew up"));
+
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Equal(0, usage.ContentWrittenCount);
+        System.IO.Directory.Delete(dir, true);
+    }
 }
