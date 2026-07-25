@@ -1,5 +1,7 @@
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Namager.App;
 using Namager.App.Services;
 using Namager.App.ViewModels;
@@ -37,6 +39,7 @@ public partial class MainWindow : Window
             catch { /* async void-style handler: a throw here would kill the process */ }
         };
         BackupMenuItem.Click += async (_, _) => await BackupAsync();
+        RestoreMenuItem.Click += async (_, _) => await RestoreAsync();
     }
 
     private async System.Threading.Tasks.Task BackupAsync()
@@ -56,6 +59,46 @@ public partial class MainWindow : Window
         {
             // async void handler: never let this escape.
             vm.Status.Failure($"Backup failed: {ex.Message}");
+        }
+    }
+
+    private async System.Threading.Tasks.Task RestoreAsync()
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        try
+        {
+            var folders = await StorageProvider.OpenFolderPickerAsync(
+                new FolderPickerOpenOptions { Title = "Choose a backup folder", AllowMultiple = false });
+            if (folders.Count != 1 || folders[0].TryGetLocalPath() is not { } dir) return;
+
+            var plan = PresetFileNaming.PlanRestore(System.IO.Directory.GetFiles(dir, "*.pst"));
+
+            if (plan.Items.Count == 0)
+            {
+                await ConfirmDialog.ShowAsync(this, "Nothing to restore",
+                    $"No files named \"NN - Name.pst\" were found in:\n\n{dir}", "Close", "Close");
+                return;
+            }
+
+            var slots = string.Join(", ", plan.Items.Select(i => (i.Index + 1).ToString("00")));
+            var message =
+                $"{plan.Items.Count} preset{(plan.Items.Count == 1 ? "" : "s")} will be written to slot{(plan.Items.Count == 1 ? "" : "s")} {slots}.\n\n" +
+                "Those slots will be overwritten. Every other slot is left untouched.\n\n" +
+                $"This takes about {plan.Items.Count * 10} seconds." +
+                (plan.Skipped.Count > 0
+                    ? $"\n\nSkipped (no \"NN - \" slot number): {string.Join(", ", plan.Skipped)}"
+                    : "");
+
+            if (!await ConfirmDialog.ShowAsync(this, "Restore presets", message, "Restore", "Cancel"))
+                return;
+
+            await RestoreProgressDialog.RunAsync(this, plan,
+                (progress, ct) => vm.RestorePresetsAsync(plan, progress, ct));
+        }
+        catch (System.Exception ex)
+        {
+            // async void-style handler: never let this escape onto the UI thread.
+            vm.Status.Failure($"Restore failed: {ex.Message}");
         }
     }
 
