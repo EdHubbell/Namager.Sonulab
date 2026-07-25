@@ -386,4 +386,57 @@ public class ParameterEditorViewModelTests
         Assert.True(ampAfter.IsExpanded);
         Assert.False(delayAfter.IsExpanded);       // would also be true if state were header-keyed
     }
+
+    // ---- refreshable picker options (v0.9.7 Task 5) ----
+
+    // Device with an amp-ref field whose options come from `read root\amp`.
+    // Named distinctly from the existing RefDev(params string[]) helper above to avoid an
+    // ambiguous-call conflict (RefDev() would match both a parameterless and a params overload).
+    static FakeSonuLink RefreshDev()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\amp:{\"desc\":\"Model\",\"value\":\"mA\",\"type\":\"plist\",\"ref\":\"root\\\\amp\"}");
+        d.SeedList(@"root\amp", new[] { "mA", "mB" });
+        return d;
+    }
+
+    [Fact] public async Task RefreshRefOptions_is_a_noop_while_the_catalog_has_not_moved()
+    {
+        var d = RefreshDev(); await d.OpenAsync();
+        var catalog = new CatalogVersion();
+        var vm = new ParameterEditorViewModel(new SonuClient(d), catalog: catalog);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        d.SeedList(@"root\amp", new[] { "mA", "mB", "mC" });
+        await vm.RefreshRefOptionsAsync();
+        var field = vm.Blocks.SelectMany(b => b.Fields).Single(f => f.Path.EndsWith(@"\amp\amp"));
+        Assert.Equal(new[] { "mA", "mB" }, field.Options);
+    }
+
+    [Fact] public async Task RefreshRefOptions_rereads_the_list_after_a_catalog_bump()
+    {
+        var d = RefreshDev(); await d.OpenAsync();
+        var catalog = new CatalogVersion();
+        var vm = new ParameterEditorViewModel(new SonuClient(d), catalog: catalog);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        d.SeedList(@"root\amp", new[] { "mA", "mC" });        // mB deleted, mC uploaded
+        catalog.Bump();
+        await vm.RefreshRefOptionsAsync();
+        var field = vm.Blocks.SelectMany(b => b.Fields).Single(f => f.Path.EndsWith(@"\amp\amp"));
+        Assert.Equal(new[] { "mA", "mC" }, field.Options);
+    }
+
+    [Fact] public async Task RefreshRefOptions_keeps_the_current_value_when_the_device_drops_it()
+    {
+        var d = RefreshDev(); await d.OpenAsync();
+        var catalog = new CatalogVersion();
+        var vm = new ParameterEditorViewModel(new SonuClient(d), catalog: catalog);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        d.SeedList(@"root\amp", new[] { "mB" });              // the loaded preset's own amp is gone
+        catalog.Bump();
+        await vm.RefreshRefOptionsAsync();
+        var field = vm.Blocks.SelectMany(b => b.Fields).Single(f => f.Path.EndsWith(@"\amp\amp"));
+        Assert.Equal("mA", field.Text);
+        Assert.Contains("mA", field.Options);
+    }
 }

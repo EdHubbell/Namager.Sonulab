@@ -21,12 +21,15 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     private readonly IStatusService _status;
     private readonly Sonulab.Core.Services.DeviceRepository? _repo;
     private readonly IPresetUsageService _usage;
+    private readonly CatalogVersion _catalog;
+    private int _optionsVersion = -1;
 
     public ParameterEditorViewModel(SonuClient client, LabelService? labels = null,
                                      ParameterExposure? exposure = null,
                                      IStatusService? status = null,
                                      Sonulab.Core.Services.DeviceRepository? repo = null,
-                                     IPresetUsageService? usage = null)
+                                     IPresetUsageService? usage = null,
+                                     CatalogVersion? catalog = null)
     {
         _client = client;
         _labels = labels ?? LabelService.Default;
@@ -34,6 +37,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         _status = status ?? NullStatusService.Instance;
         _repo = repo;
         _usage = usage ?? NullPresetUsageService.Instance;
+        _catalog = catalog ?? new CatalogVersion();
     }
 
     public ObservableCollection<BlockSectionViewModel> Blocks { get; } = new();
@@ -73,6 +77,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         Blocks.Clear();
         var records = await _client.BrowseRecordsAsync(@"root\app");
 
+        // Capture BEFORE the reads: a bump that lands mid-load must not be swallowed.
+        int catalogAtLoad = _catalog.Version;
+
         // Prefetch each distinct ref'd device list once per load (amp/IR pickers). A failed or
         // empty read degrades that field to today's rendering — the load itself never fails.
         var refOptions = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
@@ -88,6 +95,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             }
             catch { refOptions[r] = Array.Empty<string>(); }
         }
+        _optionsVersion = catalogAtLoad;
 
         foreach (var block in Blocks_InScope)
         {
@@ -174,6 +182,40 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             LoadedIndex = previousIndex;
         }
         finally { IsLoading = false; }
+    }
+
+    /// <summary>Re-read the amp/IR picker lists if the device catalog moved since they were
+    /// loaded. Called when the user lands on the Presets tab. Cheap (one `read` per distinct ref
+    /// target), replaces OPTIONS only — never values — so unsaved edits survive, and never throws:
+    /// a failed read leaves the old options in place and retries on the next visit.</summary>
+    public async Task RefreshRefOptionsAsync()
+    {
+        int version = _catalog.Version;
+        if (version == _optionsVersion || Blocks.Count == 0) return;
+
+        var sources = AllFields().Select(f => f.RefSource)
+                                 .Where(s => s is { Length: > 0 })
+                                 .Distinct(StringComparer.Ordinal)
+                                 .ToArray();
+        if (sources.Length == 0) { _optionsVersion = version; return; }
+
+        bool allOk = true;
+        foreach (var src in sources)
+        {
+            try
+            {
+                var names = (await _client.ReadListAsync(src!))
+                    .Where(n => !string.IsNullOrEmpty(n)).ToArray();
+                foreach (var f in AllFields().Where(f => f.RefSource == src))
+                    f.SetRefOptions(names);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "ref-option refresh for '{0}' failed", src);
+                allOk = false;
+            }
+        }
+        if (allOk) _optionsVersion = version;
     }
 
     [RelayCommand]

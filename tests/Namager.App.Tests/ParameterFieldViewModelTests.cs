@@ -82,4 +82,31 @@ public class ParameterFieldViewModelTests
         Assert.Equal("string", f.Kind);
         Assert.Empty(f.Options);
     }
+
+    // ---- refreshable options (v0.9.7 Task 5) ----
+
+    [Fact] public void SetRefOptions_replaces_a_device_supplied_list()
+    {
+        var schema = Schema(@"{""desc"":""Model"",""value"":""mA"",""type"":""item"",""ref"":""root\\amp""}", @"root\app\amp\amp");
+        var f = new ParameterFieldViewModel(schema, "\"mA\"", new[] { "mA", "mB" });
+        f.SetRefOptions(new[] { "mB", "mC" });
+        Assert.Equal(new[] { "mA", "mB", "mC" }, f.Options);   // current value unioned in at the front
+    }
+
+    [Fact] public void SetRefOptions_does_not_duplicate_a_value_the_device_still_offers()
+    {
+        var schema = Schema(@"{""desc"":""Model"",""value"":""mA"",""type"":""item"",""ref"":""root\\amp""}", @"root\app\amp\amp");
+        var f = new ParameterFieldViewModel(schema, "\"mA\"", new[] { "mA", "mB" });
+        f.SetRefOptions(new[] { "mA", "mB", "mC" });
+        Assert.Equal(new[] { "mA", "mB", "mC" }, f.Options);
+    }
+
+    [Fact] public void SetRefOptions_is_a_noop_for_a_schema_option_field()
+    {
+        var schema = Schema(@"{""desc"":""Enable"",""value"":""ON"",""type"":""enum"",""options"":[""ON"",""OFF""]}", @"root\app\amp\on_off");
+        var f = new ParameterFieldViewModel(schema, "\"ON\"");
+        Assert.Null(f.RefSource);
+        f.SetRefOptions(new[] { "X" });
+        Assert.Equal(new[] { "ON", "OFF" }, f.Options);
+    }
 }

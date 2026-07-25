@@ -15,6 +15,11 @@ public partial class ParameterFieldViewModel : ObservableObject
     public double Max { get; }
     public IReadOnlyList<string> Options { get; private set; }
 
+    /// <summary>The device list this field's options were fetched from (e.g. <c>root\amp</c>), or
+    /// null when the options are the node's own schema enum. Only ref-sourced fields are refreshed
+    /// when an amp/IR is added or deleted.</summary>
+    public string? RefSource { get; }
+
     [ObservableProperty] private double _number;
     [ObservableProperty] private string? _text;
 
@@ -37,6 +42,11 @@ public partial class ParameterFieldViewModel : ObservableObject
             "item" => "string",
             _ => "string",
         };
+
+        // Remember the device list behind this field even if the fetch came back empty: a later
+        // refresh (after the catalog changes) can still populate it.
+        RefSource = Kind != "float" && schema.Options.Count == 0 && schema.Ref is { Length: > 0 } refPath
+            ? refPath : null;
 
         // Options priority: the schema's own options; else externally fetched ref-list names
         // (amp/IR pickers — see editor-polish spec). Never for floats.
@@ -62,6 +72,20 @@ public partial class ParameterFieldViewModel : ObservableObject
             Options = new[] { t }.Concat(Options).ToArray();
 
         _originalJson = ToJsonValue();
+    }
+
+    /// <summary>Replace the device-supplied option list in place (an amp/IR was added or deleted).
+    /// The current value is unioned in when the device no longer offers it, so a deleted amp shows
+    /// as the selection rather than blanking the ComboBox — a blank would read as a user edit and
+    /// could be saved back as an empty reference. No-op for schema-enum fields.</summary>
+    public void SetRefOptions(IReadOnlyList<string> names)
+    {
+        if (RefSource is null) return;
+        Options = _text is { Length: > 0 } t && !names.Contains(t)
+            ? new[] { t }.Concat(names).ToArray()
+            : names;
+        if (Kind == "string" && Options.Count > 0) { Kind = "plist"; OnPropertyChanged(nameof(Kind)); }
+        OnPropertyChanged(nameof(Options));
     }
 
     public string ToJsonValue() => Kind == "float"
