@@ -59,8 +59,13 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 - **Link death is typed:** transports throw `DeviceDisconnectedException` (Sonulab.Core/Transport) and
   close their own port; `SonuClient` latches the first one, raises `Disconnected` once, and fails all
   later sends instantly. The app enters a dead state (Connect disabled, "reconnect and restart");
-  HwCheck prints `DEVICE LOST:` and exits 2. Reconnect-in-place is deliberately NOT supported —
-  re-opening a live session resets the ESP32 and wedges the pedal.
+  HwCheck prints `DEVICE LOST:` and exits 2 (exit 2 is also a port-reopen failure in
+  `--dread-arg-probe`/`--pipeline-probe` — disambiguate on the `DEVICE LOST:` stderr line).
+  Reconnect-in-place is deliberately NOT supported — re-opening a live session resets the ESP32 and
+  wedges the pedal. **On WiFi detection is best-effort:** only a real socket fault
+  (`SocketException`/`IOException`) is classified. If the pedal silently vanishes (power cut, no
+  FIN/RST) the buffered write succeeds and the read just times out — `TimeoutException` is
+  deliberately never a disconnect, so that shape falls back to the old behavior.
 - Parameter editor exposure is a **blocklist** (`hidden-params.json`) so new firmware params auto-appear.
 - `.pcapng` captures live in the PARENT dir `..\` (not committed).
 - UI colors come from Styles/SonulabTheme.axaml tokens (Sonulab.*Brush, both theme variants) — never hardcode hex in .axaml; Fluent accent ramp is overridden in App.axaml.

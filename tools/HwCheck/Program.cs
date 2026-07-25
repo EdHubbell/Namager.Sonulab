@@ -26,6 +26,9 @@ using Sonulab.Core.Transport;
 // Last-resort guard. Without it an IOException mid-batch killed this harness outright with a raw
 // stack trace. Exit 2 = the device went away; 1 = any other unhandled failure. The existing
 // 0/3/4 result codes are unaffected.
+// CAVEAT: exit 2 is not unique to device loss — --dread-arg-probe and --pipeline-probe also
+// `return 2` when the raw port reopen fails (they print "RESULT: … ABORT" first). Scripts and the
+// disconnect checklist should check stderr for the `DEVICE LOST:` line to disambiguate.
 AppDomain.CurrentDomain.UnhandledException += (_, e) =>
 {
     if (e.ExceptionObject is DeviceDisconnectedException dx)

@@ -168,7 +168,11 @@ Localized and explicit; no new parameters threaded through the call graph.
 - `IsDeviceLost = true`
 - `_session.Disconnect()`
 - `Status = "Device disconnected — reconnect the pedal and restart NAMager"`
-- `_statusService.Failure(...)` with the exception's message, so a half-written slot is named
+- ~~`_statusService.Failure(...)` with the exception's message, so a half-written slot is named~~
+  — **superseded, see Out of scope.** The event carries the BARE exception (§5 enriches above
+  `SonuClient`, on a different instance), so this could only repeat the generic message, and it
+  would stomp the enriched one the interrupted operation's own catch already reported. The handler
+  pushes no `Failure`; `Status` and the idle summary carry the dead state.
 - raises `ConnectionViewModel.DeviceLost` (the event; note the property is `IsDeviceLost` — a
   property and an event cannot share a name on the same type)
 
@@ -242,6 +246,28 @@ throws `SocketException`.
 - Rolling back a half-written slot. The link is dead, so rollback is impossible by construction —
   this design reports the damage rather than repairing it.
 - `TimeoutException` classification (§2).
+- **Reliable detection of a WiFi pedal that vanishes silently.** Following from the
+  `TimeoutException` decision above: `SystemTcpConn.SendAsync` writes into a `NetworkStream`, so if
+  the pedal disappears with no FIN/RST (power cut, AP dropped mid-flight) the write is buffered and
+  succeeds, and `TcpSonuLink.SendCoreAsync` merely falls out of its read loop at `MaxWaitMs` with an
+  empty response and an incremented `_pending`. No `SocketException`, no classification, so the user
+  gets the pre-feature behavior on what is probably the most common WiFi-loss shape. Detection over
+  WiFi is therefore best-effort: it covers a socket that actually faults, not a device that stops
+  answering. Recorded in `docs/HARDWARE-VALIDATION-disconnect.md` check 4 so a tester does not log it
+  as a failure.
+- **Slot context inside `SonuClient`.** Enrichment lives strictly above it (§5), so the exception
+  delivered by the `Disconnected` event is always the BARE one. `ConnectionViewModel`'s handler
+  therefore does not push its own `Failure` — the interrupted operation's own catch reports the
+  enriched, slot-naming message, and a `Failure` in the handler would run after it and stomp it
+  (the handler is posted to the UI thread; the catch is synchronous). Pushing slot context down
+  into `SonuClient` would be a design change; §6's "`_statusService.Failure(...)` … so a
+  half-written slot is named" bullet is superseded by this.
+- **A drop during the identify/compat phase does not produce the dead state, and that is correct.**
+  `DeviceSession.ConnectAsync` creates the `SonuClient` before `ConnectionViewModel` subscribes, so
+  a drop during `CheckAsync` surfaces through `ConnectAsync`'s generic catch as
+  `Error: Device disconnected (USB).` with Connect still ENABLED. No live session was established,
+  so retry is safe and the "never re-open a live session" rule does not apply. It is also the one
+  path where `Disconnected` fires with no subscriber. Left as is deliberately — do not "fix" it.
 
 ## Hardware validation
 
