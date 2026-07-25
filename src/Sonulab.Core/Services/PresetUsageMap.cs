@@ -100,34 +100,67 @@ public sealed class PresetUsageMap
         return result;
     }
 
+    /// <summary>Return a new map reflecting the CURRENT contents of the preset at
+    /// <paramref name="index"/>: every existing ref at that slot is dropped, then the refs parsed
+    /// from <paramref name="doc"/> are added under <paramref name="name"/>. The targeted
+    /// counterpart of a full rescan — used after an in-place edit (parameter-editor save) or a
+    /// single-slot write (preset upload / restore).</summary>
+    public PresetUsageMap WithUpdatedPreset(int index, string name, PresetDocument doc)
+    {
+        var amp = Thaw(_amp, index);
+        var ir = Thaw(_ir, index);
+        Collect(amp, ir, index, name, doc);
+        return new PresetUsageMap(Freeze(amp), Freeze(ir));
+    }
+
+    /// <summary>Mutable copy of a frozen side of the map with every ref at
+    /// <paramref name="dropIndex"/> removed. Keys that lose all their refs are dropped, matching
+    /// <see cref="Map"/>'s behaviour.</summary>
+    private static Dictionary<string, List<PresetRef>> Thaw(
+        IReadOnlyDictionary<string, IReadOnlyList<PresetRef>> src, int dropIndex)
+    {
+        var result = new Dictionary<string, List<PresetRef>>(src.Count);
+        foreach (var (key, list) in src)
+        {
+            var kept = list.Where(r => r.Index != dropIndex).ToList();
+            if (kept.Count > 0) result[key] = kept;
+        }
+        return result;
+    }
+
     public static PresetUsageMap Build(IEnumerable<(int SlotIndex, string PresetName, PresetDocument Doc)> occupiedPresets)
     {
         var amp = new Dictionary<string, List<PresetRef>>();
         var ir = new Dictionary<string, List<PresetRef>>();
-
         foreach (var (slotIndex, presetName, doc) in occupiedPresets)
-        {
-            var entry = new PresetRef(slotIndex, presetName);
-            foreach (var line in doc.Lines)
-            {
-                if (!NodeRecord.TryParse(line, out var rec)) continue;
-                // Real dread/.pst documents carry only {"value":…} lines — match by node PATH.
-                // (The schema "ref" field exists only in `browse` responses; keying off it here
-                // is the bug that made every on-device map come back empty.)
-                var target = rec.Path == AmpNodePath ? amp
-                           : IsIrRefPath(rec.Path) ? ir
-                           : null;
-                if (target is null) continue;
-
-                var value = rec.ValueString?.Trim();
-                if (string.IsNullOrEmpty(value)) continue;
-
-                if (!target.TryGetValue(value, out var list)) target[value] = list = new List<PresetRef>();
-                if (!list.Any(r => r.Index == slotIndex)) list.Add(entry);   // dedupe by slot
-            }
-        }
-
+            Collect(amp, ir, slotIndex, presetName, doc);
         return new PresetUsageMap(Freeze(amp), Freeze(ir));
+    }
+
+    /// <summary>Parse one preset document's amp/IR reference lines into the two accumulators.
+    /// Shared by <see cref="Build"/> and <see cref="WithUpdatedPreset"/> so the two can never
+    /// disagree about what counts as a reference.</summary>
+    private static void Collect(Dictionary<string, List<PresetRef>> amp,
+                                Dictionary<string, List<PresetRef>> ir,
+                                int slotIndex, string presetName, PresetDocument doc)
+    {
+        var entry = new PresetRef(slotIndex, presetName);
+        foreach (var line in doc.Lines)
+        {
+            if (!NodeRecord.TryParse(line, out var rec)) continue;
+            // Real dread/.pst documents carry only {"value":…} lines — match by node PATH.
+            // (The schema "ref" field exists only in `browse` responses.)
+            var target = rec.Path == AmpNodePath ? amp
+                       : IsIrRefPath(rec.Path) ? ir
+                       : null;
+            if (target is null) continue;
+
+            var value = rec.ValueString?.Trim();
+            if (string.IsNullOrEmpty(value)) continue;
+
+            if (!target.TryGetValue(value, out var list)) target[value] = list = new List<PresetRef>();
+            if (!list.Any(r => r.Index == slotIndex)) list.Add(entry);   // dedupe by slot
+        }
     }
 
     private static IReadOnlyDictionary<string, IReadOnlyList<PresetRef>> Freeze(Dictionary<string, List<PresetRef>> src)
