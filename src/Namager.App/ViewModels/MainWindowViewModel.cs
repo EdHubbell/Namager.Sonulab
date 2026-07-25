@@ -221,12 +221,16 @@ public partial class MainWindowViewModel : ObservableObject
             Presets = presets;
             Editor = editor;
 
-            var ampService = new AmpService(
-                _connection.Client!, System.IO.Path.Combine("docs", "backups"));
+            // Absolute, under Documents: the old relative "docs\backups" resolved against the
+            // process working directory, so in an installed build the pre-delete slot archives
+            // landed where no user would look. See Namager.App.Services.AppPaths.
+            var slotBackups = Namager.App.Services.AppPaths.DeletedSlotBackups;
+
+            var ampService = new AmpService(_connection.Client!, slotBackups);
             var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status, usage: usage, catalog: catalog);
             Amps = amps;
 
-            var irService = new IrService(_connection.Client!, System.IO.Path.Combine("docs", "backups"));
+            var irService = new IrService(_connection.Client!, slotBackups);
             var irs = new IrListViewModel(irService, _connection.WritesAllowed, Status, usage: usage, catalog: catalog);
             Irs = irs;
 
