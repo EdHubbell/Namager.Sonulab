@@ -20,10 +20,13 @@ public static class AppPaths
         }
     }
 
-    /// <summary>Where an amp or IR slot's contents are archived before the slot is wiped
-    /// (<c>SlotBlobService.DeleteAsync</c> backs the slot up first). Absolute and under Documents:
-    /// the old value was a RELATIVE "docs\backups", which resolves against the process working
-    /// directory, so in an installed build these landed somewhere the user would never find and the
-    /// delete tooltip's "backs up first" looked like a lie.</summary>
-    public static string DeletedSlotBackups => System.IO.Path.Combine(BackupRoot, "Deleted Slots");
+    /// <summary>Where an amp or IR slot's previous contents are archived before an upload
+    /// OVERWRITES it (<c>SlotBlobService.UploadAsync</c>). Delete deliberately writes nothing here —
+    /// a slot blob is never modified on the device, so a deleted one is always a copy of a file the
+    /// user already has, whereas the slot an upload replaces may not be.
+    ///
+    /// Absolute and under Documents: the old value was a RELATIVE "docs\backups", which resolves
+    /// against the process working directory, so in an installed build these landed somewhere the
+    /// user would never find.</summary>
+    public static string SlotBackups => System.IO.Path.Combine(BackupRoot, "Replaced Slots");
 }

@@ -52,15 +52,18 @@ public class AmpServiceTests : IDisposable
         Assert.Equal(Blob(0x33), blob);
     }
 
+    /// <summary>Delete clears the slot and writes NO archive: an amp blob is never modified on the
+    /// device, so it is always a copy of a file the user already has. Skipping it also drops a full
+    /// 96-chunk dread from every delete.</summary>
     [Fact]
-    public async Task Delete_backs_up_then_clears()
+    public async Task Delete_clears_the_slot_without_archiving_or_dreading()
     {
         var (svc, dev) = Make();
         dev.SeedAmp(3, "Doomed", Blob(0x44));
         await svc.DeleteAmpAsync(3);
         Assert.Null(dev.SlotNames[3]);
-        var backup = Directory.GetFiles(_backupDir, "amp-3-*-deleted.vxamp").Single();
-        Assert.Equal(Blob(0x44), await File.ReadAllBytesAsync(backup));
+        Assert.False(Directory.Exists(_backupDir) && Directory.GetFiles(_backupDir).Length > 0);
+        Assert.DoesNotContain(dev.CommandLog, c => c.StartsWith("dread"));
     }
 
     [Fact]

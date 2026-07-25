@@ -51,14 +51,17 @@ public class IrServiceTests : IDisposable
         Assert.Contains("IR", ex.Message);                    // kind-noun message
     }
 
+    /// <summary>Delete clears the slot and writes NO archive: an IR blob is never modified on the
+    /// device, so it is always a copy of a file the user already has.</summary>
     [Fact]
-    public async Task Delete_backs_up_then_clears_and_rename_keeps_blob()
+    public async Task Delete_clears_the_slot_without_archiving_and_rename_keeps_blob()
     {
         var (svc, dev) = Make();
         dev.SeedIr(2, "Doomed", Blob(0x11));
         await svc.DeleteIrAsync(2);
         Assert.Null(dev.SlotNames[2]);
-        Assert.Single(Directory.GetFiles(_backupDir, "ir-2-*-deleted.irblob"));
+        Assert.False(Directory.Exists(_backupDir) && Directory.GetFiles(_backupDir).Length > 0);
+        Assert.DoesNotContain(dev.CommandLog, c => c.StartsWith("dread"));
 
         dev.SeedIr(5, "Old", Blob(0x22));
         await svc.RenameIrAsync(5, "New Name");

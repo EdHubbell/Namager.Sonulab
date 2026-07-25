@@ -42,7 +42,8 @@ public partial class PresetListView : UserControl
         {
             bool go = await ConfirmDialog.ShowAsync(owner, "Delete preset",
                 $"Delete preset {sel.DisplaySlot:00} — “{sel.Name}”?\n\n" +
-                "This removes it from the pedal and cannot be undone.",
+                "A preset exists only on the pedal, so this cannot be undone. " +
+                "Download this preset first if you want to be able to restore it to the pedal later.",
                 "Delete", "Cancel");
             if (go) await vm.DeleteCommand.ExecuteAsync(null);
         }

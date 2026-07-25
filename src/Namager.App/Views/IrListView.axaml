@@ -19,7 +19,7 @@
          easy to hit by accident. Click is handled in code-behind so it can confirm first. -->
     <DockPanel DockPanel.Dock="Top" Classes="slot-toolbar" LastChildFill="False">
       <Button x:Name="DeleteButton" DockPanel.Dock="Right"
-              IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete (backs up first)">
+              IsEnabled="{Binding CanMutate}" ToolTip.Tip="Delete IR">
         <PathIcon Data="{StaticResource Icon.Delete}" Width="16" Height="16"/>
       </Button>
       <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="4">

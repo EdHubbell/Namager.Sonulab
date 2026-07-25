@@ -222,9 +222,9 @@ public partial class MainWindowViewModel : ObservableObject
             Editor = editor;
 
             // Absolute, under Documents: the old relative "docs\backups" resolved against the
-            // process working directory, so in an installed build the pre-delete slot archives
-            // landed where no user would look. See Namager.App.Services.AppPaths.
-            var slotBackups = Namager.App.Services.AppPaths.DeletedSlotBackups;
+            // process working directory, so in an installed build these landed where no user would
+            // look. Only upload writes here now — delete archives nothing. See AppPaths.
+            var slotBackups = Namager.App.Services.AppPaths.SlotBackups;
 
             var ampService = new AmpService(_connection.Client!, slotBackups);
             var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status, usage: usage, catalog: catalog);

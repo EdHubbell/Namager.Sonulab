@@ -85,7 +85,11 @@ public sealed class SlotBlobService
         var names = await _client.ReadListAsync(_kind.ListPath, ct);
         if (index < 0 || index >= names.Count || string.IsNullOrEmpty(names[index]))
             return;                                                       // already empty: no-op
-        await BackupSlotAsync(index, "-deleted", ct);
+        // Deliberately NO pre-delete archive. Amp and IR blobs are never modified on the device —
+        // whatever is in the slot came from a file the user already has on their PC, so an archive
+        // duplicates something they own and costs a full slot dread (96 chunks for an amp) on every
+        // delete. Upload still backs up the slot it is about to OVERWRITE, where the old contents
+        // really can be the only copy of a particular slot's state.
         await _client.DWriteChunkAsync(_kind.ListPath, index, -1, new byte[128], ct);
     }
 

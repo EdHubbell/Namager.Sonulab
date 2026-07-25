@@ -15,8 +15,8 @@ public partial class IrListView : UserControl
         DeleteButton.Click += async (_, _) => await DeleteAsync();
     }
 
-    /// <summary>Confirm before deleting. The slot is archived first, so this is recoverable —
-    /// the dialog says where, because a user who can't find the copy will treat it as gone.</summary>
+    /// <summary>Confirm before deleting. Nothing is archived — an IR blob is never modified on the
+    /// device, so the slot only ever holds a copy of a file the user already has.</summary>
     private async System.Threading.Tasks.Task DeleteAsync()
     {
         if (DataContext is not IrListViewModel vm) return;
@@ -26,7 +26,8 @@ public partial class IrListView : UserControl
         {
             bool go = await ConfirmDialog.ShowAsync(owner, "Delete IR",
                 $"Delete IR {sel.Index + 1:00} — “{sel.Name}”?\n\n" +
-                $"A copy is saved to {Namager.App.Services.AppPaths.DeletedSlotBackups} first.",
+                "This frees the slot on the pedal. Nothing is saved to your PC — " +
+                "upload the original file again if you want it back.",
                 "Delete", "Cancel");
             if (go) await vm.DeleteCommand.ExecuteAsync(null);
         }
