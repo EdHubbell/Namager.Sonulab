@@ -68,11 +68,22 @@ public partial class ParameterFieldViewModel : ObservableObject
 
         // A ref-listed field whose current value vanished from the device list (e.g. deleted amp)
         // still shows its value: prepend it so the ComboBox can display the selection.
-        if (!ReferenceEquals(Options, schema.Options) && _text is { Length: > 0 } t && !Options.Contains(t))
-            Options = new[] { t }.Concat(Options).ToArray();
+        if (!ReferenceEquals(Options, schema.Options))
+            Options = UnionCurrentValue(Options);
 
         _originalJson = ToJsonValue();
     }
+
+    /// <summary>Prepend the field's current text to <paramref name="options"/> when the device list
+    /// no longer offers it, so a deleted/renamed reference still shows as the selection rather than
+    /// blanking the field — a blank would read as a user edit and could be saved back as an empty
+    /// reference. No-op (returns <paramref name="options"/> unchanged) when the value is already
+    /// present or there is no current text. Shared by the constructor's initial load and
+    /// <see cref="SetRefOptions"/>'s later refresh so the two stay in lockstep.</summary>
+    private IReadOnlyList<string> UnionCurrentValue(IReadOnlyList<string> options) =>
+        _text is { Length: > 0 } t && !options.Contains(t)
+            ? new[] { t }.Concat(options).ToArray()
+            : options;
 
     /// <summary>Replace the device-supplied option list in place (an amp/IR was added or deleted).
     /// The current value is unioned in when the device no longer offers it, so a deleted amp shows
@@ -81,9 +92,7 @@ public partial class ParameterFieldViewModel : ObservableObject
     public void SetRefOptions(IReadOnlyList<string> names)
     {
         if (RefSource is null) return;
-        Options = _text is { Length: > 0 } t && !names.Contains(t)
-            ? new[] { t }.Concat(names).ToArray()
-            : names;
+        Options = UnionCurrentValue(names);
         if (Kind == "string" && Options.Count > 0) { Kind = "plist"; OnPropertyChanged(nameof(Kind)); }
         OnPropertyChanged(nameof(Options));
     }

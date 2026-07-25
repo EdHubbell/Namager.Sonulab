@@ -441,4 +441,39 @@ public class ParameterEditorViewModelTests
         Assert.Equal("mA", field.Text);
         Assert.Contains("mA", field.Options);
     }
+
+    // ---- FIX 1: a picker refresh must not falsely dirty the editor ----
+
+    [Fact] public async Task RefreshRefOptions_after_a_catalog_bump_does_not_dirty_the_editor()
+    {
+        // Reviewer-verified regression: SetRefOptions raises PropertyChanged(Options) (and
+        // sometimes Kind), and the old subscription treated ANY field PropertyChanged as a user
+        // edit. Loading a preset, then just refreshing the amp/IR pickers (e.g. after visiting the
+        // Amps tab), must leave IsDirty false.
+        var d = RefreshDev(); await d.OpenAsync();
+        var catalog = new CatalogVersion();
+        var vm = new ParameterEditorViewModel(new SonuClient(d), catalog: catalog);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        Assert.False(vm.IsDirty);
+
+        d.SeedList(@"root\amp", new[] { "mA", "mB", "mC" });   // byte-identical amp list otherwise
+        catalog.Bump();
+        await vm.RefreshRefOptionsAsync();
+
+        Assert.False(vm.IsDirty);
+    }
+
+    [Fact] public async Task A_genuine_value_edit_still_dirties_the_editor()
+    {
+        // The fix must not go too far the other way: an actual user edit must still be observed.
+        var d = Dev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        Assert.False(vm.IsDirty);
+
+        var gain = vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path.EndsWith(@"\gain"));
+        gain.Number = -3.0;
+
+        Assert.True(vm.IsDirty);
+    }
 }

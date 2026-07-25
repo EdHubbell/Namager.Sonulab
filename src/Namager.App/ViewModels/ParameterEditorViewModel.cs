@@ -114,7 +114,14 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                     schema.Ref is { Length: > 0 } fr && refOptions.TryGetValue(fr, out var opts) && opts.Count > 0
                         ? opts : null);
                 labeled.Label = _labels.Label(rec.Path, schema.Desc.Length > 0 ? schema.Desc : null);
-                labeled.PropertyChanged += (_, _) => IsDirty = true;
+                labeled.PropertyChanged += (_, e) =>
+                {
+                    // Only a VALUE edit dirties the preset. Options/Kind change when the device's
+                    // amp or IR list is refreshed under us (RefreshRefOptionsAsync -> SetRefOptions),
+                    // which is not a user edit.
+                    if (e.PropertyName is nameof(ParameterFieldViewModel.Number)
+                                       or nameof(ParameterFieldViewModel.Text)) IsDirty = true;
+                };
 
                 if (seg.Length == 4)                                     // root\app\block\leaf
                 {
