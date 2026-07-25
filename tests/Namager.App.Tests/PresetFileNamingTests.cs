@@ -83,4 +83,19 @@ public class PresetFileNamingTests
         Assert.Equal("A", Assert.Single(plan.Items).Name);
         Assert.Equal(new[] { "03 - B.pst" }, plan.Skipped);
     }
+
+    // Same two files, input order reversed: proves the outcome is decided by PlanRestore's own
+    // sort, not by the enumeration order it happened to receive. Without this, a "first file wins"
+    // test using already-alphabetical input would pass equally against an implementation that does
+    // no sorting at all.
+    [Fact] public void PlanRestore_duplicate_slot_outcome_is_independent_of_input_order()
+    {
+        var plan = PresetFileNaming.PlanRestore(new[]
+        {
+            @"C:\b\03 - B.pst",
+            @"C:\b\03 - A.pst",
+        });
+        Assert.Equal("A", Assert.Single(plan.Items).Name);
+        Assert.Equal(new[] { "03 - B.pst" }, plan.Skipped);
+    }
 }

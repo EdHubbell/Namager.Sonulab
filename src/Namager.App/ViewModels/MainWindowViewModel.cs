@@ -303,8 +303,16 @@ public partial class MainWindowViewModel : ObservableObject
             if (ct.IsCancellationRequested) break;
             progress?.Report($"{done + failed + 1}/{plan.Items.Count} — {item.Name}");
             op.Report($"Restoring {done + failed + 1}/{plan.Items.Count}: {item.Name}");
-            try { await backup.RestoreSlotAsync(item.Index, item.Path, ct); done++; }
-            catch (OperationCanceledException) { break; }
+            // Deliberately CancellationToken.None below, NOT ct: DeviceRepository.WritePresetToSlotAsync
+            // is rename -> per-param live replay -> save-by-name -> verify, four independently-awaited
+            // device round trips, not one atomic operation. Forwarding `ct` into it lets cancellation
+            // land between, e.g., the rename and the save, leaving the slot renamed to the new preset
+            // while still holding the OLD preset's content — a silent corrupt slot, not a visible
+            // failure. Once a slot's restore has started it must run to completion; `ct` is checked
+            // only at the top of this loop, so cancellation takes effect after the current preset
+            // finishes (matching the progress dialog's "Cancelling — finishing the current preset…").
+            try { await backup.RestoreSlotAsync(item.Index, item.Path, CancellationToken.None); done++; }
+            catch (OperationCanceledException) { break; } // defensive: should not fire given the above
             catch (Exception ex)
             {
                 Log.Warn(ex, "restore of slot {0} failed", item.Index);
