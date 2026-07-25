@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.ComponentModel;
 using Namager.App.Services;
 using Namager.App.ViewModels;
 using Sonulab.Core;
@@ -49,5 +51,16 @@ public class PresetTransferTests
         var bytes = await vm.ReadLoadedPresetBytesAsync();
         Assert.Null(bytes);
         Assert.NotNull(vm.ErrorMessage);
+    }
+
+    [Fact] public async Task CanDownload_change_notification_fires_across_a_load()
+    {
+        var (vm, _) = Editor();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(3, "Clean Verb"));
+
+        Assert.Contains(nameof(ParameterEditorViewModel.CanDownload), raised);
     }
 }

@@ -54,6 +54,10 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     /// <summary>A preset is loaded and a repository is available, so its bytes can be read.</summary>
     public bool CanDownload => _repo is not null && LoadedIndex >= 0 && !IsLoading;
 
+    // CanDownload depends on IsLoading, so every IsLoading transition must re-notify it —
+    // not just the ones the load path happens to pass through.
+    partial void OnIsLoadingChanged(bool value) => OnPropertyChanged(nameof(CanDownload));
+
     /// <summary>Default file name offered by the download picker — the same "NN - Name.pst" form
     /// BackupService writes, so downloads drop straight into a backup folder.</summary>
     public string SuggestedFileName => LoadedIndex >= 0
@@ -191,8 +195,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         }
         finally
         {
-            IsLoading = false;
-            OnPropertyChanged(nameof(CanDownload));
+            IsLoading = false;   // OnIsLoadingChanged re-notifies CanDownload
             OnPropertyChanged(nameof(SuggestedFileName));
         }
     }
