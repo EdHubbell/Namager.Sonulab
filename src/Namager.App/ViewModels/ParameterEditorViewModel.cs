@@ -51,6 +51,14 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     /// <summary>0-based device slot of the loaded preset, or -1 when nothing is loaded.</summary>
     public int LoadedIndex { get; private set; } = -1;
 
+    /// <summary>A preset is loaded and a repository is available, so its bytes can be read.</summary>
+    public bool CanDownload => _repo is not null && LoadedIndex >= 0 && !IsLoading;
+
+    /// <summary>Default file name offered by the download picker — the same "NN - Name.pst" form
+    /// BackupService writes, so downloads drop straight into a backup folder.</summary>
+    public string SuggestedFileName => LoadedIndex >= 0
+        ? PresetFileNaming.FileNameFor(LoadedIndex, PresetName) : "preset.pst";
+
     // Per-session expansion memory, keyed by block path (root\app\<block>) so it survives
     // header relabeling; reapplied on every rebuild (preset switch). Intentionally NOT
     // persisted to disk (spec decision).
@@ -181,7 +189,12 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             ErrorMessage = $"Load failed: {ex.Message}";
             LoadedIndex = previousIndex;
         }
-        finally { IsLoading = false; }
+        finally
+        {
+            IsLoading = false;
+            OnPropertyChanged(nameof(CanDownload));
+            OnPropertyChanged(nameof(SuggestedFileName));
+        }
     }
 
     /// <summary>Re-read the amp/IR picker lists if the device catalog moved since they were
@@ -217,6 +230,31 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         }
         if (allOk) _optionsVersion = version;
     }
+
+    /// <summary>Read the loaded preset's full 8192-byte blob from the pedal. The VIEW writes it to
+    /// the path the user picked — keeping the file dialog out of the view model. Returns null (and
+    /// sets <see cref="ErrorMessage"/>) on failure; never throws.</summary>
+    public async Task<byte[]?> ReadLoadedPresetBytesAsync()
+    {
+        if (_repo is null || LoadedIndex < 0) return null;
+        ErrorMessage = null;
+        using var op = _status.BeginOperation("Reading preset…");
+        try
+        {
+            return (await _repo.ReadPresetAsync(LoadedIndex)).ToBytes();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn(ex, "preset download read failed");
+            ErrorMessage = $"Download failed: {ex.Message}";
+            _status.Failure($"Download failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Report a completed download on the status bar.</summary>
+    public void ReportDownloaded(string path)
+        => _status.Success($"Saved {System.IO.Path.GetFileName(path)}");
 
     [RelayCommand]
     private async Task SaveAsync()
