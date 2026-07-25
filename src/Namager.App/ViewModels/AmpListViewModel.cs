@@ -15,6 +15,7 @@ public partial class AmpListViewModel : ObservableObject
     private readonly bool _writes;
     private readonly Namager.App.Services.IStatusService _status;
     private readonly Namager.App.Services.IPresetUsageService _usage;
+    private readonly Namager.App.Services.CatalogVersion _catalog;
 
     /// <summary>Distillation seam — Sonulab.Distill.Distiller.DistillAsync in the app,
     /// a fake in tests. Returns the fidelity ShapeErr (lower is better).</summary>
@@ -30,7 +31,8 @@ public partial class AmpListViewModel : ObservableObject
     public AmpListViewModel(AmpService amps, bool writesAllowed,
         Namager.App.Services.IStatusService? status = null,
         DistillRunner? distill = null, string? distilledDir = null, Action<Action>? dispatch = null,
-        Namager.App.Services.IPresetUsageService? usage = null)
+        Namager.App.Services.IPresetUsageService? usage = null,
+        Namager.App.Services.CatalogVersion? catalog = null)
     {
         _amps = amps; _writes = writesAllowed;
         _status = status ?? Namager.App.Services.NullStatusService.Instance;
@@ -38,6 +40,7 @@ public partial class AmpListViewModel : ObservableObject
         _distilledDir = distilledDir ?? Path.Combine("NAMFiles", "Distilled");
         _dispatch = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a));
         _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance;
+        _catalog = catalog ?? new Namager.App.Services.CatalogVersion();
         // Progressive highlight fill: the background scan publishes after each preset resolves.
         // MapUpdated may fire on a worker thread — marshal through the dispatch seam.
         _usage.MapUpdated += () => _dispatch(ApplyUsage);
@@ -71,7 +74,17 @@ public partial class AmpListViewModel : ObservableObject
         { try { await detailsLoad; } catch { /* cancelled/superseded read */ } }
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
         using var op = _status.BeginOperation(message);
-        try { await work(); await ReloadAsync(); _status.Success(success); return true; }
+        try
+        {
+            await work();
+            await ReloadAsync();
+            // Every RunAsync caller (delete / rename / reorder) changes the amp NAME LIST or its
+            // order, which is exactly what the parameter editor's picker shows. Reads never come
+            // through here, so this can't fire on a plain refresh.
+            _catalog.Bump();
+            _status.Success(success);
+            return true;
+        }
         catch (AmpServiceException ex) { ErrorMessage = ex.Message; _status.Failure(ex.Message); return false; }
         catch (Exception ex)
         {
@@ -402,6 +415,7 @@ public partial class AmpListViewModel : ObservableObject
 
             IsUploadPanelOpen = false;                               // #5: auto-close into the detail view
             _status.Success($"Uploaded '{name}' to slot {slot + 1}");
+            _catalog.Bump();                                         // a new amp must appear in the editor's picker
         }
         catch (OperationCanceledException) { UploadError = "Cancelled."; }
         catch (Sonulab.Distill.DistillException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }

@@ -12,6 +12,7 @@ public partial class IrListViewModel : ObservableObject
     private readonly bool _writes;
     private readonly Namager.App.Services.IStatusService _status;
     private readonly Namager.App.Services.IPresetUsageService _usage;
+    private readonly Namager.App.Services.CatalogVersion _catalog;
 
     /// <summary>.wav -> device blob seam — Sonulab.Distill.WavToIr.Convert in the app,
     /// a fake in tests. Conversion is instant and synchronous (no cancel/progress needed).</summary>
@@ -23,13 +24,15 @@ public partial class IrListViewModel : ObservableObject
                            Namager.App.Services.IStatusService? status = null,
                            Func<string, byte[]>? convertWav = null,
                            Action<Action>? dispatch = null,
-                           Namager.App.Services.IPresetUsageService? usage = null)
+                           Namager.App.Services.IPresetUsageService? usage = null,
+                           Namager.App.Services.CatalogVersion? catalog = null)
     {
         _irs = irs; _writes = writesAllowed;
         _status = status ?? Namager.App.Services.NullStatusService.Instance;
         _convertWav = convertWav ?? Sonulab.Distill.WavToIr.Convert;
         _dispatch = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a));
         _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance;
+        _catalog = catalog ?? new Namager.App.Services.CatalogVersion();
         // Progressive highlight fill: the background scan publishes after each preset resolves.
         // MapUpdated may fire on a worker thread — marshal through the dispatch seam.
         _usage.MapUpdated += () => _dispatch(ApplyUsage);
@@ -57,7 +60,17 @@ public partial class IrListViewModel : ObservableObject
         if (!_writes || IsUploading) return false;
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
         using var op = _status.BeginOperation(message);
-        try { await work(); await ReloadAsync(); _status.Success(success); return true; }
+        try
+        {
+            await work();
+            await ReloadAsync();
+            // Every RunAsync caller (delete / rename / reorder) changes the IR NAME LIST or its
+            // order, which is exactly what the parameter editor's picker shows. Reads never come
+            // through here, so this can't fire on a plain refresh.
+            _catalog.Bump();
+            _status.Success(success);
+            return true;
+        }
         catch (IrServiceException ex) { ErrorMessage = ex.Message; _status.Failure(ex.Message); return false; }
         catch (Exception ex)
         {
@@ -250,6 +263,7 @@ public partial class IrListViewModel : ObservableObject
             await ReloadAsync();
             Selected = Items.FirstOrDefault(i => i.Index == slot);
             _status.Success($"Uploaded '{name}' to slot {slot + 1}");
+            _catalog.Bump();                                         // a new IR must appear in the editor's picker
         }
         catch (InvalidDataException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
         catch (IrServiceException ex) { UploadError = ex.Message; _status.Failure(ex.Message); }
