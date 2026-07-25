@@ -81,7 +81,7 @@ public partial class ParameterFieldViewModel : ObservableObject
     /// present or there is no current text. Shared by the constructor's initial load and
     /// <see cref="SetRefOptions"/>'s later refresh so the two stay in lockstep.</summary>
     private IReadOnlyList<string> UnionCurrentValue(IReadOnlyList<string> options) =>
-        _text is { Length: > 0 } t && !options.Contains(t)
+        Text is { Length: > 0 } t && !options.Contains(t)
             ? new[] { t }.Concat(options).ToArray()
             : options;
 

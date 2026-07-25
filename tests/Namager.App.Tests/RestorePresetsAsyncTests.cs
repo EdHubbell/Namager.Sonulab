@@ -56,6 +56,40 @@ public class RestorePresetsAsyncTests
         return (connVm, dev);
     }
 
+    /// <summary>Same identify/structural preflight as <see cref="IdentifyingPresetDevice"/>, but a
+    /// firmware version (9.9.9) the compatibility catalog (only 2.5.1) has never seen — connects
+    /// fine (structural preflight passes, Repository gets populated) but WritesAllowed comes back
+    /// false. Used to reach FIX 3's "connected, writes not verified" branch, which is otherwise
+    /// unreachable from a test: Connection.Repository has a private setter, so only a real connect
+    /// against a device that clears the structural check can populate it.</summary>
+    private sealed class UntestedFirmwarePresetDevice : FakePresetDevice
+    {
+        public override Task<string> SendAsync(string command, CancellationToken ct = default) => command switch
+        {
+            @"read root\sys\_name" => Task.FromResult("root\\sys\\_name:{\"value\":\"AMP Station\"}\r\n"),
+            @"read root\sys\_id" => Task.FromResult("root\\sys\\_id:{\"value\":\"abc\"}\r\n"),
+            @"read root\sys\_ver" => Task.FromResult("root\\sys\\_ver:{\"value\":\"9.9.9\"}\r\n"),
+            @"read root\sys\_arch" => Task.FromResult("root\\sys\\_arch:{\"value\":\"ESP32S3\"}\r\n"),
+            @"read root\sys\_license" => Task.FromResult("root\\sys\\_license:{\"value\":\"stompstation1\"}\r\n"),
+            @"browse root\presets" => Task.FromResult("root\\presets:{\"value\":[],\"type\":\"list\",\"size\":8192,\"count\":30,\"chunk\":128,\"item_type\":\"pst_pst\"}\r\n"),
+            @"browse root\amp" => Task.FromResult("root\\amp:{\"value\":[],\"type\":\"list\",\"size\":12288,\"count\":30,\"chunk\":128,\"item_type\":\"vxamp\"}\r\n"),
+            @"browse root\ir" => Task.FromResult("root\\ir:{\"value\":[],\"type\":\"list\",\"size\":4096,\"count\":30,\"chunk\":128,\"item_type\":\"wav_44100\"}\r\n"),
+            _ => base.SendAsync(command, ct),
+        };
+    }
+
+    static ConnectionViewModel ConnectedButWritesBlocked()
+    {
+        var dev = new UntestedFirmwarePresetDevice();
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var session = new DeviceSession(
+            new ILinkProvider[] { new FixedProvider("USB", dev) },
+            new CompatibilityChecker(FirmwareCatalog.Default));
+        var connVm = new ConnectionViewModel(session, null, null, dispatch: a => a());
+        connVm.ConnectCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        return connVm;
+    }
+
     static string WritePstFile(string dir, string fileName, byte[] bytes)
     {
         Directory.CreateDirectory(dir);
@@ -74,6 +108,25 @@ public class RestorePresetsAsyncTests
         var summary = await vm.RestorePresetsAsync(plan, progress: null, CancellationToken.None);
 
         Assert.Equal("Not connected — nothing was restored.", summary);
+    }
+
+    // ---- FIX 3: Restore is gated on WritesAllowed, with an honest rejection message ----
+
+    [Fact] public async Task RestorePresetsAsync_returns_a_writes_specific_message_when_connected_but_not_writable()
+    {
+        // Real, reachable state: connected to the pedal, but on firmware the compatibility
+        // checker has not verified for writes. Must NOT be told "Not connected" — they are.
+        var connVm = ConnectedButWritesBlocked();
+        Assert.True(connVm.IsConnected);
+        Assert.False(connVm.WritesAllowed);
+        Assert.NotNull(connVm.Repository);
+
+        var vm = new MainWindowViewModel { Connection = connVm };
+        var plan = new RestorePlan(Array.Empty<RestoreItem>(), Array.Empty<string>());
+
+        var summary = await vm.RestorePresetsAsync(plan, progress: null, CancellationToken.None);
+
+        Assert.Equal("This firmware isn't verified for writes — nothing was restored.", summary);
     }
 
     [Fact] public async Task RestorePresetsAsync_writes_every_planned_slot_and_reports_the_count()

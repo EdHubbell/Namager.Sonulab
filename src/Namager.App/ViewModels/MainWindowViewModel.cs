@@ -27,6 +27,47 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private Tone3000ViewModel _tone3000;
     [ObservableProperty] private UpdateInfo? _updateAvailable;
 
+    /// <summary>True for the whole duration of a Backup or a Restore run. Restore's progress
+    /// dialog is modal, so it accidentally already blocked overlap — but Backup shows no dialog
+    /// (just an indeterminate status-bar operation), so without this flag the user could start a
+    /// second Backup, or a Restore, while one was already in flight. SonuClient serialises the
+    /// wire so nothing corrupts on the device, but a Restore interleaved with a Backup would
+    /// silently mix pre- and post-restore slots into one backup folder.</summary>
+    [ObservableProperty] private bool _fileOperationInFlight;
+
+    partial void OnFileOperationInFlightChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanBackup));
+        OnPropertyChanged(nameof(CanRestore));
+    }
+
+    /// <summary>Backup only reads the pedal, so — unlike Restore — it never needs
+    /// <see cref="Sonulab.Core.Connection"/>'s write gate.</summary>
+    public bool CanBackup => Connection.IsConnected && !FileOperationInFlight;
+
+    /// <summary>Restore writes to the device, so it is additionally gated on WritesAllowed: on
+    /// firmware the compatibility checker has not verified for writes, Restore must stay disabled
+    /// rather than let the user click through a confirmation dialog only to be rejected.</summary>
+    public bool CanRestore => Connection.IsConnected && Connection.WritesAllowed && !FileOperationInFlight;
+
+    // The generated Connection setter (object-initializer / explicit assignment) runs this, but
+    // the constructor below assigns the backing field directly to avoid a partially-constructed
+    // ConnectionViewModel racing its own PropertyChanged handlers — so it calls HookConnection
+    // itself right after construction. Either path ends up subscribed exactly once per instance.
+    partial void OnConnectionChanged(ConnectionViewModel value) => HookConnection(value);
+
+    /// <summary>CanBackup/CanRestore read Connection.IsConnected/WritesAllowed live, so they are
+    /// always correct once read — this subscription exists purely to fire PropertyChanged so
+    /// bound UI (MenuItem.IsEnabled) re-reads them.</summary>
+    private void HookConnection(ConnectionViewModel connection) => connection.PropertyChanged += (_, e) =>
+    {
+        if (e.PropertyName is nameof(ConnectionViewModel.IsConnected) or nameof(ConnectionViewModel.WritesAllowed))
+        {
+            OnPropertyChanged(nameof(CanBackup));
+            OnPropertyChanged(nameof(CanRestore));
+        }
+    };
+
     /// <summary>The persisted theme choice: "System", "Light", or "Dark".</summary>
     [ObservableProperty] private string _theme = Namager.App.Services.ThemeSettings.System;
 
@@ -146,6 +187,9 @@ public partial class MainWindowViewModel : ObservableObject
         var session = new DeviceSession(BuildProviders(options), new CompatibilityChecker(FirmwareCatalog.Default));
 
         _connection = new ConnectionViewModel(session, new UsagePingService(), Status);
+        // Direct field assignment above bypasses the generated property setter (and so
+        // OnConnectionChanged) — hook it explicitly so CanBackup/CanRestore stay live.
+        HookConnection(_connection);
         // The scan's link is dead; its task must not keep polling a corpse. (SonuClient's latch
         // makes each attempt fail instantly, so this is about ending it, not about cost.)
         _connection.DeviceLost += (_, _) => _usageService?.Stop();
@@ -262,24 +306,33 @@ public partial class MainWindowViewModel : ObservableObject
     public sealed record BackupResult(int Count, string Folder);
 
     /// <summary>Snapshot every occupied preset to a new timestamped folder. Returns null when
-    /// there is no connection or the run failed (the status bar carries the reason). Never throws.</summary>
+    /// there is no connection or the run failed (the status bar carries the reason). Never throws.
+    /// FileOperationInFlight is held for the whole call (including the disconnected early-return)
+    /// so a concurrent Restore is blocked for the entire window a backup folder could be mid-write —
+    /// Backup shows no modal dialog, so nothing else stops the user from starting a second
+    /// operation while this one runs.</summary>
     public async Task<BackupResult?> BackupPresetsAsync()
     {
-        if (Connection.Repository is not { } repo) return null;
+        FileOperationInFlight = true;
         try
         {
-            var folder = NewBackupFolder(System.DateTime.Now);
-            using var op = Status.BeginOperation("Backing up presets…");
-            int n = await new Sonulab.Core.Services.BackupService(repo).SnapshotAllAsync(folder);
-            Status.Success($"Backed up {n} preset{(n == 1 ? "" : "s")}.");
-            return new BackupResult(n, folder);
+            if (Connection.Repository is not { } repo) return null;
+            try
+            {
+                var folder = NewBackupFolder(System.DateTime.Now);
+                using var op = Status.BeginOperation("Backing up presets…");
+                int n = await new Sonulab.Core.Services.BackupService(repo).SnapshotAllAsync(folder);
+                Status.Success($"Backed up {n} preset{(n == 1 ? "" : "s")}.");
+                return new BackupResult(n, folder);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(ex, "preset backup failed");
+                Status.Failure($"Backup failed: {ex.Message}");
+                return null;
+            }
         }
-        catch (Exception ex)
-        {
-            Log.Warn(ex, "preset backup failed");
-            Status.Failure($"Backup failed: {ex.Message}");
-            return null;
-        }
+        finally { FileOperationInFlight = false; }
     }
 
     /// <summary>Write each planned file to its slot, in slot order, reporting "n/m — Name" through
@@ -292,43 +345,53 @@ public partial class MainWindowViewModel : ObservableObject
         IProgress<string>? progress,
         CancellationToken ct)
     {
-        if (Connection.Repository is not { } repo || !Connection.WritesAllowed)
-            return "Not connected — nothing was restored.";
-
-        var backup = new Sonulab.Core.Services.BackupService(repo);
-        int done = 0, failed = 0;
-        using var op = Status.BeginOperation("Restoring presets…", determinate: true);
-        foreach (var item in plan.Items)
+        FileOperationInFlight = true;
+        try
         {
-            if (ct.IsCancellationRequested) break;
-            progress?.Report($"{done + failed + 1}/{plan.Items.Count} — {item.Name}");
-            op.Report($"Restoring {done + failed + 1}/{plan.Items.Count}: {item.Name}");
-            // Deliberately CancellationToken.None below, NOT ct: DeviceRepository.WritePresetToSlotAsync
-            // is rename -> per-param live replay -> save-by-name -> verify, four independently-awaited
-            // device round trips, not one atomic operation. Forwarding `ct` into it lets cancellation
-            // land between, e.g., the rename and the save, leaving the slot renamed to the new preset
-            // while still holding the OLD preset's content — a silent corrupt slot, not a visible
-            // failure. Once a slot's restore has started it must run to completion; `ct` is checked
-            // only at the top of this loop, so cancellation takes effect after the current preset
-            // finishes (matching the progress dialog's "Cancelling — finishing the current preset…").
-            try { await backup.RestoreSlotAsync(item.Index, item.Path, CancellationToken.None); done++; }
-            catch (OperationCanceledException) { break; } // defensive: should not fire given the above
-            catch (Exception ex)
+            if (Connection.Repository is not { } repo)
+                return "Not connected — nothing was restored.";
+            // Split from the "not connected" case above: this is a real, reachable state (the
+            // pedal IS connected) and telling the user they aren't connected would be a lie — they
+            // just clicked through a confirmation naming exact slots and a duration.
+            if (!Connection.WritesAllowed)
+                return "This firmware isn't verified for writes — nothing was restored.";
+
+            var backup = new Sonulab.Core.Services.BackupService(repo);
+            int done = 0, failed = 0;
+            using var op = Status.BeginOperation("Restoring presets…", determinate: true);
+            foreach (var item in plan.Items)
             {
-                Log.Warn(ex, "restore of slot {0} failed", item.Index);
-                failed++;
+                if (ct.IsCancellationRequested) break;
+                progress?.Report($"{done + failed + 1}/{plan.Items.Count} — {item.Name}");
+                op.Report($"Restoring {done + failed + 1}/{plan.Items.Count}: {item.Name}");
+                // Deliberately CancellationToken.None below, NOT ct: DeviceRepository.WritePresetToSlotAsync
+                // is rename -> per-param live replay -> save-by-name -> verify, four independently-awaited
+                // device round trips, not one atomic operation. Forwarding `ct` into it lets cancellation
+                // land between, e.g., the rename and the save, leaving the slot renamed to the new preset
+                // while still holding the OLD preset's content — a silent corrupt slot, not a visible
+                // failure. Once a slot's restore has started it must run to completion; `ct` is checked
+                // only at the top of this loop, so cancellation takes effect after the current preset
+                // finishes (matching the progress dialog's "Cancelling — finishing the current preset…").
+                try { await backup.RestoreSlotAsync(item.Index, item.Path, CancellationToken.None); done++; }
+                catch (OperationCanceledException) { break; } // defensive: should not fire given the above
+                catch (Exception ex)
+                {
+                    Log.Warn(ex, "restore of slot {0} failed", item.Index);
+                    failed++;
+                }
+                op.Report((double)(done + failed) / plan.Items.Count);
             }
-            op.Report((double)(done + failed) / plan.Items.Count);
+
+            // Many slots changed at once — a full rescan is the honest choice here, not a patch.
+            _usageService?.Invalidate();
+            if (Presets is { } p) { try { await p.RefreshCommand.ExecuteAsync(null); } catch { /* list resync is best effort */ } }
+
+            var summary = $"Restored {done} preset{(done == 1 ? "" : "s")}"
+                        + (failed > 0 ? $", {failed} failed" : "")
+                        + (plan.Skipped.Count > 0 ? $", {plan.Skipped.Count} skipped" : "") + ".";
+            if (failed > 0) Status.Failure(summary); else Status.Success(summary);
+            return summary;
         }
-
-        // Many slots changed at once — a full rescan is the honest choice here, not a patch.
-        _usageService?.Invalidate();
-        if (Presets is { } p) { try { await p.RefreshCommand.ExecuteAsync(null); } catch { /* list resync is best effort */ } }
-
-        var summary = $"Restored {done} preset{(done == 1 ? "" : "s")}"
-                    + (failed > 0 ? $", {failed} failed" : "")
-                    + (plan.Skipped.Count > 0 ? $", {plan.Skipped.Count} skipped" : "") + ".";
-        if (failed > 0) Status.Failure(summary); else Status.Success(summary);
-        return summary;
+        finally { FileOperationInFlight = false; }
     }
 }

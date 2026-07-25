@@ -227,4 +227,52 @@ public class MainWindowViewModelTests
         var vm = new MainWindowViewModel();
         Assert.Null(await vm.BackupPresetsAsync());
     }
+
+    // ---- FIX 2: Backup/Restore re-entrancy guard ----
+
+    [Fact] public void CanBackup_and_CanRestore_react_to_connection_and_in_flight_state()
+    {
+        var vm = new MainWindowViewModel();
+        Assert.False(vm.CanBackup);
+        Assert.False(vm.CanRestore);
+
+        vm.Connection.IsConnected = true;
+        Assert.True(vm.CanBackup);
+        Assert.False(vm.CanRestore);           // writes not (yet) allowed
+
+        vm.Connection.WritesAllowed = true;
+        Assert.True(vm.CanRestore);
+
+        vm.FileOperationInFlight = true;
+        Assert.False(vm.CanBackup);
+        Assert.False(vm.CanRestore);
+
+        vm.FileOperationInFlight = false;
+        Assert.True(vm.CanBackup);
+        Assert.True(vm.CanRestore);
+    }
+
+    [Fact] public void FileOperationInFlight_change_re_notifies_CanBackup_and_CanRestore()
+    {
+        var vm = new MainWindowViewModel();
+        vm.Connection.IsConnected = true;
+        vm.Connection.WritesAllowed = true;
+        var raised = new List<string>();
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName is not null) raised.Add(e.PropertyName); };
+
+        vm.FileOperationInFlight = true;
+
+        Assert.Contains(nameof(MainWindowViewModel.CanBackup), raised);
+        Assert.Contains(nameof(MainWindowViewModel.CanRestore), raised);
+    }
+
+    [Fact] public async Task BackupPresetsAsync_clears_FileOperationInFlight_even_when_disconnected()
+    {
+        // Disconnected VM: BackupPresetsAsync returns null via its early-return path. The flag
+        // must still come back down — a try/finally around the WHOLE method, not just the
+        // device-contacting branch.
+        var vm = new MainWindowViewModel();
+        Assert.Null(await vm.BackupPresetsAsync());
+        Assert.False(vm.FileOperationInFlight);
+    }
 }

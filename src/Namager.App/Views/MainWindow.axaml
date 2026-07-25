@@ -19,9 +19,9 @@
     <Menu DockPanel.Dock="Top" Background="{DynamicResource Sonulab.SurfaceAltBrush}">
       <MenuItem Header="_File">
         <MenuItem x:Name="BackupMenuItem" Header="_Backup Presets…"
-                  IsEnabled="{Binding Connection.IsConnected}"/>
+                  IsEnabled="{Binding CanBackup}"/>
         <MenuItem x:Name="RestoreMenuItem" Header="_Restore Presets…"
-                  IsEnabled="{Binding Connection.IsConnected}"/>
+                  IsEnabled="{Binding CanRestore}"/>
         <Separator/>
         <MenuItem x:Name="ExitMenuItem" Header="E_xit"/>
       </MenuItem>
