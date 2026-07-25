@@ -63,8 +63,8 @@ public partial class ConnectionViewModel : ObservableObject
             IsConnected = state.Connected;
             if (!state.Connected)
             {
-                Status = "Disconnected (no device found on USB or WiFi)";
-                _statusService.Failure("No device found on USB or WiFi");
+                Status = "Disconnected (no pedal found on USB — check the cable, and close VoidX-Control if it's running)";
+                _statusService.Failure("No pedal found on USB");
                 return;
             }
 

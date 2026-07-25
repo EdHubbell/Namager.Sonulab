@@ -59,15 +59,19 @@ public class ConnectionViewModelTests
 
     [Fact] public async Task Connect_when_no_device_found_sets_status()
     {
+        // USB-only since the 2026-07-25 spec: one provider, and the message names the VoidX-Control
+        // case explicitly because WiFi is no longer the workaround for a held COM port.
         var session = new DeviceSession(
-            new ILinkProvider[] { new FixedProvider("USB", null), new FixedProvider("WiFi", null) },
+            new ILinkProvider[] { new FixedProvider("USB", null) },
             new CompatibilityChecker(FirmwareCatalog.Default));
         var vm = new ConnectionViewModel(session);
 
         await vm.ConnectCommand.ExecuteAsync(null);
 
         Assert.False(vm.IsConnected);
-        Assert.Equal("Disconnected (no device found on USB or WiFi)", vm.Status);
+        Assert.Equal(
+            "Disconnected (no pedal found on USB — check the cable, and close VoidX-Control if it's running)",
+            vm.Status);
     }
 
     // PingAsync is now fired-and-forgotten by ConnectAsync (it must never gate the Connect
