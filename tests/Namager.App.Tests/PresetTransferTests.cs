@@ -191,4 +191,42 @@ public class PresetTransferTests
         Assert.Equal(0, usage.ContentWrittenCount);
         System.IO.Directory.Delete(dir, true);
     }
+
+    // ---- FIX 4: a truncated/oversized .pst must be rejected before any device write ----
+
+    [Fact] public async Task Upload_rejects_a_truncated_file_without_touching_the_device()
+    {
+        // A short fragment can still carry one perfectly valid line and pass the "has data" check —
+        // it must be caught by its raw byte length instead, before Parse ever runs.
+        var (vm, _, usage) = List(occupied: 2);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(dir);
+        var file = System.IO.Path.Combine(dir, "00 - Truncated.pst");
+        var shortBytes = System.Text.Encoding.ASCII.GetBytes(@"root\app\amp\amp:{""value"":""mZ""}");
+        Assert.True(shortBytes.Length < PresetDocument.BlobSize);
+        System.IO.File.WriteAllBytes(file, shortBytes);
+
+        await vm.UploadAsync(file, () => Task.FromResult<int?>(null));
+
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Equal(0, usage.ContentWrittenCount);
+        Assert.True(vm.Items[2].IsEmpty);       // nothing was written to the pedal
+        System.IO.Directory.Delete(dir, true);
+    }
+
+    [Fact] public async Task Upload_rejects_an_oversized_file_without_touching_the_device()
+    {
+        var (vm, _, usage) = List(occupied: 2);
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(dir);
+        var file = System.IO.Path.Combine(dir, "00 - Oversized.pst");
+        System.IO.File.WriteAllBytes(file, new byte[PresetDocument.BlobSize + 1]);
+
+        await vm.UploadAsync(file, () => Task.FromResult<int?>(null));
+
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Equal(0, usage.ContentWrittenCount);
+        Assert.True(vm.Items[2].IsEmpty);
+        System.IO.Directory.Delete(dir, true);
+    }
 }

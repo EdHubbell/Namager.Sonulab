@@ -122,10 +122,10 @@ public partial class PresetListViewModel : ObservableObject
         if (!_writes) return;
         ErrorMessage = null;
 
-        PresetDocument doc;
+        byte[] bytes;
         try
         {
-            doc = PresetDocument.Parse(await File.ReadAllBytesAsync(path));
+            bytes = await File.ReadAllBytesAsync(path);
         }
         catch (Exception ex)
         {
@@ -135,6 +135,19 @@ public partial class PresetListViewModel : ObservableObject
             _status.Failure("Upload failed — unreadable file.");
             return;
         }
+        // Every .pst this app writes is exactly BlobSize bytes. A truncated (or padded/concatenated)
+        // file still parses — PresetDocument.Parse just reads to the first NUL — and the read-back
+        // verify in WritePresetToSlotAsync would then compare the write against the SAME truncated
+        // document and pass, so a short file must be rejected here, before any device write.
+        if (bytes.Length != PresetDocument.BlobSize)
+        {
+            ErrorMessage =
+                $"That .pst file is {bytes.Length} bytes; a preset file must be exactly {PresetDocument.BlobSize} bytes.";
+            _status.Failure("Upload failed — wrong file size.");
+            return;
+        }
+
+        var doc = PresetDocument.Parse(bytes);
         if (doc.Lines.Count == 0 || doc.Lines.All(string.IsNullOrWhiteSpace))
         {
             ErrorMessage = "That .pst file has no preset data in it.";

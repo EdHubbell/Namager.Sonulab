@@ -5,6 +5,7 @@ using Avalonia.Platform.Storage;
 using Namager.App;
 using Namager.App.Services;
 using Namager.App.ViewModels;
+using Sonulab.Core.Model;
 
 namespace Namager.App.Views;
 
@@ -71,7 +72,8 @@ public partial class MainWindow : Window
                 new FolderPickerOpenOptions { Title = "Choose a backup folder", AllowMultiple = false });
             if (folders.Count != 1 || folders[0].TryGetLocalPath() is not { } dir) return;
 
-            var plan = PresetFileNaming.PlanRestore(System.IO.Directory.GetFiles(dir, "*.pst"));
+            var plan = RejectWrongSizedFiles(
+                PresetFileNaming.PlanRestore(System.IO.Directory.GetFiles(dir, "*.pst")));
 
             if (plan.Items.Count == 0)
             {
@@ -100,6 +102,31 @@ public partial class MainWindow : Window
             // async void-style handler: never let this escape onto the UI thread.
             vm.Status.Failure($"Restore failed: {ex.Message}");
         }
+    }
+
+    /// <summary>Move any planned item whose file is not exactly <see cref="PresetDocument.BlobSize"/>
+    /// bytes from <see cref="RestorePlan.Items"/> into <see cref="RestorePlan.Skipped"/>. A
+    /// truncated (or otherwise malformed-length) .pst still parses — PresetDocument.Parse just
+    /// reads to the first NUL — and DeviceRepository's read-back verify would then compare the
+    /// write against that SAME short document and pass, so this must run before the file ever
+    /// reaches a device write.
+    ///
+    /// Deliberately NOT inside PresetFileNaming.PlanRestore: that method is pure (file-NAME
+    /// inspection only, no I/O) by design, and stays that way. This method already has file-system
+    /// access — it runs immediately after the Directory.GetFiles call that built the raw plan — so
+    /// the length check belongs here, where the plan is consumed, not inside the pure planner.</summary>
+    private static RestorePlan RejectWrongSizedFiles(RestorePlan plan)
+    {
+        var items = new List<RestoreItem>();
+        var skipped = new List<string>(plan.Skipped);
+        foreach (var item in plan.Items)
+        {
+            if (new System.IO.FileInfo(item.Path).Length == PresetDocument.BlobSize)
+                items.Add(item);
+            else
+                skipped.Add(System.IO.Path.GetFileName(item.Path));
+        }
+        return new RestorePlan(items, skipped);
     }
 
     private void OnNavSelectionChanged(object? sender, SelectionChangedEventArgs e)
