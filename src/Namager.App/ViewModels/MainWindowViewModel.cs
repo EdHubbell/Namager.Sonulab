@@ -250,12 +250,13 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>Where one backup run writes: Documents\NAMager Backups\yyyy-MM-dd HHmm. A fresh
-    /// timestamped folder per run, so a backup can never overwrite an earlier one and there is no
+    /// <summary>Where one backup run writes: Documents\NAMager Backups\yyyy-MM-dd HHmmss. A fresh
+    /// timestamped folder per run (second resolution, so two clicks in the same minute still land
+    /// in different folders), so a backup can never overwrite an earlier one and there is no
     /// destination to prompt for. `now` is a parameter so the format is testable.</summary>
     public static string NewBackupFolder(System.DateTime now) => System.IO.Path.Combine(
         System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
-        "NAMager Backups", now.ToString("yyyy-MM-dd HHmm"));
+        "NAMager Backups", now.ToString("yyyy-MM-dd HHmmss"));
 
     /// <summary>How a backup run turned out — the view uses it to offer "Open Folder".</summary>
     public sealed record BackupResult(int Count, string Folder);
@@ -265,10 +266,10 @@ public partial class MainWindowViewModel : ObservableObject
     public async Task<BackupResult?> BackupPresetsAsync()
     {
         if (Connection.Repository is not { } repo) return null;
-        var folder = NewBackupFolder(System.DateTime.Now);
-        using var op = Status.BeginOperation("Backing up presets…");
         try
         {
+            var folder = NewBackupFolder(System.DateTime.Now);
+            using var op = Status.BeginOperation("Backing up presets…");
             int n = await new Sonulab.Core.Services.BackupService(repo).SnapshotAllAsync(folder);
             Status.Success($"Backed up {n} preset{(n == 1 ? "" : "s")}.");
             return new BackupResult(n, folder);
