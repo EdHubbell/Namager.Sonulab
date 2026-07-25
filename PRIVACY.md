@@ -17,7 +17,7 @@ day. If you never connect a pedal, nothing is ever sent. Development builds neve
 | `installId` | `8f3c1e64-…` | A random ID made on first run. Lets me count people instead of launches, and see whether they come back. Not derived from anything about you or your machine. |
 | `appVersion` | `1.2.0` | Tells me how quickly people move to new releases. |
 | `fw` | `2.5.1` | Which pedal firmware versions are in use, so I know what to keep supporting. |
-| `transport` | `usb` | Whether anyone uses the WiFi connection, which is buggy and expensive to maintain. |
+| `transport` | `usb` | Which transport the app connected over. The app is USB-only, so this is always `usb` today; the field stays so a future transport can be measured. |
 
 **What is never sent:** your name, email, IP address, preset/amp/IR names, file paths, device
 serial numbers, or anything about what you do inside the app. Your IP is used only to rate-limit

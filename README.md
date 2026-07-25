@@ -20,9 +20,9 @@ Users can also add notes to their amp models, and those notes are stored on the 
 3. Plug your StompStation into your PC with a USB cable.   
 4. Launch **NAMager for Sonulab** from the Start Menu. Make sure VoidX-Control isn't running - The pedal can only talk to one app at a time over COM.
 
-NAMager connects over USB first and falls back to WiFi automatically when the pedal is on
-your network (same protocol, auto-discovered via mDNS) - handy when a cable or USB port lets you down.
-But really, best to stick with a USB connection. WiFi might have been an overreach for compatibility sake. It's still buggy.
+NAMager connects over USB. It used to fall back to WiFi automatically, but that turned out to be an
+overreach - the pedal's WiFi stack was unreliable enough that the fallback caused more confusion than
+it solved, so it's no longer offered.
 
 Updating: the app tells you when a new version is available; download and run the new
 `.msi` and it upgrades in place.
@@ -100,7 +100,8 @@ Reverse-engineering / Phase 0 complete.
 - `docs/probe-output.txt` — full device node-tree dump (generated; gitignored).
 
 ## Protocol at a glance
-Plaintext over USB serial (CH340, `COM6`, 115200 8N1), BLE, or WiFi. Commands are NUL-terminated
+Plaintext over USB serial (CH340, `COM6`, 115200 8N1). The same protocol also runs over BLE and WiFi
+on the pedal; NAMager speaks only the serial transport. Commands are NUL-terminated
 ASCII; responses are CRLF-separated `path:{...}` records. Five verbs: `read`, `browse`, `write`
 (+`"save":"save"`), `dread`, `dwrite`. 30 slots each for presets/amps/IRs. Preset content is
 written via **save-from-live-state** (save targets the slot matching the name), not `dwrite`.
@@ -121,6 +122,6 @@ verifies by read-back. The pedal's `.pcapng` captures live in the parent folder 
 ## Privacy
 
 NAMager sends one anonymous ping when you connect your pedal (a random install ID, the app
-version, your pedal's firmware version, and whether you connected over USB or WiFi) so I can
+version, your pedal's firmware version, and which transport you connected over) so I can
 tell whether the app has actual users. No personal data, no tracking of what you do in the app,
 no opt-out toggle. Full details, including what is never sent: [PRIVACY.md](PRIVACY.md).

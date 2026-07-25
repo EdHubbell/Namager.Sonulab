@@ -22,7 +22,9 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   transport for the pedal — `TcpSonuLink` (`ISonuLink` over a persistent socket on port 8080, same wire
   protocol as serial, behind an `ITcpConn` seam), a hand-rolled pure `MdnsMessages` parser (PTR
   `_http._tcp.local`, filtered by TXT `id=voidx`; tested against real captured datagrams), `UdpMdnsQuerier`,
-  and `WifiLinkProvider` (an `ILinkProvider` — USB stays #1, WiFi is the auto fallback via `DeviceSession`).
+  and `WifiLinkProvider` (an `ILinkProvider`). **NOT wired into the app** — the app is USB-only
+  (2026-07-25); this transport is reachable only via `HwCheck --wifi`. Re-enabling = restore the
+  `ProjectReference` in `Namager.App.csproj` + the provider entry in `MainWindowViewModel.BuildProviders`.
 - **`src/Namager.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
   ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
   ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml` + Styles/SonulabTheme.axaml (Studio-warm palette tokens & style classes — use tokens, never hex literals in views).
@@ -47,11 +49,15 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 ## Critical conventions & gotchas
 - **Avalonia 12 + built-in `FluentTheme`. Do NOT add FluentAvalonia** — it targets Avalonia 11 and
   crashes at runtime on 12. Icons are built-in `PathIcon` geometries, no third-party icon lib.
-- **VoidX-Control must be CLOSED** to use the pedal — it holds COM6 exclusively.
-- **USB→WiFi fallback:** connect tries USB first, then auto-discovers the pedal over WiFi (mDNS PTR
-  `_http._tcp.local` filtered by TXT `id=voidx`; TCP 8080, identical wire protocol) — see
-  `src/Sonulab.Transport.Wifi` and `docs/HARDWARE-VALIDATION-wifi.md`. VoidX holds only the COM port, so
-  WiFi coexists with it; the pedal answers mDNS intermittently (the querier re-sends every ~2 s).
+- **VoidX-Control must be CLOSED** to use the pedal — it holds COM6 exclusively. This is now
+  unconditional: WiFi used to coexist with VoidX (it holds only the COM port), and that was the one
+  real capability given up when the app went USB-only.
+- **The app is USB-only (2026-07-25).** The WiFi/TCP transport still exists and still passes its 29
+  tests, but `MainWindowViewModel.BuildProviders` offers `SerialLinkProvider` alone. WiFi is reachable
+  only via `HwCheck --wifi` (mDNS PTR `_http._tcp.local` filtered by TXT `id=voidx`; TCP 8080,
+  identical wire protocol) — see `src/Sonulab.Transport.Wifi`, `docs/HARDWARE-VALIDATION-wifi.md`, and
+  `docs/superpowers/specs/2026-07-25-disable-wifi-in-app-design.md` for why: intermittent mDNS, a
+  bespoke response-debt resync layer, and no disconnect signal on a silent vanish.
 - **Opening the port resets the ESP32** (adaptive: OpenSettleMs=250 + up to 8 probe retries @150 ms;
   a true cold boot connects on attempt ~3). **Device names cap ~31 chars.**
 - **Device writes are destructive & need explicit user consent**; always back up first (BackupService;
@@ -62,7 +68,7 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   HwCheck prints `DEVICE LOST:` and exits 2 (exit 2 is also a port-reopen failure in
   `--dread-arg-probe`/`--pipeline-probe` — disambiguate on the `DEVICE LOST:` stderr line).
   Reconnect-in-place is deliberately NOT supported — re-opening a live session resets the ESP32 and
-  wedges the pedal. **On WiFi detection is best-effort:** only a real socket fault
+  wedges the pedal. **On WiFi (HwCheck only — the app is USB-only) detection is best-effort:** only a real socket fault
   (`SocketException`/`IOException`) is classified. If the pedal silently vanishes (power cut, no
   FIN/RST) the buffered write succeeds and the read just times out — `TimeoutException` is
   deliberately never a disconnect, so that shape falls back to the old behavior.

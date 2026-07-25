@@ -39,6 +39,9 @@ except check 3, which deliberately damages an EMPTY slot — pick one that is em
 
 ## 4. WiFi equivalent
 
+> **HwCheck only — the app is USB-only as of 2026-07-25.** This check exercises a transport the app
+> does not offer. Run it if you are working on the WiFi transport itself; skip it otherwise.
+
 1. `dotnet run --project tools/HwCheck -- --wifi --dump-irs`
 2. Interrupt the link mid-dump.
 3. Expect `DEVICE LOST: Device disconnected (WiFi).` and exit code `2` (see the caveat in check 1).

@@ -1,5 +1,11 @@
 # Manual validation — WiFi transport (SP1)
 
+> **The app no longer uses this transport.** NAMager went USB-only on 2026-07-25
+> (`docs/superpowers/specs/2026-07-25-disable-wifi-in-app-design.md`). The WiFi/TCP transport still
+> exists and still passes its 29 unit tests, and everything below is still reachable via
+> `HwCheck --wifi`. The "App (Ed)" GUI checks in this file are obsolete — there is no WiFi path in
+> the app to check. The bench results are retained as a protocol record.
+
 Live bench results are under "Bench (verified)". Ed's remaining GUI checks are under "App (Ed)".
 
 ## Bench (verified 2026-07-21, pedal "AMP Station" fw 2.5.1 on "Duke Park Mesh")
@@ -73,12 +79,17 @@ documents the quirk.
 - [ ] Ed: repeat the failing app scenario (move slot 24 down/up over WiFi; presets list populates
   every connect).
 
-## App (Ed)
-- [ ] Pedal on WiFi, USB unplugged → Connect → status ends "(WiFi)"; presets load
-- [ ] Preset select + parameter edit over WiFi (audible on pedal)
-- [ ] USB plugged in → Connect → status ends "(USB)" (serial wins the provider order)
-- [ ] Pedal off + no USB → Connect → "Disconnected (no device found on USB or WiFi)" after the ~3 s
-      browse window; no crash
-- [ ] Drop test: connected over WiFi, power the pedal off → next operation shows the Error status;
-      power on, Connect reconnects
-- [ ] (Optional timing) one guarded amp upload over WiFi vs USB: ____ vs ____ — SUPERVISED
+## App (Ed) — OBSOLETE as of 2026-07-25
+
+**None of these are runnable.** The app is USB-only; there is no WiFi path in the GUI to check.
+Retained struck-through as a record of what was planned, in case WiFi is ever re-enabled.
+
+- [x] ~~Pedal on WiFi, USB unplugged → Connect → status ends "(WiFi)"; presets load~~
+- [x] ~~Preset select + parameter edit over WiFi (audible on pedal)~~
+- [x] ~~USB plugged in → Connect → status ends "(USB)" (serial wins the provider order)~~
+- [x] ~~Pedal off + no USB → Connect → "Disconnected (no device found on USB or WiFi)" after the ~3 s
+      browse window; no crash~~ (the app's message is now
+      "Disconnected (no pedal found on USB — check the cable, and close VoidX-Control if it's running)")
+- [x] ~~Drop test: connected over WiFi, power the pedal off → next operation shows the Error status;
+      power on, Connect reconnects~~
+- [x] ~~(Optional timing) one guarded amp upload over WiFi vs USB~~

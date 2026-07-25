@@ -50,10 +50,9 @@ supersedes the older BLOCKING-scan version; items below reflect the new UX.
   content (the upload path's own byte-check should pass) and that the scan resumes/continues
   filling in the remaining highlights afterward.
 
-- [ ] 7. **WiFi smoke.** Unplug USB so the app falls back to WiFi (or otherwise force the WiFi
-  path), reconnect, and repeat check 1: list appears immediately, highlights fill in progressively
-  over WiFi too. (WiFi read latency is higher than serial — allow more time, but the list must still
-  not block on the scan.)
+- [x] 7. ~~**WiFi smoke.** Unplug USB so the app falls back to WiFi (or otherwise force the WiFi
+  path), reconnect, and repeat check 1.~~ **N/A as of 2026-07-25** — the app is USB-only and has no
+  WiFi fallback to force (`docs/superpowers/specs/2026-07-25-disable-wifi-in-app-design.md`).
 
 - [ ] 8. **Deletion of a used preset clears its highlights.** On the Presets tab, delete a preset
   that uniquely used a given amp/IR (after backup confirmation). Return to the Amps/IR tabs — after
