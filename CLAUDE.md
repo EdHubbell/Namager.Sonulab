@@ -83,8 +83,12 @@ task) → merge to `main` (fast-forward) → push. Read `docs/HARDWARE-VALIDATIO
 data formats, RE findings — anything a contributor needs) goes in `docs/superpowers/specs/` and is
 published. Anything touching pricing, revenue, partner/vendor strategy (Tone3000, Sonulab),
 competitive positioning, or licensing/acquisition thinking goes in the private sibling repo
-`../Namager.Strategy/specs/` instead (centralized across all NAMager products). **Commit messages here must not summarize a document
-that lives there** — a public message describing a private doc leaks it just as effectively.
+`../Namager.Strategy/specs/` instead (centralized across all NAMager products). **A plan follows
+its spec:** a plan implementing a private spec goes in `../Namager.Strategy/plans/`, not
+`docs/superpowers/plans/`, because the task list reconstructs the spec. **Commit messages here
+must not summarize a document that lives there** — a public message describing a private doc
+leaks it just as effectively. The code itself is GPL and public, so a feature becomes visible
+once it's built; what stays private is the reasoning, not the functionality.
 
 ## Not done
 Current status, shipped-vs-pending, and ranked follow-ups: `docs/STATUS.md`.
