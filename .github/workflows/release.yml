@@ -39,3 +39,15 @@ jobs:
             Download the `.msi` below and run it. Windows SmartScreen will warn because the
             installer is unsigned — click **More info → Run anyway**. No admin rights and no
             .NET install needed.
+
+      # namager.app builds its download link from the releases API. It already rebuilds on a
+      # nightly cron, so this only closes the gap from ~24h to ~1min — never let it fail a
+      # release. An expired token or a GitHub API hiccup goes yellow here and the cron repairs
+      # the site within a day. The API path deliberately has NO leading slash: `gh` accepts
+      # both, but a leading one gets rewritten into a filesystem path under bash, which would
+      # break this step if the job ever gains `shell: bash`.
+      - name: Notify the namager.app website
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: gh api --method POST repos/EdHubbell/Namager.app.website/dispatches -f event_type=release-published
