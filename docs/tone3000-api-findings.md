@@ -102,10 +102,21 @@ Regression tests added to `T3kJsonTests.cs` using sanitized real snippets from t
 ## Unverifiable with secret key
 - `GET /api/v1/user` returned `HTTP 200` with the secret (server) key and identified the
   account (`edhubbell`) — so, contrary to the spec's caution that `/user` "may be
-  OAuth-user-scoped," the secret key **was** sufficient here. This does not confirm OAuth
-  PKCE user-token behavior (Task 3's `T3kAuth` flow) — that still needs a live check against
-  a real browser-completed OAuth exchange in Plan 2's checklist, since the secret key and a
-  user access token are different credentials that may have different scopes in practice.
+  OAuth-user-scoped," the secret key **was** sufficient here.
+
+  **RESOLVED 2026-07-26:** an OAuth PKCE **user** access token also reads `/api/v1/user`
+  successfully — `HTTP 200`, same shape. Probed with `dotnet run --project tools/T3kProbe --
+  --user`, which loads the DPAPI-stored refresh token, exchanges it via `T3kAuth`, and calls
+  the endpoint with the resulting Bearer token. Both credentials work; they are not
+  differently scoped for this endpoint.
+
+  Response fields on the user token path: `id` (UUID **string**), `username`, `avatar_url`
+  (nullable), `bio`, `links` (array), `created_at`, `updated_at`, `url`.
+
+  The access token is a **JWT** (~985 chars, `eyJhbGci…` header). Tone3000 publishes no JWKS
+  endpoint that this project has found, so anything server-side that needs to establish
+  identity should **call `/api/v1/user` to verify** rather than trusting unverified claims
+  decoded from the token.
 - IR-specific model/download shape (extension, `RIFF` bytes) — not exercised by this probe
   run (see IR support above); verify during Plan 2 live checklist.
 - Rate-limit headers (e.g. `X-RateLimit-*`) were not inspected — the probe only logs
