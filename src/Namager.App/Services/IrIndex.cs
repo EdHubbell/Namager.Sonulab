@@ -81,7 +81,7 @@ public sealed class IrIndex
             // guessing at a shape we don't know.
             if (doc is null || doc.Schema != Schema || doc.Entries is null) return new IrIndex([]);
 
-            return new IrIndex(doc.Entries.Where(e => !string.IsNullOrEmpty(e.Sha)));
+            return new IrIndex(doc.Entries.Where(e => e is not null && !string.IsNullOrEmpty(e.Sha)));
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException
                                        or NotSupportedException or ArgumentException)

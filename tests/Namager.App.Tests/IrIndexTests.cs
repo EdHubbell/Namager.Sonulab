@@ -112,4 +112,33 @@ public class IrIndexTests
         // A directory path is never a writable file target.
         index.Save(Path.GetTempPath());
     }
+
+    [Fact]
+    public void A_lone_null_entry_loads_as_empty_and_does_not_throw()
+    {
+        var path = TempPath();
+        try
+        {
+            File.WriteAllText(path, """{"schema":1,"entries":[null]}""");
+            Assert.Empty(IrIndex.Load(path).Entries);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void A_null_entry_mixed_with_a_good_one_keeps_the_good_entry()
+    {
+        var path = TempPath();
+        try
+        {
+            File.WriteAllText(path,
+                """{"schema":1,"entries":[null,{"sha":"x","toneId":1,"modelId":2,"title":null}]}""");
+
+            var index = IrIndex.Load(path);
+
+            Assert.Equal(1, index.Entries.Count);
+            Assert.NotNull(index.Lookup("x"));
+        }
+        finally { File.Delete(path); }
+    }
 }
