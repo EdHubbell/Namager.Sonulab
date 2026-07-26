@@ -12,7 +12,14 @@ public sealed class SnapshotArchiveException(string message) : Exception(message
 /// there is one writer and one reader, so an exported file and a stored file cannot drift.
 ///
 /// Validation is deliberately strict in both directions: a snapshot is a backup, and a backup
-/// that silently loses or corrupts a slot is worse than one that refuses to be written.</summary>
+/// that silently loses or corrupts a slot is worse than one that refuses to be written.
+///
+/// ATOMICITY: Write does not guarantee atomicity on the destination stream. If it throws
+/// partway through, the destination may hold a partial but syntactically valid ZIP archive.
+/// A caller writing to a real file must write to a temporary path first, and rename onto the
+/// final path only after Write returns successfully — never write a .namsnap directly over
+/// an existing backup, as a stream fault mid-write would destroy the good backup while failing
+/// to produce a new one.</summary>
 public static class SnapshotArchive
 {
     public const string ManifestEntry = "manifest.json";
