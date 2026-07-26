@@ -223,8 +223,8 @@ public class Tone3000ViewModelTests
             User: new T3kToneAuthor("fabiossousa"));
         await vm.PendingOperation!;
 
-        (string path, string? notes, string? url, bool isIr)? received = null;
-        vm.SendToPedalRequested += (p, n, u, ir) => received = (p, n, u, ir);
+        (string path, string? notes, string? url, bool isIr, T3kIrSource? irSource)? received = null;
+        vm.SendToPedalRequested += (p, n, u, ir, src) => received = (p, n, u, ir, src);
         await vm.SendToPedalCommand.ExecuteAsync(vm.SelectedModels[0]);
 
         Assert.NotNull(received);
@@ -232,6 +232,7 @@ public class Tone3000ViewModelTests
         Assert.Equal("65 Deluxe Reverb by fabiossousa (Tone3000)", received.Value.notes);
         Assert.Equal("https://www.tone3000.com/tones/1", received.Value.url);
         Assert.False(received.Value.isIr);
+        Assert.Null(received.Value.irSource);          // "nam" format tone -> not an IR
     }
 
     [Fact]
@@ -253,8 +254,8 @@ public class Tone3000ViewModelTests
         await vm.PendingOperation!;
         dl.Vm = vm; dl.SwitchSelectedTo = switchedTo;
 
-        (string path, string? notes, string? url, bool isIr)? received = null;
-        vm.SendToPedalRequested += (p, n, u, ir) => received = (p, n, u, ir);
+        (string path, string? notes, string? url, bool isIr, T3kIrSource? irSource)? received = null;
+        vm.SendToPedalRequested += (p, n, u, ir, src) => received = (p, n, u, ir, src);
         await vm.SendToPedalCommand.ExecuteAsync(vm.SelectedModels[0]);
 
         Assert.NotNull(received);
@@ -262,6 +263,7 @@ public class Tone3000ViewModelTests
         Assert.Equal("65 Deluxe Reverb by fabiossousa (Tone3000)", received!.Value.notes);
         Assert.Equal("https://www.tone3000.com/tones/1", received.Value.url);
         Assert.False(received.Value.isIr);                    // original tone's Format ("nam"), not the switched-to tone's ("ir")
+        Assert.Null(received.Value.irSource);
     }
 
     [Fact]
@@ -302,13 +304,52 @@ public class Tone3000ViewModelTests
         Assert.Contains("session expired", vm.Banner, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Builds a signed-in, device-ready VM with a Selected tone of the given format/id/
+    /// title and its models loaded — the shared setup for the two T3kIrSource handoff tests below.</summary>
+    private static async Task<Tone3000ViewModel> BuildVmWithTone(string format, long toneId, string title)
+    {
+        var vm = Make(new FakeAuth { SignedIn = true });
+        vm.IsDeviceReady = true;
+        vm.Selected = new T3kTone(toneId, title, Gear: null, Description: null, Images: null,
+            PageUrl: null, Downloads: null, Stars: null, Format: format, User: new T3kToneAuthor("someone"));
+        await vm.PendingOperation!;
+        return vm;
+    }
+
+    [Fact]
+    public async Task SendToPedal_passes_the_tone_and_model_ids_for_an_IR()
+    {
+        var vm = await BuildVmWithTone(format: "ir", toneId: 2468, title: "4x12 Greenback");
+        T3kIrSource? captured = null;
+        vm.SendToPedalRequested += (_, _, _, _, src) => captured = src;
+
+        await vm.SendToPedalCommand.ExecuteAsync(new T3kModel(1357, "Model", "ir", null));
+
+        Assert.NotNull(captured);
+        Assert.Equal(2468, captured!.ToneId);
+        Assert.Equal(1357, captured.ModelId);
+        Assert.Equal("4x12 Greenback", captured.Title);
+    }
+
+    [Fact]
+    public async Task SendToPedal_passes_no_IR_source_for_a_NAM_amp()
+    {
+        var vm = await BuildVmWithTone(format: "nam", toneId: 11, title: "Dumble");
+        T3kIrSource? captured = new(0, 0, null);
+        vm.SendToPedalRequested += (_, _, _, _, src) => captured = src;
+
+        await vm.SendToPedalCommand.ExecuteAsync(new T3kModel(22, "Model", "nam", null));
+
+        Assert.Null(captured);   // amps are not indexed — see the plan's Scope section
+    }
+
     [Fact]
     public async Task SendToPedal_is_a_noop_when_device_not_ready()
     {
         var vm = Make(new FakeAuth { SignedIn = true });
         vm.IsDeviceReady = false;
         var raised = false;
-        vm.SendToPedalRequested += (_, _, _, _) => raised = true;
+        vm.SendToPedalRequested += (_, _, _, _, _) => raised = true;
         await vm.SendToPedalCommand.ExecuteAsync(new T3kModel(9, "Clean", "nam", "https://x/9"));
         Assert.False(raised);
     }

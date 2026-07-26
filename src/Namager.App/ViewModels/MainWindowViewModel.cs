@@ -182,8 +182,8 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
         {
             _tone3000 = new Tone3000ViewModel(null, null, null);
         }
-        _tone3000.SendToPedalRequested += (path, notes, url, isIr) =>
-            NavigateToUpload(isIr, path, notes, url);   // fire-and-forget wrapper; keeps this subscription simple
+        _tone3000.SendToPedalRequested += (path, notes, url, isIr, irSource) =>
+            NavigateToUpload(isIr, path, notes, url, irSource);   // fire-and-forget wrapper; keeps this subscription simple
 
         // Adaptive settle (perf spec §4): instead of always paying a fixed 1500 ms for the
         // ESP32's post-open reboot, wait briefly and let the probe-retry loop find the moment
@@ -286,22 +286,25 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
     /// prefilled. Nav indices match MainWindow's NavList (0 presets, 1 amps, 2 irs, 4 t3k).
     /// Fire-and-forget wrapper around <see cref="NavigateToUploadAsync"/> so the Tone3000
     /// event subscription stays a plain synchronous handler.</summary>
-    public void NavigateToUpload(bool isIr, string path, string? notes, string? url) =>
-        _ = NavigateToUploadAsync(isIr, path, notes, url);
+    public void NavigateToUpload(bool isIr, string path, string? notes, string? url, T3kIrSource? irSource = null) =>
+        _ = NavigateToUploadAsync(isIr, path, notes, url, irSource);
 
     /// <summary>C1: if the target tab has never been visited since connect, NavigateRequested
     /// triggers EnsureTabLoaded's first-visit refresh (View's nav-changed handler calls it
     /// synchronously off NavigateRequested). Awaiting that in-flight load before prefilling stops
     /// BeginUploadPrefilled from no-opping while Amps.IsBusy (CanMutate false) — or the IRs path
     /// seeing an empty Items list and reporting "no empty slots" wrongly.</summary>
-    public async Task NavigateToUploadAsync(bool isIr, string path, string? notes, string? url)
+    public async Task NavigateToUploadAsync(bool isIr, string path, string? notes, string? url,
+                                            T3kIrSource? irSource = null)
     {
         if (isIr)
         {
             if (Irs is not { } irs) { Tone3000.Banner = "Connect to the pedal first."; return; }
             NavigateRequested?.Invoke(2);
             if (PendingTabLoad is { } t) { try { await t; } catch { /* superseded/failed load; proceed anyway */ } }
-            irs.BeginUploadCommand.Execute(path);            // IRs: name prefill via filename; no SSMD
+            // IRs: identity comes from Tone3000 when present, else name prefill via filename only.
+            if (irSource is { } src) irs.BeginUploadFromTone3000(path, src);
+            else irs.BeginUploadCommand.Execute(path);
         }
         else
         {

@@ -1,3 +1,4 @@
+using Namager.App.Services;
 using Namager.App.ViewModels;
 using Sonulab.Core;
 using Sonulab.Core.Services;
@@ -13,14 +14,30 @@ public class IrListViewModelTests : IDisposable
         foreach (var f in _tempFiles) { try { File.Delete(f); } catch { } }
     }
 
-    private (IrListViewModel vm, FakeIrDevice dev, List<string> converted) Make(bool writes = true, int seed = 2)
+    /// <summary>Wraps FakeIrDevice so a test can simulate a device write failing mid-upload
+    /// (e.g. a link that dies) — used to prove a failed upload records nothing in the IR index.</summary>
+    private sealed class ThrowingIrDevice : FakeIrDevice
     {
-        var dev = new FakeIrDevice();
+        public bool ThrowOnWrite;
+        public override Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (ThrowOnWrite && command.StartsWith("dwrite ", StringComparison.Ordinal))
+                throw new IOException("simulated device failure");
+            return base.SendAsync(command, ct);
+        }
+    }
+
+    private (IrListViewModel vm, FakeIrDevice dev, List<string> converted) Make(
+        bool writes = true, int seed = 2, string? irIndexPath = null, bool uploadThrows = false)
+    {
+        FakeIrDevice dev = uploadThrows ? new ThrowingIrDevice { ThrowOnWrite = true } : new FakeIrDevice();
         for (int i = 0; i < seed; i++) dev.SeedIr(i, $"Ir{i}", Enumerable.Repeat((byte)(i + 1), 4096).ToArray());
         dev.OpenAsync().GetAwaiter().GetResult();
         var svc = new IrService(new SonuClient(dev), _backupDir, paceMs: 0, settleMs: 0);
         var converted = new List<string>();
-        var vm = new IrListViewModel(svc, writes, convertWav: p => { converted.Add(p); return Enumerable.Repeat((byte)0xC0, 4096).ToArray(); });
+        var vm = new IrListViewModel(svc, writes,
+            convertWav: p => { converted.Add(p); return Enumerable.Repeat((byte)0xC0, 4096).ToArray(); },
+            irIndexPath: irIndexPath);
         return (vm, dev, converted);
     }
 
@@ -28,6 +45,17 @@ public class IrListViewModelTests : IDisposable
     {
         var p = Path.Combine(Path.GetTempPath(), name);
         File.WriteAllBytes(p, Enumerable.Repeat((byte)0xEE, bytes).ToArray());
+        _tempFiles.Add(p);
+        return p;
+    }
+
+    /// <summary>Writes an exact byte[] to a fresh .irblob temp file — used by the Tone3000-identity
+    /// tests, which need control over the file's content (to compute its SHA) rather than a filler
+    /// byte pattern.</summary>
+    private string WriteTempIrFile(byte[] blob)
+    {
+        var p = Path.Combine(Path.GetTempPath(), $"ir-src-{Guid.NewGuid():N}.irblob");
+        File.WriteAllBytes(p, blob);
         _tempFiles.Add(p);
         return p;
     }
@@ -335,5 +363,63 @@ public class IrListViewModelTests : IDisposable
         await vm.MoveItemDownCommand.ExecuteAsync(vm.Items[0]);
         Assert.Equal("A", vm.Items[1].Name);
         Assert.Null(vm.ErrorMessage);
+    }
+
+    // ---- Tone3000 identity -> IR index (ir-index-snapshots task 2) ----
+
+    [Fact]
+    public async Task Uploading_a_Tone3000_IR_records_an_index_entry()
+    {
+        var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
+        var blob = new byte[4096]; blob[7] = 42;
+        var (vm, _, _) = Make(irIndexPath: indexPath);
+        try
+        {
+            await vm.RefreshCommand.ExecuteAsync(null);
+            vm.BeginUploadFromTone3000(WriteTempIrFile(blob), new T3kIrSource(2468, 1357, "4x12 Greenback"));
+            vm.UploadName = "Greenback";
+            await vm.StartUploadCommand.ExecuteAsync(null);
+
+            var entry = IrIndex.Load(indexPath).Lookup(IrIndex.ShaOf(blob));
+            Assert.NotNull(entry);
+            Assert.Equal(2468, entry!.ToneId);
+            Assert.Equal(1357, entry.ModelId);
+            Assert.Equal("4x12 Greenback", entry.Title);
+        }
+        finally { File.Delete(indexPath); }
+    }
+
+    [Fact]
+    public async Task Uploading_a_local_file_records_nothing()
+    {
+        var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
+        var (vm, _, _) = Make(irIndexPath: indexPath);
+        try
+        {
+            await vm.RefreshCommand.ExecuteAsync(null);
+            vm.BeginUploadCommand.Execute(WriteTempIrFile(new byte[4096]));
+            vm.UploadName = "Handmade";
+            await vm.StartUploadCommand.ExecuteAsync(null);
+
+            Assert.Empty(IrIndex.Load(indexPath).Entries);
+        }
+        finally { File.Delete(indexPath); }
+    }
+
+    [Fact]
+    public async Task A_failed_upload_records_nothing()
+    {
+        var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
+        var (vm, _, _) = Make(irIndexPath: indexPath, uploadThrows: true);
+        try
+        {
+            await vm.RefreshCommand.ExecuteAsync(null);
+            vm.BeginUploadFromTone3000(WriteTempIrFile(new byte[4096]), new T3kIrSource(1, 2, "x"));
+            vm.UploadName = "Doomed";
+            await vm.StartUploadCommand.ExecuteAsync(null);
+
+            Assert.Empty(IrIndex.Load(indexPath).Entries);
+        }
+        finally { File.Delete(indexPath); }
     }
 }

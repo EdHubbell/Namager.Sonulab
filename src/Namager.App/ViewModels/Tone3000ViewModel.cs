@@ -10,6 +10,11 @@ namespace Namager.App.ViewModels;
 
 public enum T3kViewMode { Search, Favorites, Downloaded }
 
+/// <summary>Tone3000 identity for an IR being sent to the pedal, recorded in the IR index once
+/// the write succeeds. Amps are not indexed here — their SSMD block already carries a tone id in
+/// its url and a source hash for the model, so covering them is a separate change.</summary>
+public sealed record T3kIrSource(long ToneId, long ModelId, string? Title);
+
 /// <summary>The Browse Tones ▸ Tone3000 tab. Consumes only the Namager.Tone3000 interfaces
 /// (all fakeable); works with no device connected — SendToPedal alone gates on
 /// IsDeviceReady, which MainWindowViewModel maintains.</summary>
@@ -69,8 +74,9 @@ public partial class Tone3000ViewModel : ObservableObject
     /// off-screen. Null only when the tone has no A2 files.</summary>
     [ObservableProperty] private T3kModel? _selectedModel;
 
-    /// <summary>Handoff to MainWindowViewModel: local file path, SSMD notes, SSMD url, isIr.</summary>
-    public event Action<string, string?, string?, bool>? SendToPedalRequested;
+    /// <summary>Handoff to MainWindowViewModel: local file path, SSMD notes, SSMD url, isIr,
+    /// and (IRs only) the Tone3000 identity to record in the IR index.</summary>
+    public event Action<string, string?, string?, bool, T3kIrSource?>? SendToPedalRequested;
 
     /// <summary>Test seam: the last fire-and-forget load (debounced search, selection load).</summary>
     public Task? PendingOperation { get; private set; }
@@ -265,7 +271,9 @@ public partial class Tone3000ViewModel : ObservableObject
                         path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase);
             string? notes = tone is { } t ? $"{t.Title} by {t.Author} (Tone3000)" : null;
             string? url = tone?.PageUrl;
-            SendToPedalRequested?.Invoke(path, notes, url, isIr);
+            // Only IRs are indexed; amp identity is a separate change (see the plan's Scope section).
+            var irSource = isIr && tone is { } src ? new T3kIrSource(src.Id, model.Id, src.Title) : null;
+            SendToPedalRequested?.Invoke(path, notes, url, isIr, irSource);
         }
         catch (T3kException ex) { Banner = ex.Message; FlagAuthIfNeeded(ex); }
     }

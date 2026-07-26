@@ -20,12 +20,23 @@ public partial class IrListViewModel : ObservableObject
     private readonly Action<Action> _dispatch;              // marshals worker-thread progress to the UI thread
     private string _uploadSourcePath = "";
 
+    /// <summary>Where the Tone3000 IR identity index is read from and written to. Null = the real
+    /// %APPDATA%\Namager\ir-index.json (matches how UsagePingService takes statePath). Tests pass a
+    /// temp path — a test that records an entry must never touch the developer's own index.</summary>
+    private readonly string? _irIndexPath;
+
+    /// <summary>Set by BeginUploadFromTone3000, consumed (and cleared) once the pending upload's
+    /// device write succeeds. Cleared by BeginUpload too, so a later local-file upload can never
+    /// inherit a stale identity.</summary>
+    private T3kIrSource? _pendingSource;
+
     public IrListViewModel(IrService irs, bool writesAllowed,
                            Namager.App.Services.IStatusService? status = null,
                            Func<string, byte[]>? convertWav = null,
                            Action<Action>? dispatch = null,
                            Namager.App.Services.IPresetUsageService? usage = null,
-                           Namager.App.Services.CatalogVersion? catalog = null)
+                           Namager.App.Services.CatalogVersion? catalog = null,
+                           string? irIndexPath = null)
     {
         _irs = irs; _writes = writesAllowed;
         _status = status ?? Namager.App.Services.NullStatusService.Instance;
@@ -33,6 +44,7 @@ public partial class IrListViewModel : ObservableObject
         _dispatch = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a));
         _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance;
         _catalog = catalog ?? new Namager.App.Services.CatalogVersion();
+        _irIndexPath = irIndexPath;
         // Progressive highlight fill: the background scan publishes after each preset resolves.
         // MapUpdated may fire on a worker thread — marshal through the dispatch seam.
         _usage.MapUpdated += () => _dispatch(ApplyUsage);
@@ -210,6 +222,9 @@ public partial class IrListViewModel : ObservableObject
     /// after the OS file picker). Empty slots only — spec decision.</summary>
     [RelayCommand] private void BeginUpload(string? path)
     {
+        // Clear any Tone3000 identity from a previous BeginUploadFromTone3000 call — a local-file
+        // upload started afterward (even one that no-ops below) must never inherit a stale identity.
+        _pendingSource = null;
         if (!CanMutate || string.IsNullOrEmpty(path)) return;
         UploadBlockedMessage = null;
         EmptySlots.Clear();
@@ -227,6 +242,14 @@ public partial class IrListViewModel : ObservableObject
         SelectedEmptySlot = EmptySlots[0];
         UploadError = null; UploadStatus = ""; UploadProgressValue = 0;
         IsUploadPanelOpen = true;
+    }
+
+    /// <summary>Begins an upload that came from Tone3000, remembering the identity to record in the
+    /// IR index once the write succeeds. Prefills the name the same way BeginUpload does.</summary>
+    public void BeginUploadFromTone3000(string path, T3kIrSource source)
+    {
+        BeginUploadCommand.Execute(path);
+        _pendingSource = source;      // set AFTER BeginUpload, which clears it
     }
 
     [RelayCommand] private async Task StartUploadAsync()
@@ -258,6 +281,17 @@ public partial class IrListViewModel : ObservableObject
                 };
             });
             await _irs.UploadIrAsync(slot, bytes, name, uploadProgress);
+
+            // Record identity only after the device write succeeded: an index entry for content
+            // that never landed would resolve to a slot the user doesn't have.
+            if (_pendingSource is { } src)
+            {
+                Namager.App.Services.IrIndex.Load(_irIndexPath)
+                       .Record(new Namager.App.Services.IrIndexEntry(
+                           Namager.App.Services.IrIndex.ShaOf(bytes), src.ToneId, src.ModelId, src.Title))
+                       .Save(_irIndexPath);
+                _pendingSource = null;
+            }
 
             UploadStatus = $"Done — '{name}' in slot {slot + 1}";
             await ReloadAsync();
