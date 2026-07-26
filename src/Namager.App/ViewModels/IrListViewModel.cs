@@ -249,7 +249,15 @@ public partial class IrListViewModel : ObservableObject
     public void BeginUploadFromTone3000(string path, T3kIrSource source)
     {
         BeginUploadCommand.Execute(path);
-        _pendingSource = source;      // set AFTER BeginUpload, which clears it
+        // BeginUpload clears _pendingSource unconditionally, then only stages the upload — setting
+        // _uploadSourcePath and opening the panel — when writes are allowed AND an empty slot
+        // exists; on either blocked branch (writes gated, no empty slots) it returns early without
+        // touching those two fields. Checking the staged path/panel state (rather than
+        // re-deriving CanMutate/empty-slot logic here, which would drift from BeginUpload's own
+        // guards) is the reliable signal that THIS call actually armed an upload — arming the
+        // identity on a blocked call would let a later, unrelated local-file upload land under a
+        // stale Tone3000 identity.
+        if (IsUploadPanelOpen && _uploadSourcePath == path) _pendingSource = source;
     }
 
     [RelayCommand] private async Task StartUploadAsync()

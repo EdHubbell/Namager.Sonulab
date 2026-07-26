@@ -422,4 +422,64 @@ public class IrListViewModelTests : IDisposable
         }
         finally { File.Delete(indexPath); }
     }
+
+    // ---- regression: BeginUploadFromTone3000 must not arm a stale identity when BeginUpload
+    // itself blocks the stage (review round 1) ----
+
+    [Fact]
+    public async Task Blocked_BeginUploadFromTone3000_while_CanMutate_is_false_does_not_arm_a_stale_identity()
+    {
+        var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
+        var (vm, _, _) = Make(irIndexPath: indexPath);
+        try
+        {
+            await vm.RefreshCommand.ExecuteAsync(null);
+            // A plain (non-Tone3000) upload is legitimately staged first — panel open, this file's
+            // path staged. Neither the path nor the panel state changes on the blocked call below.
+            vm.BeginUploadCommand.Execute(WriteTempIrFile(new byte[4096]));
+            vm.UploadName = "Plain";
+
+            vm.IsBusy = true;                      // CanMutate false (transient, e.g. mid-refresh)
+            vm.BeginUploadFromTone3000(WriteTempIrFile(new byte[4096]), new T3kIrSource(9, 9, "blocked"));
+            vm.IsBusy = false;                     // CanMutate true again — the still-staged upload can run
+
+            await vm.StartUploadCommand.ExecuteAsync(null);   // uploads the ORIGINAL plain-staged file
+
+            // If the blocked call had wrongly armed _pendingSource, this plain file's content would
+            // be recorded under the blocked call's Tone3000 identity — a wrong/corrupt entry.
+            Assert.Empty(IrIndex.Load(indexPath).Entries);
+        }
+        finally { File.Delete(indexPath); }
+    }
+
+    [Fact]
+    public async Task Blocked_BeginUploadFromTone3000_with_no_empty_slots_does_not_arm_a_stale_identity()
+    {
+        var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
+        var (vm, dev, _) = Make(seed: 29, irIndexPath: indexPath);   // 29 occupied, one slot (29) empty
+        try
+        {
+            await vm.RefreshCommand.ExecuteAsync(null);
+            // A plain (non-Tone3000) upload is legitimately staged into the one empty slot — panel
+            // open, this file's path and that slot staged.
+            vm.BeginUploadCommand.Execute(WriteTempIrFile(new byte[4096]));
+            vm.UploadName = "Plain";
+
+            // Fill the last slot out-of-band (bypassing the VM), so the next BeginUpload call finds
+            // zero empty slots — without disturbing the upload already staged above.
+            dev.SeedIr(29, "LateFiller", Enumerable.Repeat((byte)0xAA, 4096).ToArray());
+            await vm.RefreshCommand.ExecuteAsync(null);
+
+            vm.BeginUploadFromTone3000(WriteTempIrFile(new byte[4096]), new T3kIrSource(9, 9, "blocked"));
+            Assert.False(vm.IsUploadPanelOpen);
+            Assert.NotNull(vm.UploadBlockedMessage);
+
+            await vm.StartUploadCommand.ExecuteAsync(null);   // uploads the ORIGINAL plain-staged file
+
+            // If the blocked call had wrongly armed _pendingSource, this plain file's content would
+            // be recorded under the blocked call's Tone3000 identity — a wrong/corrupt entry.
+            Assert.Empty(IrIndex.Load(indexPath).Entries);
+        }
+        finally { File.Delete(indexPath); }
+    }
 }
