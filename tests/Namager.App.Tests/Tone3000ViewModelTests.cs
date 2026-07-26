@@ -11,7 +11,10 @@ public class Tone3000ViewModelTests
     {
         public bool SignedIn;
         public bool IsSignedIn => SignedIn;
-        public string? Username => SignedIn ? "ed" : null;
+        /// <summary>The real T3kAuth only ever learns the name during an interactive sign-in — a
+        /// session restored from a saved refresh token reports null. Set false to model that.</summary>
+        public bool ReportsUsername = true;
+        public string? Username => SignedIn && ReportsUsername ? "ed" : null;
         public int SignInCalls;
         public Task SignInAsync(CancellationToken ct = default) { SignInCalls++; SignedIn = true; return Task.CompletedTask; }
         public void SignOut() => SignedIn = false;
@@ -46,7 +49,9 @@ public class Tone3000ViewModelTests
         public IReadOnlyList<T3kModel>? ModelsToReturn;
         public Task<IReadOnlyList<T3kModel>> GetModelsAsync(long toneId, CancellationToken ct = default) =>
             Task.FromResult(ModelsToReturn ?? new[] { new T3kModel(9, "Clean", "nam", "https://x/9") });
-        public Task<T3kUser?> GetUserAsync(CancellationToken ct = default) => Task.FromResult<T3kUser?>(new T3kUser("uuid-1", "ed"));
+        public int UserCalls;
+        public Task<T3kUser?> GetUserAsync(CancellationToken ct = default)
+        { UserCalls++; return Task.FromResult<T3kUser?>(new T3kUser("uuid-1", "ed")); }
         public Task SetFavoriteAsync(long toneId, bool favorite, CancellationToken ct = default) => Task.CompletedTask;
     }
 
@@ -98,6 +103,32 @@ public class Tone3000ViewModelTests
     private static Tone3000ViewModel Make(FakeAuth? auth = null, FakeClient? client = null, FakeDownloader? dl = null) =>
         new(auth ?? new FakeAuth(), client ?? new FakeClient(), dl ?? new FakeDownloader(),
             dispatch: a => a(), delay: (_, _) => Task.CompletedTask);
+
+    /// <summary>A session restored from a saved token starts with no username, because the real
+    /// T3kAuth only assigns one during interactive sign-in. Without a backfill the header rendered
+    /// "signed in as" followed by nothing. The first load must fill it in from the API.</summary>
+    [Fact]
+    public async Task Restored_session_backfills_the_username_on_first_load()
+    {
+        var auth = new FakeAuth { SignedIn = true, ReportsUsername = false };
+        var vm = Make(auth);
+        Assert.Null(vm.Username);                       // what the user actually saw
+
+        await vm.SearchNowCommand.ExecuteAsync(null);
+
+        Assert.Equal("ed", vm.Username);
+    }
+
+    [Fact]
+    public async Task Username_backfill_does_not_refetch_once_known()
+    {
+        var client = new FakeClient();
+        var vm = Make(new FakeAuth { SignedIn = true, ReportsUsername = false }, client);
+        await vm.SearchNowCommand.ExecuteAsync(null);
+        int after = client.UserCalls;
+        await vm.SearchNowCommand.ExecuteAsync(null);
+        Assert.Equal(after, client.UserCalls);
+    }
 
     [Fact]
     public void Null_dependencies_mean_no_config_state()

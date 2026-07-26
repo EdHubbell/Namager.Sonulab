@@ -118,6 +118,20 @@ public partial class Tone3000ViewModel : ObservableObject
         catch (T3kException) { return null; }
     }
 
+    /// <summary>Backfill the display name for a session restored from a saved refresh token.
+    /// <see cref="IT3kAuth.Username"/> is only ever populated by the interactive sign-in flow, so
+    /// after an app restart the header would read "signed in as" with nothing after it. Idempotent
+    /// (no-ops once the name is known) and never throws — a missing name is cosmetic and must not
+    /// fail the tone load it rides along with.</summary>
+    private async Task EnsureUsernameAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(Username) || _client is null) return;
+        string? name;
+        try { name = await TryGetUsernameAsync(); }
+        catch { return; }
+        if (!string.IsNullOrWhiteSpace(name)) _dispatch(() => Username = name);
+    }
+
     [RelayCommand]
     private void SignOut()
     {
@@ -133,6 +147,7 @@ public partial class Tone3000ViewModel : ObservableObject
     private async Task LoadAsync()
     {
         if (_client is null || !IsSignedIn) return;
+        await EnsureUsernameAsync();          // first load after a restored session fills the header
         int gen = ++_loadGeneration;
         IsLoading = true; Banner = null;
         try

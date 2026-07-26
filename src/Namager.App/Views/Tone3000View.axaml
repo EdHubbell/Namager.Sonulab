@@ -58,8 +58,16 @@
             <ComboBoxItem>Downloaded</ComboBoxItem>
           </ComboBox>
           <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6" Margin="10,0,0,0" VerticalAlignment="Center">
-            <TextBlock Text="{Binding Username, StringFormat='signed in as {0}'}" FontSize="11"
-                       Foreground="{DynamicResource Sonulab.TextMutedBrush}" VerticalAlignment="Center"/>
+            <!-- Two lines: the name goes underneath rather than extending the toolbar, and a long
+                 one ellipsizes instead of pushing Sign out off the edge. The tooltip carries the
+                 whole thing so a trimmed name is still readable. -->
+            <StackPanel Orientation="Vertical" VerticalAlignment="Center" MaxWidth="170"
+                        ToolTip.Tip="{Binding Username, StringFormat='signed in as {0}'}">
+              <TextBlock Text="signed in as" FontSize="11"
+                         Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
+              <TextBlock Text="{Binding Username}" FontSize="11" TextTrimming="CharacterEllipsis"
+                         Foreground="{DynamicResource Sonulab.TextMutedBrush}"/>
+            </StackPanel>
             <Button Content="Sign out" FontSize="11" Command="{Binding SignOutCommand}"/>
           </StackPanel>
         </Grid>
