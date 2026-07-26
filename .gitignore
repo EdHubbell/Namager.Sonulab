@@ -34,3 +34,5 @@ infra/feedback-worker/.dev.vars
 # Cloudflare wrangler local cache
 .wrangler/
 NAMFiles/
+# Claude Code worktrees (isolated implementation workspaces)
+.claude/worktrees/
