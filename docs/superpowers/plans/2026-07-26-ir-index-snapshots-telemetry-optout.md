@@ -6,7 +6,7 @@
 
 **Architecture:** Three independent pieces that share one idea — content, not slot position, identifies what's on the pedal. A 4096-byte IR blob has no room for embedded metadata, so its Tone3000 identity lives in a local index keyed by `sha256` of the blob; slots get reordered and overwritten, so content is the only stable handle. The `.namsnap` snapshot records the same identity per slot, so importing a snapshot rebuilds the index. Nothing here touches the network beyond the ping that already exists.
 
-Amps have an SSMD metadata block with room to spare, but it currently holds display strings rather than Tone3000 IDs — so amps are out of scope for identity here. See Scope.
+Amps have an SSMD metadata block with room to spare, and it already carries enough to identify them — just not in the form this plan needs. Amp identity is therefore out of scope here, for reasons worth reading before assuming otherwise. See Scope.
 
 **Tech Stack:** .NET 10, C#, Avalonia 12 (built-in FluentTheme), xUnit, `System.IO.Compression` for ZIP, `System.Text.Json`.
 
@@ -29,7 +29,7 @@ Amps have an SSMD metadata block with room to spare, but it currently holds disp
 **Out — and deliberately so:**
 
 - *Restoring a snapshot back onto the pedal.* That needs selective per-slot choice, a resumable and cancellable multi-minute write, cross-device refusal rules, and its own hardware-validation pass. It is a substantial piece of work that deserves its own plan; folding it in here would make this one unreviewable. Everything in this plan is useful without it — export is a backup users can keep, and the index improves the IR list immediately.
-- *Tone3000 identity for amps.* Contrary to what one might assume, NAMager does **not** store Tone3000 IDs in an amp's SSMD block today — it stores `Notes` and `Url`, which are display strings. Amp `T3k` is therefore always `null` in a manifest produced by this plan. See Task 6 for the detail and the shape of the follow-up.
+- *Tone3000 identity for amps.* Amp `T3k` is always `null` in a manifest produced by this plan — but not because the information is missing. Verified against real files in `NAMFiles/Distilled/`, an amp's SSMD block carries the **tone** id inside a URL slug (`url` = `…/tones/fender-vibroverb-64-43728`) and `source.sha256`, the hash of the `.nam` Tone3000 served. It does **not** carry a model id in any direct form. Populating amp `T3k` therefore means either parsing a slug or adding a source-hash index — both real work with their own decisions. See Task 6.
 
 ## File Structure
 
@@ -435,8 +435,8 @@ In `src/Namager.App/ViewModels/Tone3000ViewModel.cs`, add the record near the to
 
 ```csharp
 /// <summary>Tone3000 identity for an IR being sent to the pedal, recorded in the IR index once
-/// the write succeeds. Amps are not indexed: their SSMD block already carries Notes and a Url
-/// for display, and giving them machine-readable ids is a separate change.</summary>
+/// the write succeeds. Amps are not indexed here — their SSMD block already carries a tone id in
+/// its url and a source hash for the model, so covering them is a separate change.</summary>
 public sealed record T3kIrSource(long ToneId, long ModelId, string? Title);
 ```
 
@@ -1030,7 +1030,20 @@ git commit -m "feat(snapshot): .namsnap ZIP container with strict validation"
 
 `resolveIrIdentity` takes **the IR blob**, not a slot index, so the caller can hash it and look it up without re-reading the slot. It is a callback so `Sonulab.Core` never learns about `%APPDATA%` or `IrIndex` — the app supplies the lookup.
 
-**Amp `T3k` is always `null` in this plan.** The manifest field exists for forward compatibility, but nothing populates it yet: NAMager does *not* currently store Tone3000 IDs in an amp's SSMD block. `AmpListViewModel.cs:294` writes `Nam` from the source `.nam` file's own metadata, plus `Notes` (`"Title by Author (Tone3000)"`) and `Url` (the tone page). Those are display strings, not machine-readable identity, and parsing IDs back out of a URL is a guess this plan will not make. Giving amps real identity is a small follow-up — thread the ids through the amp upload the way Task 2 does for IRs, and add a field to `AmpMetadata` — but it is out of scope here.
+**Amp `T3k` is always `null` in this plan** — a scope decision, not an absence of information. What an amp's SSMD block actually holds, verified by dumping real files from `NAMFiles/Distilled/`:
+
+| Field | Example | Use for identity |
+|---|---|---|
+| `url` | `https://www.tone3000.com/tones/fender-vibroverb-64-43728` | **tone** id as the slug's trailing number — parseable, but depends on a Tone3000 URL convention that is theirs to change |
+| `source.sha256` | `0da521e5…d212d5` | hash of the `.nam` **Tone3000 served** (not the distilled blob). Pins the exact model. |
+| `nam` | `{date, loudness, gain, modeled_by, gear_make, …}` | the `.nam` file's own training metadata — nothing from Tone3000's catalog |
+| `notes` | `"Fender Vibroverb 64 by musicandovitor (Tone3000)"` | display only |
+
+There is **no model id in any direct form** — `url` is tone-level, and a tone has several models (A1/A2/custom).
+
+`source.sha256` is the interesting one and worth knowing before the follow-up is designed: because it hashes Tone3000's *input* file rather than NAMager's *computed output*, it is identical across machines for the same model. Blob-level hashes carry no such guarantee — `ParityTests.cs:25` asserts byte-equality on only the first 32 bytes of a distilled blob, and float math varies with SIMD width and FMA contraction across CPUs.
+
+The cleanest follow-up is to stop deriving identity at all: the app holds both ids at download time, so thread them through the amp upload the way Task 2 does for IRs and add a field to `AmpMetadata`. The same index mechanism then covers both kinds — keyed on `source.sha256` for amps, on the pedal blob for IRs. Out of scope here.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1065,7 +1078,8 @@ public async Task Amp_identity_is_null_until_amps_carry_Tone3000_ids()
     var manifest = await svc.CaptureAsync(ms, new SnapshotDevice("StompStation", "2.5.1"),
                                           "0.9.7", "2026-07-26T14:02:11Z");
 
-    // SSMD carries Notes and Url for display, not machine-readable ids. Documented, not a bug.
+    // Scope decision, not an absence of data — see this task's notes. Asserted so that whoever
+    // populates amp identity later has to come here and change it deliberately.
     Assert.All(manifest.Slots.Where(s => s.Kind == SnapshotSlotKind.Amp), s => Assert.Null(s.T3k));
 }
 
@@ -1162,8 +1176,9 @@ public sealed class SnapshotService(DeviceRepository presets, AmpService amps, I
             ct.ThrowIfCancellationRequested();
             var bytes = await amps.ReadAmpAsync(a.Index, ct);
             blobs[(SnapshotSlotKind.Amp, a.Index)] = bytes;
-            // T3k is null for amps: SSMD carries Notes and Url for display, not machine-readable
-            // Tone3000 ids. The manifest field exists for when that changes.
+            // T3k is null for amps by scope decision. SSMD does carry identity — a tone id inside
+            // the url slug, and source.sha256 for the exact model — but extracting it needs either
+            // slug parsing or a source-hash index. See this task's notes.
             slots.Add(new SnapshotSlot(SnapshotSlotKind.Amp, a.Index, a.Name,
                                        SnapshotArchive.ShaOf(bytes), null));
             progress?.Report(new SnapshotCaptureProgress("Amps", ++done, total));
