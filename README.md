@@ -146,6 +146,15 @@ Real exported `.pst` presets (the pedal's own `root\presets` format), used as ro
 Writing presets changes the pedal's live/active state. The app takes backups before writes and
 verifies by read-back. The pedal's `.pcapng` captures live in the parent folder (not committed).
 
+## License
+
+NAMager for Sonulab is free software under the [GNU GPL v3](LICENSE). You can use it, read it,
+change it, and pass it on — as long as anything you pass on stays under the same license.
+
+Copyright is held solely by Ed Hubbell, which keeps the option open to license the code
+commercially to a hardware vendor as well. See [CONTRIBUTING.md](CONTRIBUTING.md) if you'd like
+to send a patch.
+
 ## Privacy
 
 NAMager sends one anonymous ping when you connect your pedal (a random install ID, the app
