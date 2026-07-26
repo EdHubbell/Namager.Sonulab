@@ -41,7 +41,7 @@ Amps have an SSMD metadata block with room to spare, and it already carries enou
 | `src/Sonulab.Core/Services/SnapshotService.cs` *(new)* | Captures a snapshot from a live device using `DeviceRepository` / `AmpService` / `IrService`. |
 | `src/Namager.App/ViewModels/Tone3000ViewModel.cs` *(modify)* | Carry the Tone3000 identity on the send-to-pedal handoff. |
 | `src/Namager.App/ViewModels/MainWindowViewModel.cs` *(modify)* | Thread that identity through to the IR upload; wire snapshot menu commands. |
-| `src/Namager.App/ViewModels/IrListViewModel.cs` *(modify)* | Record an index entry after a successful IR upload; show resolved titles. |
+| `src/Namager.App/ViewModels/IrListViewModel.cs` *(modify)* | Record an index entry after a successful IR upload. |
 | `src/Namager.App/Services/AppSettings.cs` *(modify)* | Add the `ShareUsageData` preference. |
 | `src/Namager.App/Services/UsagePingService.cs` *(modify)* | Honor the preference. |
 | `src/Namager.App/Views/MainWindow.axaml` *(modify)* | File menu entries; Settings toggle. |
@@ -550,91 +550,24 @@ git commit -m "feat(ir): record Tone3000 identity when installing an IR from Ton
 
 ---
 
-### Task 3: Show the resolved Tone3000 title in the IR list
+### Task 3: REMOVED - showing Tone3000 titles in the IR list
 
-**Files:**
-- Modify: `src/Namager.App/ViewModels/IrListViewModel.cs` (the row type and `ReloadAsync`)
-- Modify: `src/Namager.App/Views/IrListView.axaml`
-- Test: `tests/Namager.App.Tests/IrListViewModelTests.cs`
+**Do not implement. There is no Task 3; dispatch continues at Task 4.**
 
-**Interfaces:**
-- Consumes: `IrIndex` (Task 1), the entries written in Task 2.
-- Produces: a `Tone3000Title` string property on the IR row type, `null` when the content is unknown.
+Dropped during pre-flight review, before any implementation. Resolving a title means hashing the
+IR, and hashing means reading the whole 4096-byte blob - 32 chunks at the ~33 ms/chunk documented
+in `SonuClient.cs:230`, so about 1.05 s per IR and about 32 s added to every IR tab reload with 30
+slots filled.
 
-This is what makes the index pay for itself before any of the later work exists: an IR the user renamed "IR 4" shows what it actually is.
+That is the exact cost the app's lazy-tab-loading work exists to avoid, and amps deliberately
+dodge it: `AmpListViewModel.cs:537` reads only the SSMD region rather than all 96 chunks. IRs have
+no metadata region to read cheaply, so the same trick is unavailable.
 
-- [ ] **Step 1: Write the failing test**
+Nothing downstream depends on this. The index is still written (Task 2) and still feeds snapshot
+export (Tasks 6-7); only the list-view display is deferred. Reviving it needs a design that avoids
+a full read per slot on every reload - progressive background resolution, or on-selection
+resolution matching the amp details cache at `AmpListViewModel.cs:521-527`.
 
-```csharp
-[Fact]
-public async Task Rows_show_the_Tone3000_title_for_indexed_content()
-{
-    var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
-    var blob = new byte[4096]; blob[3] = 9;
-    try
-    {
-        IrIndex.Load(indexPath)
-               .Record(new IrIndexEntry(IrIndex.ShaOf(blob), 2468, 1357, "4x12 Greenback"))
-               .Save(indexPath);
-
-        // Fake service returns `blob` for slot 0 and unknown content for slot 1.
-        var vm = BuildVmWithIrContent(indexPath, slot0: blob, slot1: new byte[4096]);
-        await vm.ReloadAsync();
-
-        Assert.Equal("4x12 Greenback", vm.Items.First(i => i.Index == 0).Tone3000Title);
-        Assert.Null(vm.Items.First(i => i.Index == 1).Tone3000Title);
-    }
-    finally { File.Delete(indexPath); }
-}
-```
-
-- [ ] **Step 2: Run it and verify it fails**
-
-Run: `dotnet test tests/Namager.App.Tests --filter Rows_show_the_Tone3000_title`
-Expected: FAIL — no `Tone3000Title` property.
-
-- [ ] **Step 3: Resolve titles during reload**
-
-Add `Tone3000Title` to the IR row record. In `ReloadAsync`, after the slot list is fetched, read each non-empty slot's blob and resolve it:
-
-```csharp
-var index = IrIndex.Load(_irIndexPath);
-// One blob read per occupied slot. Slot reads are already how this view gets its data, so this
-// adds no new device round-trip class — but it does add one read per slot, so it happens inside
-// the existing busy/progress scope.
-foreach (var row in rows.Where(r => !r.IsEmpty))
-{
-    var blob = await _irs.ReadIrAsync(row.Index, ct);
-    row.Tone3000Title = index.Lookup(IrIndex.ShaOf(blob))?.Title;
-}
-```
-
-- [ ] **Step 4: Show it in the view**
-
-In `src/Namager.App/Views/IrListView.axaml`, add a secondary line under the slot name, collapsed when null:
-
-```xml
-<TextBlock Text="{Binding Tone3000Title}"
-           Foreground="{DynamicResource Sonulab.TextMutedBrush}"
-           FontSize="12"
-           IsVisible="{Binding Tone3000Title, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-```
-
-`Sonulab.TextMutedBrush` is defined for both theme variants in `Styles/SonulabTheme.axaml:20,38`. Never a hex literal.
-
-- [ ] **Step 5: Run the tests**
-
-Run: `dotnet test`
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/Namager.App/ tests/Namager.App.Tests/
-git commit -m "feat(ir): show the Tone3000 title for indexed IRs"
-```
-
----
 
 ### Task 4: The `.namsnap` manifest model
 
@@ -1518,9 +1451,9 @@ git commit -m "feat(privacy): opt-out toggle for the anonymous usage ping"
 
 - [ ] `dotnet test` — all projects pass (the suite was 863 tests before this plan).
 - [ ] `dotnet build` — no new warnings.
-- [ ] Manual: install an IR from Tone3000, confirm `%APPDATA%\Namager\ir-index.json` gains an entry and the IR list shows the Tone3000 title.
-- [ ] Manual: rename that IR on the pedal, reload — the title still resolves (content-keyed, not name-keyed).
-- [ ] Manual: move the IR to a different slot, reload — the title still resolves.
+- [ ] Manual: install an IR from Tone3000, confirm `%APPDATA%\Namager\ir-index.json` gains an entry with the right `toneId`/`modelId`.
+- [ ] Manual: rename that IR on the pedal, then export a snapshot — the manifest still carries its `t3k` (content-keyed, not name-keyed).
+- [ ] Manual: move the IR to a different slot, export again — `t3k` still resolves, now at the new index.
 - [ ] Manual: export a snapshot from a real pedal, reopen it with Import, confirm the slot count and that IR identities are learned.
 - [ ] Manual: toggle the usage ping off, reconnect the pedal, confirm no request to the worker (check with Fiddler or by blocking DNS and watching for silence).
 - [ ] `PRIVACY.md` matches what the code actually sends — read both side by side.
