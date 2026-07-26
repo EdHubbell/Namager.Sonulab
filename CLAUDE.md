@@ -11,10 +11,8 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
 - Device harness (dev tool, guarded): `dotnet run --project tools/HwCheck [-- --write-test | --reorder-test | --restore <idx> <pst> <name> | --reorder-probe | --list-amps | --upload-amp <vxamp> <slot> [--name <n>] | --delete-amp <slot> | --list-irs | --dump-irs | --upload-ir <irblob> <slot> [--name <n>] | --delete-ir <slot> | --preset-dwrite-probe | --dread-arg-probe | --pipeline-probe | --dswap-probe | --wifi [--ip <addr>]]`. No args = read-only connect + preset list. Auto-discovers the COM port; `--port COMx` to pin. `--wifi` runs any mode over WiFi (mDNS auto-discovery; `--ip <addr>` pins the endpoint, skipping mDNS).
 
 ## Architecture
-- **`src/Sonulab.Core`** (no UI, fully unit-tested): `Protocol/` (SonuCommands, ResponseParser),
-  `Model/` (NodeRecord, NodeSchema, PresetDocument=.pst, PresetSlot), `Transport/` (ISonuLink →
-  SerialSonuLink / FakeSonuLink; SerialPortStream), `Connection/` (SonuConnector, CompatibilityChecker,
-  DeviceSession, FirmwareCatalog), `Services/` (DeviceRepository, ReorderService, BackupService, SlotPlanner, SlotBlobService, AmpService, IrService).
+- **`src/Sonulab.Core`** (no UI, fully unit-tested) — Protocol / Model / Transport / Connection /
+  Services. `PresetDocument` = the `.pst` on-disk form.
 - **`src/Sonulab.Distill`** (no UI, unit-tested): native C# port of the .nam→.vxamp
   distiller (WaveNet runner, WH fitter, vxamp codec, VxampMetadata (SSMD slot-metadata block)). Python `tools/distiller/` is the
   reference oracle; parity goldens via `tools/distiller/make_cs_fixtures.py`.
@@ -25,15 +23,15 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   and `WifiLinkProvider` (an `ILinkProvider`). **NOT wired into the app** — the app is USB-only
   (2026-07-25); this transport is reachable only via `HwCheck --wifi`. Re-enabling = restore the
   `ProjectReference` in `Namager.App.csproj` + the provider entry in `MainWindowViewModel.BuildProviders`.
-- **`src/Namager.App`** (Avalonia MVVM): ViewModels (Connection, PresetList, AmpList, IrList, ParameterEditor + Block/SubGroup,
-  ParameterField, MainWindow), `Views/` (SplitView dashboard + PathIcon icons), `Services/` (LabelService,
-  ParameterExposure), `Behaviors/`, embedded `labels.en.json` + `hidden-params.json` + `Icons.axaml` + Styles/SonulabTheme.axaml (Studio-warm palette tokens & style classes — use tokens, never hex literals in views).
+- **`src/Namager.App`** (Avalonia MVVM): SplitView dashboard, PathIcon icons. Embedded
+  `labels.en.json` + `hidden-params.json` + `Icons.axaml` + `Styles/SonulabTheme.axaml` (Studio-warm
+  palette tokens & style classes — use tokens, never hex literals in views).
 - **`src/Namager.Tone3000`** (no UI, unit-tested): Tone3000 API integration — OAuth PKCE (T3kAuth, publishable key ONLY; the t3k_cs_ secret is never app-readable), DPAPI token store, typed client, downloader. Keys: the publishable key (OAuth client_id, public by design under PKCE) is compiled in as
   `T3kConfig.EmbeddedPublishableKey` so shipped builds sign in with no setup; %APPDATA%\Namager\tone3000.json
   overrides it, and the pre-rename %APPDATA%\StompStationManager dir is still read as a fallback
   (config + token). The t3k_cs_ secret is never in the build (gitignored; template tone3000.json.example). Contract record: docs/tone3000-api-findings.md.
-- **`tests/`** Sonulab.Core.Tests + Namager.App.Tests (xUnit). The faithful `FakePresetDevice` lets the
-  full preset/reorder logic be tested offline against realistic firmware behavior.
+- **`tests/`** The faithful `FakePresetDevice` lets the full preset/reorder logic be tested offline
+  against realistic firmware behavior.
 
 ## Protocol essentials (full detail in PROTOCOL.md)
 - Serial: CH340, usually COM6 (a USB replug can re-enumerate it, e.g. COM8 — auto-discovery copes), 115200 8N1. Commands NUL-terminated ASCII; responses CRLF `path:{json}` records.
@@ -81,20 +79,12 @@ superpowers **brainstorming → spec (`docs/superpowers/specs/`) → writing-pla
 (`docs/superpowers/plans/`) → subagent-driven-development** (TDD; implement + adversarial review per
 task) → merge to `main` (fast-forward) → push. Read `docs/HARDWARE-VALIDATION-*.md` for on-device checks.
 
+**This repo is public. Specs split by sensitivity:** technical design (protocol, transports, UI,
+data formats, RE findings — anything a contributor needs) goes in `docs/superpowers/specs/` and is
+published. Anything touching pricing, revenue, partner/vendor strategy (Tone3000, Sonulab),
+competitive positioning, or licensing/acquisition thinking goes in the private sibling repo
+`../Namager.Strategy/specs/` instead (centralized across all NAMager products). **Commit messages here must not summarize a document
+that lives there** — a public message describing a private doc leaks it just as effectively.
+
 ## Not done
-**Preset, amp, and IR slot reorder are all SHIPPED** via the atomic `dswap` verb + shared
-`SlotBubbleReorder` engine (presets = Cycle 1, amp/IR = Cycle 2, 2026-07-24; per-row up/down buttons on
-every tab, no usage rescan). Backup-all UI is still deferred from the v1 tabs. Manual UI checks
-pending in `docs/HARDWARE-VALIDATION-amps-tab.md` and `docs/HARDWARE-VALIDATION-irs-tab.md`
-(`docs/HARDWARE-VALIDATION-plan-dragreorder.md` was the earlier preset-reorder checklist). Performance pass done — before/after numbers in `docs/perf-findings.md`;
-the preset-dwrite question is resolved (VERDICT in PROTOCOL.md; byte-exact restore/duplicate via dwrite is a possible follow-up, not built).
-Ranked follow-ups (dswap reorder + targeted usage-map done Cycles 1–2; remaining: byte-exact dwrite
-restore, riding review minors): `docs/superpowers/2026-07-24-post-scan-fix-next-steps.md`. Paced serial pipelining is BUILT
-(multi-chunk foreground `dread` overlaps sends at a 30 ms floor with lockstep repair; kill switch
-`SerialLinkOptions.PipelineEnabled`) — on-device checks pending in
-`docs/HARDWARE-VALIDATION-pipelining.md`. The background usage scan is deliberately not pipelined.
-Amp metadata hardware validation (docs/HARDWARE-VALIDATION-amp-metadata.md) pending — run before relying on SSMD blocks on-device. IR-slot metadata not designed.
-UI-polish visual checklist (docs/HARDWARE-VALIDATION-ui-polish.md) pending.
-Tone3000 live checklist (docs/HARDWARE-VALIDATION-tone3000.md) pending.
-Disconnect handling is SHIPPED (typed `DeviceDisconnectedException`, `SonuClient` latch, app dead
-state, HwCheck exit 2); on-device checks pending in `docs/HARDWARE-VALIDATION-disconnect.md`.
+Current status, shipped-vs-pending, and ranked follow-ups: `docs/STATUS.md`.
