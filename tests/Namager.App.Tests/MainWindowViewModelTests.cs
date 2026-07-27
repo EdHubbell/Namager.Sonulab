@@ -362,6 +362,11 @@ public class MainWindowViewModelTests
             Assert.NotNull(entry);
             Assert.Equal(2468, entry!.ToneId);
             Assert.Equal(1357, entry.ModelId);
+            // Title must stay null on import: SnapshotT3k carries no title, so writing slot.Name
+            // here would put the device's (possibly user-renamed) slot name into the field the
+            // index exists to see past. WriteSampleSnapshot names the IR slot "IrA" — if this ever
+            // regressed to slot.Name, that string would show up here instead of null.
+            Assert.Null(entry.Title);
         }
         finally { File.Delete(indexPath); File.Delete(snapPath); }
     }

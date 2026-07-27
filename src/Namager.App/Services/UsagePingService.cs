@@ -26,6 +26,11 @@ public sealed class UsagePingService : IUsagePingService
     private readonly string? _statePath;
     private readonly Func<bool> _isEnabled;
 
+    /// <summary>DANGER for tests: when <paramref name="isEnabled"/> is omitted, this falls back
+    /// to reading AppSettingsStore.Load().ShareUsageData — the REAL %APPDATA%\Namager\settings.json
+    /// on this machine, not a fixture. Every test must pass isEnabled explicitly (see
+    /// UsagePingServiceTests.Svc) or it will read (and be at the mercy of) the developer's actual
+    /// opt-out choice.</summary>
     public UsagePingService(HttpMessageHandler? handler = null, string? endpoint = null,
                             string? appVersion = null, string? statePath = null,
                             Func<bool>? isEnabled = null)

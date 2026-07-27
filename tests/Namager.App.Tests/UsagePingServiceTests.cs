@@ -15,6 +15,16 @@ public class UsagePingServiceTests : IDisposable
     private string TempPath() =>
         Path.Combine(_dir, $"usage-{Guid.NewGuid():N}.json");
 
+    /// <summary>Every test must supply isEnabled explicitly. The 4-arg positional constructor
+    /// (no isEnabled) falls back to AppSettingsStore.Load().ShareUsageData, which reads the real
+    /// %APPDATA%\Namager\settings.json — the developer's actual opt-out choice, not a fixture. A
+    /// contributor who has opted out locally would otherwise see these tests fail. This helper
+    /// keeps "isEnabled: () => true" the default so a new test has to opt out of the opt-out
+    /// deliberately, rather than accidentally inheriting the ambient default.</summary>
+    private static UsagePingService Svc(HttpMessageHandler handler, string? statePath = null,
+        string appVersion = "1.2.0", string endpoint = "https://example.test/ping") =>
+        new(handler, endpoint, appVersion, statePath, isEnabled: () => true);
+
     /// Records every request and replays a scripted outcome.
     private sealed class FakeHandler : HttpMessageHandler
     {
@@ -54,7 +64,7 @@ public class UsagePingServiceTests : IDisposable
     {
         var handler = new FakeHandler();
         var path = TempPath();
-        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", path);
+        var svc = Svc(handler, path);
 
         await svc.PingAsync("2.5.1", "USB");
 
@@ -77,7 +87,7 @@ public class UsagePingServiceTests : IDisposable
     {
         var handler = new FakeHandler();
         var path = TempPath();
-        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", path);
+        var svc = Svc(handler, path);
 
         await svc.PingAsync("2.5.1", "USB");
         await svc.PingAsync("2.5.1", "USB");   // same day, fresh read of the saved state
@@ -90,7 +100,7 @@ public class UsagePingServiceTests : IDisposable
     {
         var handler = new FakeHandler();
         var path = TempPath();
-        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", path);
+        var svc = Svc(handler, path);
 
         await svc.PingAsync("2.5.1", "USB");
         // Rewind the gate to simulate "yesterday", keeping the minted install ID.
@@ -111,7 +121,7 @@ public class UsagePingServiceTests : IDisposable
     public async Task PingAsync_does_not_record_the_day_when_the_server_rejects_it(HttpStatusCode status)
     {
         var path = TempPath();
-        var svc = new UsagePingService(new FakeHandler(status), "https://example.test/ping", "1.2.0", path);
+        var svc = Svc(new FakeHandler(status), path);
 
         await svc.PingAsync("2.5.1", "USB");   // must not throw
 
@@ -122,9 +132,7 @@ public class UsagePingServiceTests : IDisposable
     public async Task PingAsync_swallows_transport_exceptions()
     {
         var path = TempPath();
-        var svc = new UsagePingService(
-            new FakeHandler(toThrow: new HttpRequestException("offline")),
-            "https://example.test/ping", "1.2.0", path);
+        var svc = Svc(new FakeHandler(toThrow: new HttpRequestException("offline")), path);
 
         await svc.PingAsync("2.5.1", "USB");   // must not throw
 
@@ -135,7 +143,7 @@ public class UsagePingServiceTests : IDisposable
     public async Task PingAsync_records_the_day_on_success()
     {
         var path = TempPath();
-        var svc = new UsagePingService(new FakeHandler(), "https://example.test/ping", "1.2.0", path);
+        var svc = Svc(new FakeHandler(), path);
 
         await svc.PingAsync("2.5.1", "USB");
 
@@ -152,7 +160,7 @@ public class UsagePingServiceTests : IDisposable
     public async Task PingAsync_sends_unknown_for_empty_firmware()
     {
         var handler = new FakeHandler();
-        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", TempPath());
+        var svc = Svc(handler, TempPath());
 
         await svc.PingAsync("", "USB");
 
@@ -164,7 +172,7 @@ public class UsagePingServiceTests : IDisposable
     public async Task PingAsync_sends_unknown_for_whitespace_only_firmware()
     {
         var handler = new FakeHandler();
-        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", TempPath());
+        var svc = Svc(handler, TempPath());
 
         await svc.PingAsync("   ", "USB");
 
@@ -176,7 +184,7 @@ public class UsagePingServiceTests : IDisposable
     public async Task PingAsync_truncates_oversized_firmware_to_twenty_chars()
     {
         var handler = new FakeHandler();
-        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", TempPath());
+        var svc = Svc(handler, TempPath());
         var thirtyChars = new string('x', 30);
 
         await svc.PingAsync(thirtyChars, "USB");
@@ -191,7 +199,7 @@ public class UsagePingServiceTests : IDisposable
     public async Task PingAsync_leaves_a_normal_firmware_value_unchanged()
     {
         var handler = new FakeHandler();
-        var svc = new UsagePingService(handler, "https://example.test/ping", "1.2.0", TempPath());
+        var svc = Svc(handler, TempPath());
 
         await svc.PingAsync("2.5.1", "USB");
 
@@ -205,7 +213,7 @@ public class UsagePingServiceTests : IDisposable
     {
         var handler = new FakeHandler();
         var path = TempPath();
-        var svc = new UsagePingService(handler, "https://example.test/ping", "1.0.0-dev", path);
+        var svc = Svc(handler, path, appVersion: "1.0.0-dev");
 
         await svc.PingAsync("2.5.1", "USB");
 

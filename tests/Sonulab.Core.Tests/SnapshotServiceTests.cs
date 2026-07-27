@@ -103,6 +103,11 @@ public class SnapshotServiceTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             f.Service.CaptureAsync(ms, new SnapshotDevice("StompStation", "2.5.1"),
                                     "0.9.7", "2026-07-26T14:02:11Z", ct: cts.Token));
+
+        // The name promises no partial file: CaptureAsync never writes to the destination stream
+        // itself (SnapshotArchive.Write is only called by the caller after CaptureAsync returns a
+        // manifest), so a pre-cancelled token must leave the destination untouched.
+        Assert.Equal(0, ms.Length);
     }
 
     [Fact]

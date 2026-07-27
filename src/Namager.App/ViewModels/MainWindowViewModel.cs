@@ -278,7 +278,8 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             Amps = amps;
 
             var irService = new IrService(_connection.Client!, slotBackups);
-            var irs = new IrListViewModel(irService, _connection.WritesAllowed, Status, usage: usage, catalog: catalog);
+            var irs = new IrListViewModel(irService, _connection.WritesAllowed, Status, usage: usage,
+                catalog: catalog, irIndexPath: _irIndexPath);
             Irs = irs;
 
             Tone3000.IsDeviceReady = _connection.WritesAllowed;
@@ -487,6 +488,12 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
 
                 await using (var file = File.Create(tempPath))
                 {
+                    // CancellationToken.None, deliberately: a full pedal is 30 presets + 30 amps +
+                    // 30 IRs = 5760 chunks at ~33 ms/chunk (SonuClient.DReadChunkRangeAsync) —
+                    // roughly three minutes with no way to stop it. That is a known limitation of
+                    // this release, not an oversight: adding a cancel button is scope growth here
+                    // (see the fix-wave report), and the user isn't left blind while it runs —
+                    // op.Report below drives the status bar with live per-slot progress.
                     await svc.CaptureAsync(
                         file,
                         new SnapshotDevice("StompStation", Connection.FirmwareVersion ?? "unknown"),
@@ -496,7 +503,8 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
                             ? new SnapshotT3k(e.ToneId, e.ModelId)
                             : null,
                         progress: new Progress<SnapshotCaptureProgress>(
-                            p => op.Report($"{p.Stage} {p.Done}/{p.Total}")));
+                            p => op.Report($"{p.Stage} {p.Done}/{p.Total}")),
+                        ct: CancellationToken.None);
                 }
 
                 // Only touch the real destination once the temp file is a complete, valid archive.
@@ -533,8 +541,13 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
         foreach (var slot in manifest.Slots.Where(s => s.Kind == SnapshotSlotKind.Ir && s.T3k is not null))
         {
             var blob = blobs[(SnapshotSlotKind.Ir, slot.Index)];
+            // Title: null, not slot.Name. slot.Name is the device slot name — exactly the
+            // user-renamed string the index exists to see past (IrListViewModel's own writer uses
+            // the real Tone3000 tone title instead). SnapshotT3k carries no title field, so import
+            // has no way to recover the real one; recording the slot name here would just put the
+            // renamed string back into the field meant to escape it.
             index = index.Record(new IrIndexEntry(
-                IrIndex.ShaOf(blob), slot.T3k!.ToneId, slot.T3k.ModelId, slot.Name));
+                IrIndex.ShaOf(blob), slot.T3k!.ToneId, slot.T3k.ModelId, Title: null));
             learned++;
         }
         index.Save(_irIndexPath);

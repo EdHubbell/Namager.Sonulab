@@ -22,7 +22,11 @@ public class SnapshotArchiveTests
             new SnapshotDevice("StompStation", "2.5.1"),
             [
                 new SnapshotSlot(SnapshotSlotKind.Preset, 0, "Steel Clean", Sha(preset), null),
-                new SnapshotSlot(SnapshotSlotKind.Amp, 3, "Dumble SS", Sha(amp), new SnapshotT3k(11, 22)),
+                // Amp T3k is always null (SnapshotManifest.cs, SnapshotServiceTests) — amps don't
+                // carry a machine-readable Tone3000 id yet. SnapshotArchive itself is agnostic to
+                // what T3k holds (it just round-trips the manifest), but this fixture should still
+                // look like a real manifest, since it's the one the next author copies.
+                new SnapshotSlot(SnapshotSlotKind.Amp, 3, "Dumble SS", Sha(amp), null),
                 new SnapshotSlot(SnapshotSlotKind.Ir, 11, "4x12", Sha(ir), new SnapshotT3k(2468, 1357)),
             ]);
         return (manifest, blobs);
@@ -108,5 +112,123 @@ public class SnapshotArchiveTests
         ms.Position = 0;
 
         Assert.Throws<SnapshotArchiveException>(() => SnapshotArchive.Read(ms));
+    }
+
+    // ---------- malformed manifest shapes (a .namsnap travels between machines, so a hand-edited
+    // or truncated manifest.json must fail legibly, not NRE) ----------
+
+    private static MemoryStream ZipWithRawManifest(string manifestJson)
+    {
+        var ms = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        using (var e = zip.CreateEntry(SnapshotArchive.ManifestEntry).Open())
+            e.Write(System.Text.Encoding.UTF8.GetBytes(manifestJson));
+        ms.Position = 0;
+        return ms;
+    }
+
+    [Fact]
+    public void Refuses_a_manifest_with_no_slots_property()
+    {
+        using var ms = ZipWithRawManifest(
+            """{"schema":1,"createdUtc":"t","appVersion":"0.9.7","device":{"model":"StompStation","fw":"2.5.1"}}""");
+
+        var ex = Assert.Throws<SnapshotArchiveException>(() => SnapshotArchive.Read(ms));
+        Assert.Contains("slots", ex.Message);
+    }
+
+    [Fact]
+    public void Refuses_a_manifest_with_a_null_slots_property()
+    {
+        using var ms = ZipWithRawManifest(
+            """{"schema":1,"createdUtc":"t","appVersion":"0.9.7","device":{"model":"StompStation","fw":"2.5.1"},"slots":null}""");
+
+        var ex = Assert.Throws<SnapshotArchiveException>(() => SnapshotArchive.Read(ms));
+        Assert.Contains("slots", ex.Message);
+    }
+
+    [Fact]
+    public void Refuses_a_manifest_whose_slots_array_contains_a_null_element()
+    {
+        using var ms = ZipWithRawManifest(
+            """{"schema":1,"createdUtc":"t","appVersion":"0.9.7","device":{"model":"StompStation","fw":"2.5.1"},"slots":[null]}""");
+
+        var ex = Assert.Throws<SnapshotArchiveException>(() => SnapshotArchive.Read(ms));
+        Assert.Contains("slots[0]", ex.Message);
+    }
+
+    [Fact]
+    public void Refuses_a_manifest_with_no_device_property()
+    {
+        using var ms = ZipWithRawManifest(
+            """{"schema":1,"createdUtc":"t","appVersion":"0.9.7","slots":[]}""");
+
+        var ex = Assert.Throws<SnapshotArchiveException>(() => SnapshotArchive.Read(ms));
+        Assert.Contains("device", ex.Message);
+    }
+
+    [Fact]
+    public void Refuses_a_manifest_with_a_null_device_property()
+    {
+        using var ms = ZipWithRawManifest(
+            """{"schema":1,"createdUtc":"t","appVersion":"0.9.7","device":null,"slots":[]}""");
+
+        var ex = Assert.Throws<SnapshotArchiveException>(() => SnapshotArchive.Read(ms));
+        Assert.Contains("device", ex.Message);
+    }
+
+    // ---------- unbounded decompression (zip-bomb) guard ----------
+
+    /// <summary>Reproduces the confirmed empirical bug: a real (not spoofed) highly-compressible
+    /// entry whose declared/actual uncompressed length exceeds the slot's expected size used to be
+    /// read in full via CopyTo before the length was checked — a few-MB file could allocate
+    /// hundreds of MB. The fix checks entry.Length against the expected slot size BEFORE opening
+    /// the entry, so a bomb must be rejected near-instantly, without the read loop ever running.</summary>
+    [Fact]
+    public void Refuses_an_oversize_slot_entry_without_reading_it()
+    {
+        var manifest = new SnapshotManifest(SnapshotManifest.CurrentSchema, "t", "0.9.7",
+            new SnapshotDevice("StompStation", "2.5.1"),
+            [new SnapshotSlot(SnapshotSlotKind.Ir, 0, "Bomb", new string('0', 64), null)]);
+
+        var bomb = new byte[20_000_000]; // real bytes; all zero, so the zip itself stays tiny
+        using var ms = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (var e = zip.CreateEntry(SnapshotArchive.ManifestEntry).Open())
+                System.Text.Json.JsonSerializer.Serialize(e, manifest);
+            using (var e = zip.CreateEntry("irs/00.irblob", System.IO.Compression.CompressionLevel.Optimal).Open())
+                e.Write(bomb);
+        }
+        ms.Position = 0;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var ex = Assert.Throws<SnapshotArchiveException>(() => SnapshotArchive.Read(ms));
+        sw.Stop();
+
+        Assert.Contains("20000000", ex.Message);
+        Assert.True(sw.ElapsedMilliseconds < 2000,
+            $"rejection took {sw.ElapsedMilliseconds}ms — looks like the full entry was decompressed first");
+    }
+
+    /// <summary>Same guard applied to manifest.json itself (finding #3 called this out separately —
+    /// it was unbounded even after the slot-entry check existed).</summary>
+    [Fact]
+    public void Refuses_an_oversize_manifest_entry_without_reading_it()
+    {
+        var junk = new byte[5_000_000]; // real bytes; not valid JSON, but the cap must reject before parsing
+        using var ms = new MemoryStream();
+        using (var zip = new System.IO.Compression.ZipArchive(ms, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        using (var e = zip.CreateEntry(SnapshotArchive.ManifestEntry, System.IO.Compression.CompressionLevel.Optimal).Open())
+            e.Write(junk);
+        ms.Position = 0;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var ex = Assert.Throws<SnapshotArchiveException>(() => SnapshotArchive.Read(ms));
+        sw.Stop();
+
+        Assert.Contains("manifest.json", ex.Message);
+        Assert.True(sw.ElapsedMilliseconds < 2000,
+            $"rejection took {sw.ElapsedMilliseconds}ms — looks like the full entry was decompressed first");
     }
 }

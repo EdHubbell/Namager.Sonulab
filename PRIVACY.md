@@ -50,7 +50,8 @@ names — to a file you choose. Nothing is uploaded by the app; where that file 
 up to you.
 
 NAMager also keeps `%APPDATA%\Namager\ir-index.json`, which remembers which Tone3000 IR a piece
-of content came from, so the app can show real names instead of whatever a slot was renamed to.
-It is keyed by a hash of the IR's content. **That hash is never sent over the network.** Exporting
-a snapshot does write it into the backup's manifest, since it's how the app recognizes that IR
-again — so it travels with the file wherever you take it.
+of content came from, keyed by a hash of the IR's content — the seed for a future feature that
+would show real names instead of whatever a slot was renamed to; nothing displays those names
+today. **That hash is never sent over the network.** Exporting a snapshot does write it into the
+backup's manifest, since it's how the app recognizes that IR again — so it travels with the file
+wherever you take it.
