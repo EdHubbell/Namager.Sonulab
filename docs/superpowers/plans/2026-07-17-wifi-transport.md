@@ -1499,7 +1499,7 @@ Expected: all three connect, identify `AMP Station 2.5.1`, list 25/30 presets; t
 Live results from the overnight bench run are recorded under "Bench (verified)".
 Ed's remaining checks are under "App (Ed)".
 
-## Bench (verified <date>, pedal at 192.168.8.241 on "Duke Park Mesh")
+## Bench (verified <date>, pedal at 192.168.8.241 on local wifi network)
 - [ ] `HwCheck --wifi --ip 192.168.8.241` → connected, fw identified, presets listed
 - [ ] `HwCheck --wifi` (mDNS) → discovered + connected (instance voidx<id>, SRV port 8080)
 - [ ] `HwCheck --wifi --browse root\sys\wifi` → wifi nodes dumped read-only

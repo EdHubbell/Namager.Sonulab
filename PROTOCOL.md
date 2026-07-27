@@ -15,7 +15,7 @@ Reverse-engineered from a USBPcap capture (`SonulabCapture1.pcapng`) + static st
 - Baud rate: not yet confirmed (CH340 sets it via vendor control req `0x9A`, not CDC). Auto-detect
   by opening COM6 and sending `read root\sys\_name\0` until a valid reply appears (try 115200 first).
 
-### WiFi / TCP transport (CONFIRMED live 2026-07-17, pedal on "Duke Park Mesh")
+### WiFi / TCP transport (CONFIRMED live 2026-07-17, pedal on local wifi network)
 - **Raw TCP socket on port 8080**, speaking the **identical** NUL-terminated protocol as USB
   (`DartSocketConnection`, NOT HTTP/WebSocket despite the mDNS `_http._tcp` type).
   Probe `read root\sys\_name\0` → `root\sys\_name:{"value":"AMP Station"}\0`.
@@ -44,8 +44,7 @@ Reverse-engineered from a USBPcap capture (`SonulabCapture1.pcapng`) + static st
   - **SRV** → port **8080**, target `voidx<deviceId>.local`; **A** → the pedal IP.
   - **TXT** keys: `id=voidx` (reliable pedal filter — distinguishes from other `_http._tcp`
     advertisers like a Canon printer), `MAC=10:B4:1D:C7:C5:5A`, `name=AMP Station`.
-- **WiFi config nodes** (`browse root\sys\wifi`): `ssid`, `password` (**stored PLAINTEXT** —
-  `***REMOVED***` was readable directly), `state` (`DISCONNECTED`/… string). Pedal appears to run
+- **WiFi config nodes** (`browse root\sys\wifi`): `ssid`, `password` (**stored PLAINTEXT** — was readable directly), `state` (`DISCONNECTED`/… string). Pedal appears to run
   **one transport at a time** (`state` = `DISCONNECTED` while USB was active).
 
 ## Wire framing

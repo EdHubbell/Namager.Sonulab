@@ -8,7 +8,7 @@
 
 Live bench results are under "Bench (verified)". Ed's remaining GUI checks are under "App (Ed)".
 
-## Bench (verified 2026-07-21, pedal "AMP Station" fw 2.5.1 on "Duke Park Mesh")
+## Bench (verified 2026-07-21, pedal "AMP Station" fw 2.5.1 on local wifi network)
 
 Run read-only via `HwCheck --wifi` (mDNS auto-discovery) from `C:\Development\Namager\Namager.Sonulab`. No device
 writes were performed.
