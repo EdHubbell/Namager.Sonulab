@@ -24,15 +24,18 @@ public sealed class UsagePingService : IUsagePingService
     private readonly string _endpoint;
     private readonly string _appVersion;
     private readonly string? _statePath;
+    private readonly Func<bool> _isEnabled;
 
     public UsagePingService(HttpMessageHandler? handler = null, string? endpoint = null,
-                            string? appVersion = null, string? statePath = null)
+                            string? appVersion = null, string? statePath = null,
+                            Func<bool>? isEnabled = null)
     {
         _http = handler is null ? new HttpClient() : new HttpClient(handler);
         _http.Timeout = TimeSpan.FromSeconds(10);
         _endpoint = endpoint ?? EndpointUrl;
         _appVersion = appVersion ?? AppInfo.Version;
         _statePath = statePath;
+        _isEnabled = isEnabled ?? (() => AppSettingsStore.Load().ShareUsageData);
     }
 
     /// <summary>SessionState.Transport carries ILinkProvider.Name ("USB" / "WiFi"). Lowercasing
@@ -63,6 +66,11 @@ public sealed class UsagePingService : IUsagePingService
 
         try
         {
+            // Fails closed: if consent cannot be read (a throwing settings read counts as
+            // "cannot be determined"), nothing is sent — this check must stay ahead of every
+            // side effect below, including UsageState.Load.
+            if (!_isEnabled()) return;
+
             var state = UsageState.Load(_statePath);
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
             if (!state.ShouldPing(today)) return;

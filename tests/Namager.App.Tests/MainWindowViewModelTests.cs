@@ -207,6 +207,48 @@ public class MainWindowViewModelTests
         Assert.Equal("Light", new MainWindowViewModel(path).Theme);
     }
 
+    [Fact] public void ShareUsageData_defaults_to_true_for_a_new_view_model()
+    {
+        var vm = new MainWindowViewModel(TempSettings());
+        Assert.True(vm.ShareUsageData);
+    }
+
+    [Fact] public void ToggleShareUsageData_flips_and_persists_the_value()
+    {
+        var path = TempSettings();
+        var vm = new MainWindowViewModel(path);
+
+        vm.ToggleShareUsageDataCommand.Execute(null);
+
+        Assert.False(vm.ShareUsageData);
+        Assert.False(Namager.App.Services.AppSettingsStore.Load(path).ShareUsageData);
+
+        vm.ToggleShareUsageDataCommand.Execute(null);
+
+        Assert.True(vm.ShareUsageData);
+        Assert.True(Namager.App.Services.AppSettingsStore.Load(path).ShareUsageData);
+    }
+
+    [Fact] public void A_new_view_model_starts_from_the_persisted_ShareUsageData()
+    {
+        var path = TempSettings();
+        Namager.App.Services.AppSettingsStore.Save(
+            new Namager.App.Services.AppSettings { ShareUsageData = false }, path);
+        Assert.False(new MainWindowViewModel(path).ShareUsageData);
+    }
+
+    [Fact] public void SetTheme_does_not_reset_a_disabled_ShareUsageData()
+    {
+        var path = TempSettings();
+        Namager.App.Services.AppSettingsStore.Save(
+            new Namager.App.Services.AppSettings { ShareUsageData = false }, path);
+        var vm = new MainWindowViewModel(path);
+
+        vm.SetThemeCommand.Execute("Dark");
+
+        Assert.False(Namager.App.Services.AppSettingsStore.Load(path).ShareUsageData);
+    }
+
     [Fact] public void NewBackupFolder_is_a_timestamped_folder_under_Documents()
     {
         var folder = MainWindowViewModel.NewBackupFolder(new System.DateTime(2026, 7, 25, 14, 3, 7));

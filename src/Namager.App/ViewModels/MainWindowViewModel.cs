@@ -106,8 +106,30 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
         Theme = theme;
         if (Avalonia.Application.Current is { } app)
             app.RequestedThemeVariant = Namager.App.Services.ThemeSettings.ToVariant(theme);
+        // Preserve ShareUsageData: a fresh `new AppSettings { Theme = theme }` would default it
+        // back to true and silently undo an opt-out the next time the user picks a theme.
         Namager.App.Services.AppSettingsStore.Save(
-            new Namager.App.Services.AppSettings { Theme = theme }, _settingsPath);
+            new Namager.App.Services.AppSettings { Theme = theme, ShareUsageData = ShareUsageData },
+            _settingsPath);
+    }
+
+    /// <summary>Whether the anonymous connect ping is sent (PRIVACY.md section 1). Loaded from
+    /// settings at startup below and persisted here — the same round trip as <see cref="Theme"/>.
+    /// The next ping reads the freshly saved value straight off disk via UsagePingService's own
+    /// default (AppSettingsStore.Load().ShareUsageData), so no in-memory wiring is needed to make
+    /// a toggle mid-session take effect.</summary>
+    [ObservableProperty] private bool _shareUsageData = true;
+
+    /// <summary>The Settings menu's checkbox item has no CommandParameter to carry a target value
+    /// (unlike the Theme radios), so it toggles the current value instead — bound the same way,
+    /// one-way IsChecked plus a Command that persists via AppSettingsStore.</summary>
+    [RelayCommand]
+    private void ToggleShareUsageData()
+    {
+        ShareUsageData = !ShareUsageData;
+        Namager.App.Services.AppSettingsStore.Save(
+            new Namager.App.Services.AppSettings { Theme = Theme, ShareUsageData = ShareUsageData },
+            _settingsPath);
     }
 
     /// <summary>Raised when a flow needs the window to switch nav tabs (index into NavList).</summary>
@@ -272,7 +294,9 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             Log.Info("PERF connect presets-list={0}ms", sw.ElapsedMilliseconds);
         }
 
-        _theme = Namager.App.Services.AppSettingsStore.Load(_settingsPath).Theme;
+        var loadedSettings = Namager.App.Services.AppSettingsStore.Load(_settingsPath);
+        _theme = loadedSettings.Theme;
+        _shareUsageData = loadedSettings.ShareUsageData;
 
         Status.SetIdleSummary("Not connected");
     }

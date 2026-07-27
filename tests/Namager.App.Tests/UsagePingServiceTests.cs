@@ -212,4 +212,44 @@ public class UsagePingServiceTests : IDisposable
         Assert.Equal(0, handler.Calls);
         Assert.False(File.Exists(path));   // dev runs leave no trace at all
     }
+
+    // ---------- opt-out ----------
+    [Fact]
+    public async Task Does_not_send_when_sharing_is_disabled()
+    {
+        var handler = new FakeHandler();
+        var svc = new UsagePingService(handler, endpoint: "https://example.invalid/ping",
+                                       appVersion: "1.0.0", statePath: TempPath(),
+                                       isEnabled: () => false);
+
+        await svc.PingAsync("2.5.1", "usb");
+
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Sends_when_sharing_is_enabled()
+    {
+        var handler = new FakeHandler();
+        var svc = new UsagePingService(handler, endpoint: "https://example.invalid/ping",
+                                       appVersion: "1.0.0", statePath: TempPath(),
+                                       isEnabled: () => true);
+
+        await svc.PingAsync("2.5.1", "usb");
+
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task A_throwing_settings_read_does_not_break_the_ping_path()
+    {
+        var handler = new FakeHandler();
+        var svc = new UsagePingService(handler, endpoint: "https://example.invalid/ping",
+                                       appVersion: "1.0.0", statePath: TempPath(),
+                                       isEnabled: () => throw new InvalidOperationException("boom"));
+
+        await svc.PingAsync("2.5.1", "usb");   // must not throw
+
+        Assert.Equal(0, handler.Calls);        // fail closed: no send when consent is unknown
+    }
 }

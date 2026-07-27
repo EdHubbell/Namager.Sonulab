@@ -23,9 +23,9 @@ day. If you never connect a pedal, nothing is ever sent. Development builds neve
 serial numbers, or anything about what you do inside the app. Your IP is used only to rate-limit
 abuse at the server and is never stored.
 
-There is no opt-out toggle. If you'd rather not send it, don't use the app — or block
-`namager-sonulab-feedback.ed-eed.workers.dev` at your firewall, which the app handles silently.
-Deleting `%APPDATA%\Namager\usage.json` resets your install ID.
+**Turning it off:** Settings ▸ Send anonymous usage ping. It is on by default. Turning it off
+stops the ping immediately and permanently — nothing is queued or sent later. Deleting
+`%APPDATA%\Namager\usage.json` additionally resets your install ID.
 
 ## 2. Update check
 
@@ -42,3 +42,13 @@ publicly.
 
 If you sign in to Tone3000, that's between you and Tone3000 under their privacy policy. Your
 token is stored locally, encrypted with Windows DPAPI.
+
+## 5. Snapshots (.namsnap)
+
+**File ▸ Export Snapshot** writes a copy of your pedal — presets, amps, and IRs, plus their
+names — to a file you choose. It stays on your PC. Nothing is uploaded.
+
+NAMager also keeps `%APPDATA%\Namager\ir-index.json`, which remembers which Tone3000 IR a piece
+of content came from, so the app can show real names instead of whatever a slot was renamed to.
+It is keyed by a hash of the IR's content. **That hash is used only on your PC to look up the
+name — it is never sent anywhere.**

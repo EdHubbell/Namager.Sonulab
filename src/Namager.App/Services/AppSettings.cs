@@ -8,6 +8,10 @@ public sealed record AppSettings
 {
     /// <summary>"System" (follow the OS), "Light", or "Dark". Unknown values behave as System.</summary>
     public string Theme { get; init; } = "System";
+
+    /// <summary>Whether the anonymous connect ping is sent. Default true — see PRIVACY.md for
+    /// exactly what it contains.</summary>
+    public bool ShareUsageData { get; init; } = true;
 }
 
 /// <summary>Reads and writes <see cref="AppSettings"/> as JSON under %APPDATA%\Namager — the same

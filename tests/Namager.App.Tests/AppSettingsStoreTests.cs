@@ -60,4 +60,14 @@ public class AppSettingsStoreTests
         System.IO.File.WriteAllText(path, "{\"Theme\":null}");
         Assert.Equal("System", AppSettingsStore.Load(path).Theme);
     }
+
+    [Fact] public void ShareUsageData_defaults_to_true()
+        => Assert.True(new AppSettings().ShareUsageData);
+
+    [Fact] public void Save_then_Load_round_trips_ShareUsageData_disabled()
+    {
+        var path = TempFile();
+        AppSettingsStore.Save(new AppSettings { ShareUsageData = false }, path);
+        Assert.False(AppSettingsStore.Load(path).ShareUsageData);
+    }
 }

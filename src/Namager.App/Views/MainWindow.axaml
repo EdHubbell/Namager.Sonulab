@@ -43,6 +43,11 @@
                     IsChecked="{Binding IsThemeDark, Mode=OneWay}"
                     Command="{Binding SetThemeCommand}" CommandParameter="Dark"/>
         </MenuItem>
+        <Separator/>
+        <MenuItem x:Name="ShareUsageMenuItem" Header="Send _anonymous usage ping"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding ShareUsageData, Mode=OneWay}"
+                  Command="{Binding ToggleShareUsageDataCommand}"/>
       </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem x:Name="AboutMenuItem" Header="_About"/>
