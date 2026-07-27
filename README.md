@@ -16,22 +16,22 @@ Here's the honest version:
 
 | | NAMager | VoidX-Control |
 |---|---|---|
-| Reorder preset slots | ✅ | ❌ |
-| Reorder amp / IR slots | ✅ | ❌ |
-| Rename a preset in place (F2) | ✅ | ⚠️ awkward |
-| Duplicate a preset | ✅ | ❓ |
-| Back up / restore presets to your PC | ✅ | ❓ |
-| Browse and install Tone3000 tones in-app | ✅ | ❌ |
+| Reorder preset slots | ✅ | ✅ |
+| Reorder amp / IR slots | ✅ | ✅ |
+| Rename a preset in place (F2) | ✅ | ✅ |
+| Duplicate a preset | ✅ | ✅ |
+| Back up / restore presets to your PC | ✅ | ✅ |
+| Browse and install Tone3000 tones in-app | ✅ | ⚠️ awkward |
 | Tone3000 amp metadata stored on the pedal | ✅ | ❌ |
-| Upload a raw `.nam` (distilled in-app) | ✅ | ❓ |
+| Upload a raw `.nam` (distilled in-app) | ✅ | ✅ |
 | See which presets use an amp / IR | ✅ | ❌ |
 | USB | ✅ | ✅ |
 | WiFi | ❌ | ✅ |
 | Bluetooth | ❌ | ✅ |
 | Windows / macOS / Linux / iOS / Android | Windows only | ✅ all |
-| Firmware update | ❌ | ❓ |
+| Firmware update | ❌ | ❌ |
 | Live control while playing | ❌ | ❓ |
-| Tuner, global settings, footswitch config | ❌ | ❓ |
+| Tuner, global settings, footswitch config | ❌ | ✅ |
 
 ❓ = not verified. If you know, [open an issue](https://github.com/EdHubbell/Namager.Sonulab/issues)
 and this table gets corrected.
