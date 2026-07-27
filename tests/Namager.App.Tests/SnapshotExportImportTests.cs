@@ -80,7 +80,11 @@ public class SnapshotExportImportTests
         var (connVm, _) = Connected(new IdentifyingEmptyDevice());
         Assert.True(connVm.IsConnected);
 
-        var vm = new MainWindowViewModel(null, null) { Connection = connVm };
+        // ExportSnapshotAsync calls IrIndex.Load(_irIndexPath) before capturing anything, so this
+        // must be a temp path — never null (which would read/write the developer's real
+        // %APPDATA%\Namager\ir-index.json).
+        var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
+        var vm = new MainWindowViewModel(settingsPath: null, irIndexPath: indexPath) { Connection = connVm };
         var path = Path.Combine(Path.GetTempPath(), $"snap-{Guid.NewGuid():N}.namsnap");
         try
         {
@@ -93,7 +97,7 @@ public class SnapshotExportImportTests
             Assert.Equal("2.5.1", manifest.Device.Fw);
             Assert.Empty(manifest.Slots);
         }
-        finally { File.Delete(path); }
+        finally { File.Delete(path); File.Delete(indexPath); }
     }
 
     [Fact]
@@ -102,7 +106,10 @@ public class SnapshotExportImportTests
         var (connVm, _) = Connected(new FailingAmpListDevice());
         Assert.True(connVm.IsConnected);
 
-        var vm = new MainWindowViewModel(null, null) { Connection = connVm };
+        // Same reason as the happy-path test above: IrIndex.Load(_irIndexPath) runs before the
+        // amp-list read that triggers the simulated fault, so this must stay off the real index.
+        var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
+        var vm = new MainWindowViewModel(settingsPath: null, irIndexPath: indexPath) { Connection = connVm };
         var path = Path.Combine(Path.GetTempPath(), $"snap-{Guid.NewGuid():N}.namsnap");
         var original = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
         File.WriteAllBytes(path, original);
@@ -117,7 +124,7 @@ public class SnapshotExportImportTests
             var stem = Path.GetFileName(path);
             Assert.Empty(Directory.GetFiles(dir, stem + ".*.tmp"));
         }
-        finally { File.Delete(path); }
+        finally { File.Delete(path); File.Delete(indexPath); }
     }
 
     [Fact]
