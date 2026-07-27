@@ -46,9 +46,11 @@ token is stored locally, encrypted with Windows DPAPI.
 ## 5. Snapshots (.namsnap)
 
 **File ▸ Export Snapshot** writes a copy of your pedal — presets, amps, and IRs, plus their
-names — to a file you choose. It stays on your PC. Nothing is uploaded.
+names — to a file you choose. Nothing is uploaded by the app; where that file goes afterward is
+up to you.
 
 NAMager also keeps `%APPDATA%\Namager\ir-index.json`, which remembers which Tone3000 IR a piece
 of content came from, so the app can show real names instead of whatever a slot was renamed to.
-It is keyed by a hash of the IR's content. **That hash is used only on your PC to look up the
-name — it is never sent anywhere.**
+It is keyed by a hash of the IR's content. **That hash is never sent over the network.** Exporting
+a snapshot does write it into the backup's manifest, since it's how the app recognizes that IR
+again — so it travels with the file wherever you take it.
