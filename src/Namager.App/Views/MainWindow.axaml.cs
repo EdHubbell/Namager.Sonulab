@@ -6,6 +6,7 @@ using Namager.App;
 using Namager.App.Services;
 using Namager.App.ViewModels;
 using Sonulab.Core.Model;
+using Sonulab.Core.Services;
 
 namespace Namager.App.Views;
 
@@ -42,7 +43,15 @@ public partial class MainWindow : Window
         BackupMenuItem.Click += async (_, _) => await BackupAsync();
         RestoreMenuItem.Click += async (_, _) => await RestoreAsync();
         RestorePresetMenuItem.Click += async (_, _) => await RestoreSinglePresetAsync();
+        ExportSnapshotMenuItem.Click += async (_, _) => await ExportSnapshotFlowAsync();
+        ImportSnapshotMenuItem.Click += async (_, _) => await ImportSnapshotFlowAsync();
     }
+
+    /// <summary>The single .namsnap file type offered by both the save and open pickers below.</summary>
+    private static readonly FilePickerFileType NamsnapFileType = new("NAMager Snapshot")
+    {
+        Patterns = new[] { "*.namsnap" },
+    };
 
     /// <summary>File ▸ Restore Preset… — the menu twin of the up-arrow above the preset list.
     /// Both run <see cref="PresetUploadFlow"/> so they cannot drift apart.</summary>
@@ -55,6 +64,74 @@ public partial class MainWindow : Window
             return;
         }
         await PresetUploadFlow.RunAsync(this, presets);
+    }
+
+    /// <summary>File ▸ Export Snapshot… — picks a .namsnap destination and hands it to
+    /// MainWindowViewModel.ExportSnapshotAsync, which never throws (failures land on the status
+    /// bar) and writes atomically (temp file + rename), so a cancelled or failed export never
+    /// touches a pre-existing file at the chosen path.</summary>
+    private async System.Threading.Tasks.Task ExportSnapshotFlowAsync()
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        try
+        {
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Export Snapshot",
+                SuggestedFileName = $"StompStation {System.DateTime.Now:yyyy-MM-dd HHmmss}.namsnap",
+                DefaultExtension = "namsnap",
+                FileTypeChoices = new[] { NamsnapFileType },
+            });
+            if (file?.TryGetLocalPath() is not { } path) return;
+
+            await vm.ExportSnapshotAsync(path);
+        }
+        catch (System.Exception ex)
+        {
+            // async void-style handler: never let this escape onto the UI thread.
+            vm.Status.Failure($"Export failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>File ▸ Import Snapshot… — picks a .namsnap and hands it to
+    /// MainWindowViewModel.ImportSnapshotAsync, which validates the file and rebuilds the IR
+    /// identity index from it. Does NOT write anything to the pedal — restoring a snapshot onto
+    /// hardware is a separate, not-yet-built feature. A damaged/incompatible file throws
+    /// SnapshotArchiveException, which this handler turns into a dialog naming the exact reason.</summary>
+    private async System.Threading.Tasks.Task ImportSnapshotFlowAsync()
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Import Snapshot",
+                AllowMultiple = false,
+                FileTypeFilter = new[] { NamsnapFileType },
+            });
+            if (files.Count != 1 || files[0].TryGetLocalPath() is not { } path) return;
+
+            var manifest = await vm.ImportSnapshotAsync(path);
+            int irCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Ir);
+            await ConfirmDialog.ShowAsync(this, "Snapshot imported",
+                $"Read a snapshot of a {manifest.Device.Model} (firmware {manifest.Device.Fw}), " +
+                $"captured {manifest.CreatedUtc}: {manifest.Slots.Count} slot{(manifest.Slots.Count == 1 ? "" : "s")}" +
+                $" ({irCount} IR{(irCount == 1 ? "" : "s")}).\n\n" +
+                "This only reads and validates the file — nothing was written to the pedal.",
+                confirmText: null, cancelText: "Close");
+        }
+        catch (SnapshotArchiveException ex)
+        {
+            vm.Status.Failure($"Import failed: {ex.Message}");
+            await ConfirmDialog.ShowAsync(this, "Import failed",
+                $"This file isn't a usable .namsnap snapshot:\n\n{ex.Message}",
+                confirmText: null, cancelText: "Close");
+        }
+        catch (System.Exception ex)
+        {
+            // async void-style handler: never let this escape onto the UI thread.
+            vm.Status.Failure($"Import failed: {ex.Message}");
+        }
     }
 
     private async System.Threading.Tasks.Task BackupAsync()

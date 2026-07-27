@@ -1,7 +1,9 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Namager.App.Services;
 using Sonulab.Core.Connection;
+using Sonulab.Core.Model;
 using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
 
@@ -163,11 +165,20 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
     /// never touch the developer's own preferences.</summary>
     private readonly string? _settingsPath;
 
-    public MainWindowViewModel() : this(null) { }
+    /// <summary>Where the Tone3000 IR identity index is read from and written to by Export/Import
+    /// Snapshot. Null = the real %APPDATA%\Namager\ir-index.json (matches IrIndex.DefaultPath and
+    /// how IrListViewModel takes the same parameter). Tests pass a temp path — a test that imports
+    /// or exports a snapshot must never touch the developer's own index.</summary>
+    private readonly string? _irIndexPath;
 
-    public MainWindowViewModel(string? settingsPath)
+    public MainWindowViewModel() : this(null, null) { }
+
+    public MainWindowViewModel(string? settingsPath) : this(settingsPath, null) { }
+
+    public MainWindowViewModel(string? settingsPath, string? irIndexPath)
     {
         _settingsPath = settingsPath;
+        _irIndexPath = irIndexPath;
         // Tone3000 (Browse Tones) exists from startup - browsing needs no pedal. Null config
         // = the tab shows its "add your keys" card.
         var t3kConfig = Namager.Tone3000.T3kConfig.TryLoad();
@@ -414,5 +425,97 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             return summary;
         }
         finally { FileOperationInFlight = false; }
+    }
+
+    /// <summary>Writes a .namsnap of every occupied preset/amp/IR to <paramref name="path"/>.
+    /// Read-only against the device — never writes to it. Never throws; a missing connection or any
+    /// failure mid-capture is routed to Status, mirroring BackupPresetsAsync's shape.
+    ///
+    /// ATOMICITY: SnapshotArchive.Write is not atomic on the stream it is given (see its own
+    /// ATOMICITY note) — a fault partway through leaves a partial-but-openable ZIP on whatever
+    /// stream it was writing. This method therefore captures into a temp file created beside
+    /// <paramref name="path"/> and renames it onto <paramref name="path"/> only after the capture
+    /// returns successfully. A disk fault (or a device disconnect) mid-export must not destroy a
+    /// pre-existing good backup at <paramref name="path"/> while failing to produce a new one.</summary>
+    public async Task ExportSnapshotAsync(string path)
+    {
+        FileOperationInFlight = true;
+        try
+        {
+            if (Connection.Repository is not { } repo)
+            {
+                Status.Failure("Connect to the pedal first.");
+                return;
+            }
+
+            using var op = Status.BeginOperation("Exporting snapshot…");
+            // Same directory as the destination, so the final move below is an in-place rename
+            // (not a cross-volume copy that could itself fail partway).
+            var tempPath = path + $".{Guid.NewGuid():N}.tmp";
+            try
+            {
+                var slotBackups = AppPaths.SlotBackups;
+                var svc = new SnapshotService(
+                    repo,
+                    new AmpService(Connection.Client!, slotBackups),
+                    new IrService(Connection.Client!, slotBackups));
+                var index = IrIndex.Load(_irIndexPath);
+
+                await using (var file = File.Create(tempPath))
+                {
+                    await svc.CaptureAsync(
+                        file,
+                        new SnapshotDevice("StompStation", Connection.FirmwareVersion ?? "unknown"),
+                        Namager.App.AppInfo.Version,
+                        DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+                        resolveIrIdentity: blob => index.Lookup(IrIndex.ShaOf(blob)) is { } e
+                            ? new SnapshotT3k(e.ToneId, e.ModelId)
+                            : null,
+                        progress: new Progress<SnapshotCaptureProgress>(
+                            p => op.Report($"{p.Stage} {p.Done}/{p.Total}")));
+                }
+
+                // Only touch the real destination once the temp file is a complete, valid archive.
+                File.Move(tempPath, path, overwrite: true);
+                Status.Success($"Snapshot written to {Path.GetFileName(path)}");
+            }
+            catch (Exception ex)
+            {
+                // The real destination was never opened for writing above, so it is untouched
+                // regardless of where the capture failed — only the temp file needs cleanup.
+                try { File.Delete(tempPath); } catch { /* best effort; a stray temp file costs disk space, not correctness */ }
+                Log.Warn(ex, "snapshot export failed");
+                Status.Failure($"Export failed: {ex.Message}");
+            }
+        }
+        finally { FileOperationInFlight = false; }
+    }
+
+    /// <summary>Reads and validates a .namsnap, and records any IR Tone3000 identities it carries
+    /// into the local IR index. Does NOT write anything to the pedal — restoring a snapshot onto
+    /// hardware is a deliberately separate, not-yet-built feature (it needs selective slot choice,
+    /// a resumable multi-minute write, and cross-device rules).
+    ///
+    /// Unlike ExportSnapshotAsync, a validation failure here is NOT swallowed: it propagates as
+    /// SnapshotArchiveException so the file-picker handler can show the exact reason the file was
+    /// rejected, rather than a generic status-bar message.</summary>
+    public async Task<SnapshotManifest> ImportSnapshotAsync(string path)
+    {
+        await using var file = File.OpenRead(path);
+        var (manifest, blobs) = SnapshotArchive.Read(file);
+
+        var index = IrIndex.Load(_irIndexPath);
+        int learned = 0;
+        foreach (var slot in manifest.Slots.Where(s => s.Kind == SnapshotSlotKind.Ir && s.T3k is not null))
+        {
+            var blob = blobs[(SnapshotSlotKind.Ir, slot.Index)];
+            index = index.Record(new IrIndexEntry(
+                IrIndex.ShaOf(blob), slot.T3k!.ToneId, slot.T3k.ModelId, slot.Name));
+            learned++;
+        }
+        index.Save(_irIndexPath);
+
+        Status.Success($"Read snapshot from {manifest.CreatedUtc} — learned {learned} IR identit{(learned == 1 ? "y" : "ies")}");
+        return manifest;
     }
 }

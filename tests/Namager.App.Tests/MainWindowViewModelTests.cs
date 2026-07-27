@@ -1,6 +1,7 @@
 using Namager.App.ViewModels;
 using Namager.App.Services;
 using Sonulab.Core;
+using Sonulab.Core.Model;
 using Sonulab.Core.Services;
 using Sonulab.Core.Transport;
 using Xunit;
@@ -274,5 +275,66 @@ public class MainWindowViewModelTests
         var vm = new MainWindowViewModel();
         Assert.Null(await vm.BackupPresetsAsync());
         Assert.False(vm.FileOperationInFlight);
+    }
+
+    // ---- Task 7: Export/Import Snapshot (import only here — export needs a live device, see
+    // SnapshotExportImportTests) ----
+
+    private static byte[] SampleIrBlob() => Enumerable.Repeat((byte)0xAB, 4096).ToArray();
+
+    /// <summary>Builds a .namsnap fixture directly through SnapshotArchive (the same writer
+    /// ExportSnapshotAsync itself uses), carrying one IR slot with a Tone3000 identity, so
+    /// ImportSnapshotAsync has something real to learn from.</summary>
+    private static void WriteSampleSnapshot(string path, long irToneId, long irModelId, byte[] irBlob)
+    {
+        var manifest = new SnapshotManifest(
+            SnapshotManifest.CurrentSchema,
+            "2026-07-26T14:02:11Z",
+            "0.9.7",
+            new SnapshotDevice("StompStation", "2.5.1"),
+            new[]
+            {
+                new SnapshotSlot(SnapshotSlotKind.Ir, 0, "IrA", SnapshotArchive.ShaOf(irBlob),
+                                  new SnapshotT3k(irToneId, irModelId)),
+            });
+        var blobs = new Dictionary<(SnapshotSlotKind, int), byte[]> { [(SnapshotSlotKind.Ir, 0)] = irBlob };
+
+        using var fs = File.Create(path);
+        SnapshotArchive.Write(fs, manifest, blobs);
+    }
+
+    [Fact]
+    public async Task Importing_a_snapshot_rebuilds_IR_identities_in_the_index()
+    {
+        var indexPath = Path.Combine(Path.GetTempPath(), $"ir-idx-{Guid.NewGuid():N}.json");
+        var snapPath = Path.Combine(Path.GetTempPath(), $"snap-{Guid.NewGuid():N}.namsnap");
+        try
+        {
+            WriteSampleSnapshot(snapPath, irToneId: 2468, irModelId: 1357, irBlob: SampleIrBlob());
+
+            var vm = new MainWindowViewModel(settingsPath: null, irIndexPath: indexPath);
+            var manifest = await vm.ImportSnapshotAsync(snapPath);
+
+            Assert.Equal(SnapshotManifest.CurrentSchema, manifest.Schema);
+            var entry = IrIndex.Load(indexPath).Lookup(IrIndex.ShaOf(SampleIrBlob()));
+            Assert.NotNull(entry);
+            Assert.Equal(2468, entry!.ToneId);
+            Assert.Equal(1357, entry.ModelId);
+        }
+        finally { File.Delete(indexPath); File.Delete(snapPath); }
+    }
+
+    [Fact]
+    public async Task Importing_a_damaged_snapshot_surfaces_a_readable_error()
+    {
+        var snapPath = Path.Combine(Path.GetTempPath(), $"snap-{Guid.NewGuid():N}.namsnap");
+        try
+        {
+            File.WriteAllText(snapPath, "not a zip");
+            var vm = new MainWindowViewModel();
+
+            await Assert.ThrowsAsync<SnapshotArchiveException>(() => vm.ImportSnapshotAsync(snapPath));
+        }
+        finally { File.Delete(snapPath); }
     }
 }

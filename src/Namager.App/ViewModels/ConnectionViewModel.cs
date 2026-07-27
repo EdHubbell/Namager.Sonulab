@@ -39,6 +39,13 @@ public partial class ConnectionViewModel : ObservableObject
     public DeviceRepository? Repository { get; private set; }
     public ReorderService? Reorder { get; private set; }
     public SonuClient? Client { get; private set; }
+
+    /// <summary>The connected pedal's firmware string (e.g. "2.5.1"), set on a successful connect
+    /// alongside Repository/Client/Reorder. Null until then. Read-only projection of
+    /// DeviceSession's internal ConnectState.Device.Version — exposed here rather than plumbing
+    /// session state through every caller that just wants this one string (e.g. snapshot export).</summary>
+    public string? FirmwareVersion { get; private set; }
+
     public event EventHandler? Connected;
 
     /// <summary>Raised once when the link dies mid-session, after the VM has entered its dead
@@ -69,6 +76,7 @@ public partial class ConnectionViewModel : ObservableObject
             }
 
             WritesAllowed = state.Compatibility!.WritesAllowed;
+            FirmwareVersion = state.Device!.Version;
             Status = $"{state.Device!.Name} {state.Device.Version} — {state.Compatibility!.Message} ({state.Transport})";
             Client = _session.Client;
             Client!.Disconnected += OnDeviceDisconnected;
