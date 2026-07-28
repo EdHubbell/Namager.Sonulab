@@ -36,6 +36,22 @@ Here's the honest version:
 ❓ = not verified. If you know, [open an issue](https://github.com/EdHubbell/Namager.Sonulab/issues)
 and this table gets corrected.
 
+OK, so there's a lot of green checks for both. 
+
+### Why try NAMager?
+
+1. Better workflow. NAMager displays a better summary of the files that are on your pedal. 
+2. Amp metadata. It is critical to know what models you've got loaded. No one wants to keep messing with a set of models that don't sound good. No one remembers which Fender Blackface model they uploaded before. NAMager is able to tuck that metadata on the pedal. It remembers so you don't have to. Hopefully Sonulab implements the same feature in VoidX.
+3. Notes on amp models. Just a basic 'tone I use for Panama' is pretty valuable. 
+4. Better Tone3000 integration. Browse normally, then copy a Tone3000 url into the search bar of NAMager. 
+5. Overall more intuitive design and layout. 
+
+### Why stick with VoidX?
+
+1. If your OS is anything but Windows. I feel for the VoidX software developers. Building for Windows/Linux/Mac/Android/iOS is hard, and it is a pain that I've been thru. Although it is important to note that NAMager is built on .NET and Avalonia. So it *could* be compiled to run those platforms. I just don't have the bandwidth to validate all those different builds.  
+2. Forward compatibility. Sonulab may make breaking changes to the firmware that will render NAMager unusable. 
+
+
 ## Install
 
 ### Windows
