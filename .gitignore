@@ -33,3 +33,4 @@ infra/feedback-worker/.dev.vars
 .superpowers/
 # Cloudflare wrangler local cache
 .wrangler/
+NAMFiles/
