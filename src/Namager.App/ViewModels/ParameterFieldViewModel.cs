@@ -39,6 +39,15 @@ public partial class ParameterFieldViewModel : ObservableObject
     [RelayCommand]
     private void Reset() => Number = Default ?? 0.0;
 
+    /// <summary>True when this float sits away from its firmware default. THE single definition of
+    /// "changed from default" in the app: it highlights the reset button and, via
+    /// <see cref="BlockSectionViewModel.IsEqActive"/>, lights the equalizer glyph — so a reset can
+    /// never leave one of them still claiming the value is modified.</summary>
+    public bool IsChangedFromDefault =>
+        Kind == "float" && Math.Abs(Number - (Default ?? 0.0)) > 1e-9;
+
+    partial void OnNumberChanged(double value) => OnPropertyChanged(nameof(IsChangedFromDefault));
+
     /// <summary>Names the actual default, e.g. "Reset to default (400 ms)". A fixed "(0)" would be
     /// a lie on two thirds of the pedal's sliders.</summary>
     public string ResetTooltip => $"Reset to default ({FormatDefault()})";

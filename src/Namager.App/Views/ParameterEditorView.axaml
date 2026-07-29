@@ -62,7 +62,8 @@
                                       IsVisible="{Binding ShowReset}"
                                       Command="{Binding ResetCommand}"
                                       ToolTip.Tip="{Binding ResetTooltip}">
-                                <PathIcon Data="{StaticResource Icon.Reset}" Width="13" Height="13"/>
+                                <PathIcon Data="{StaticResource Icon.Reset}" Width="13" Height="13"
+                                          Foreground="{Binding IsChangedFromDefault, Converter={x:Static conv:ActiveToBrush.Instance}}"/>
                               </Button>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="6"
@@ -119,7 +120,8 @@
                                               IsVisible="{Binding ShowReset}"
                                               Command="{Binding ResetCommand}"
                                               ToolTip.Tip="{Binding ResetTooltip}">
-                                        <PathIcon Data="{StaticResource Icon.Reset}" Width="13" Height="13"/>
+                                        <PathIcon Data="{StaticResource Icon.Reset}" Width="13" Height="13"
+                                                  Foreground="{Binding IsChangedFromDefault, Converter={x:Static conv:ActiveToBrush.Instance}}"/>
                                       </Button>
                                     </StackPanel>
                                     <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"

@@ -186,6 +186,51 @@ public class ParameterFieldViewModelTests
         Assert.True(f.IsDirty);          // otherwise the reset could never be saved to the pedal
     }
 
+    // ---- changed-from-default highlight on the reset button ----
+
+    [Fact] public void A_field_at_its_default_is_not_flagged_as_changed()
+    {
+        var s = Schema(@"{""desc"":""Low"",""value"":0.0,""type"":""float"",""min"":-15.0,""max"":15.0,""def"":0.0}",
+                       @"root\app\eq\low");
+        Assert.False(new ParameterFieldViewModel(s, "0").IsChangedFromDefault);
+    }
+
+    [Fact] public void A_field_away_from_a_nonzero_default_is_flagged_as_changed()
+    {
+        var s = Schema(@"{""desc"":""Release"",""value"":400.0,""type"":""float"",""min"":100.0,""max"":2000.0,""def"":400.0,""unit"":""ms""}",
+                       @"root\app\comp\release");
+        var f = new ParameterFieldViewModel(s, "800");
+        Assert.True(f.IsChangedFromDefault);
+        // ...and sitting ON a non-zero default is NOT changed — the whole point of using `def`.
+        Assert.False(new ParameterFieldViewModel(s, "400").IsChangedFromDefault);
+    }
+
+    [Fact] public void Changed_flag_tracks_edits_and_notifies()
+    {
+        var s = Schema(@"{""desc"":""Low"",""value"":0.0,""type"":""float"",""min"":-15.0,""max"":15.0,""def"":0.0}",
+                       @"root\app\eq\low");
+        var f = new ParameterFieldViewModel(s, "0");
+        int notifications = 0;
+        f.PropertyChanged += (_, e) =>
+        { if (e.PropertyName == nameof(ParameterFieldViewModel.IsChangedFromDefault)) notifications++; };
+
+        f.Number = 4.0;
+        Assert.True(f.IsChangedFromDefault);
+        Assert.True(notifications > 0);
+
+        f.ResetCommand.Execute(null);
+        Assert.False(f.IsChangedFromDefault);   // reset must clear its own highlight
+    }
+
+    [Fact] public void A_non_float_field_is_never_flagged_as_changed()
+    {
+        var s = Schema(@"{""desc"":""Mode"",""value"":""ROOM"",""type"":""enum"",""options"":[""ROOM"",""HALL""]}",
+                       @"root\app\reverb\mode");
+        var f = new ParameterFieldViewModel(s, "\"ROOM\"");
+        f.Text = "HALL";
+        Assert.False(f.IsChangedFromDefault);
+    }
+
     // The tooltip must name the ACTUAL default: only the EQ bands default to 0, and 58 of the
     // pedal's 86 float params do not (gate threshold -60 dB, comp release 400 ms, ir lo_cut 20 Hz).
 

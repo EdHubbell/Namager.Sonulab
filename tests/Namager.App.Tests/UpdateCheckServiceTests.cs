@@ -41,11 +41,25 @@ public class UpdateCheckServiceTests
         var info = await svc.CheckAsync();
         Assert.NotNull(info);
         Assert.Equal("2.5.0", info!.Version);
-        Assert.Contains("/releases/tag/v2.5.0", info.Url);
+        // Send people to the download page, NOT the release's html_url: that page can carry
+        // install notes and the SmartScreen warning, and it survives changes to how we host builds.
+        Assert.Equal("https://namager.app/download/", info.Url);
         Assert.Equal(
             "https://api.github.com/repos/EdHubbell/Namager.Sonulab/releases/latest",
             handler.LastRequest?.RequestUri?.ToString());
         Assert.Equal("Namager.Sonulab", handler.LastRequest?.Headers.UserAgent?.ToString());
+    }
+
+    [Fact]
+    public async Task CheckAsync_still_reports_an_update_when_the_release_has_no_html_url()
+    {
+        // The download URL no longer comes from the payload, so html_url is not a required field.
+        var handler = new FakeHandler(HttpStatusCode.OK, """{"tag_name":"v2.5.0"}""");
+        var svc = new UpdateCheckService(handler, "1.0.0");
+        var info = await svc.CheckAsync();
+        Assert.NotNull(info);
+        Assert.Equal("2.5.0", info!.Version);
+        Assert.Equal("https://namager.app/download/", info.Url);
     }
 
     [Fact]

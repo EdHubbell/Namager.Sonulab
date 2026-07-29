@@ -30,13 +30,12 @@ public sealed partial class BlockSectionViewModel : ObservableObject
     /// with no `on_off` field (see <see cref="Enabled"/>), so that header slot is otherwise empty.</summary>
     [ObservableProperty] private bool _showEqIcon;
 
-    /// <summary>True when any float field in this block sits away from its neutral. Neutral is the
-    /// firmware default (`def`); where the schema omits one, neutral is 0. Drives the equalizer
-    /// glyph's highlight so a non-flat EQ is visible without expanding the block.</summary>
-    public bool IsEqActive => Fields.Any(IsAwayFromNeutral);
-
-    private static bool IsAwayFromNeutral(ParameterFieldViewModel f) =>
-        f.Kind == "float" && Math.Abs(f.Number - (f.Default ?? 0.0)) > 1e-9;
+    /// <summary>True when any float field in this block sits away from its firmware default (where
+    /// the schema omits one, 0). Drives the equalizer glyph's highlight so a non-flat EQ is visible
+    /// without expanding the block. Delegates to the field's own
+    /// <see cref="ParameterFieldViewModel.IsChangedFromDefault"/> — the same rule that highlights
+    /// each reset button, so the block glyph and its sliders always agree.</summary>
+    public bool IsEqActive => Fields.Any(f => f.IsChangedFromDefault);
 
     private void OnFieldValueChanged(object? sender, PropertyChangedEventArgs e)
     {

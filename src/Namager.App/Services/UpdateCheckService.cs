@@ -18,6 +18,12 @@ public sealed class UpdateCheckService : IUpdateCheckService
     private const string LatestReleaseUrl =
         "https://api.github.com/repos/EdHubbell/Namager.Sonulab/releases/latest";
 
+    /// <summary>Where the Download button sends people. Deliberately the product download page and
+    /// not the release's own <c>html_url</c>: that page can carry install guidance (the unsigned-MSI
+    /// SmartScreen warning) and stays correct if builds are ever hosted somewhere other than GitHub
+    /// Releases. The API is still the source of truth for WHETHER an update exists.</summary>
+    public const string DownloadPageUrl = "https://namager.app/download/";
+
     private readonly HttpClient _http;
     private readonly string _currentVersion;
 
@@ -34,15 +40,13 @@ public sealed class UpdateCheckService : IUpdateCheckService
         try
         {
             using var doc = JsonDocument.Parse(await _http.GetStringAsync(LatestReleaseUrl, ct));
-            if (!doc.RootElement.TryGetProperty("tag_name", out var tagEl) ||
-                !doc.RootElement.TryGetProperty("html_url", out var urlEl))
-                return null;
-            var tag = tagEl.GetString();
-            var url = urlEl.GetString();
-            if (tag is null || url is null) return null;
+            if (!doc.RootElement.TryGetProperty("tag_name", out var tagEl)) return null;
+            if (tagEl.GetString() is not { } tag) return null;
 
             var latest = tag.TrimStart('v', 'V');
-            return IsNewer(_currentVersion, latest) ? new UpdateInfo(latest, url) : null;
+            return IsNewer(_currentVersion, latest)
+                ? new UpdateInfo(latest, DownloadPageUrl)
+                : null;
         }
         catch
         {
