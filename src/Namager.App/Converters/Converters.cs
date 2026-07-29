@@ -68,6 +68,18 @@ public sealed class BoolToBrush : IValueConverter
             ? b : fallback;
 }
 
+/// <summary>bool -> brush for a state glyph: true => accent (doing something), false => muted.
+/// Used by the EQ header icon so a non-flat EQ reads at a glance.</summary>
+public sealed class ActiveToBrush : IValueConverter
+{
+    public static readonly ActiveToBrush Instance = new();
+    public object? Convert(object? value, Type t, object? p, CultureInfo c)
+        => value is true
+            ? BoolToBrush.ResolveBrush("Sonulab.AccentBrush", Brushes.DodgerBlue)
+            : BoolToBrush.ResolveBrush("Sonulab.TextMutedBrush", Brushes.Gray);
+    public object? ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
 /// <summary>
 /// bool -> FontStyle: true => Italic (empty preset slot), false => Normal.
 /// </summary>

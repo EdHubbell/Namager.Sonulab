@@ -476,4 +476,24 @@ public class ParameterEditorViewModelTests
 
         Assert.True(vm.IsDirty);
     }
+
+    // ---- #13: the eq block carries the equalizer glyph ----
+
+    [Fact] public async Task Eq_block_is_flagged_for_the_equalizer_icon()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\eq\\bass:{\"desc\":\"Bass\",\"value\":0.0,\"type\":\"float\",\"min\":-12.0,\"max\":12.0,\"def\":0.0}",
+            "root\\app\\reverb\\mix:{\"desc\":\"Mix\",\"value\":0.2,\"type\":\"float\",\"min\":0.0,\"max\":1.0,\"def\":0.0}");
+        await d.OpenAsync();
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string> { [@"root\app\eq"] = "Equalizer" }),
+            new ParameterExposure(System.Array.Empty<string>()));
+
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Test"));
+
+        var eq = vm.Blocks.Single(b => b.ShowEqIcon);
+        Assert.Equal("Equalizer", eq.Header);
+        Assert.NotEmpty(vm.Blocks.Where(b => !b.ShowEqIcon));   // reverb exists and gets no glyph
+    }
 }

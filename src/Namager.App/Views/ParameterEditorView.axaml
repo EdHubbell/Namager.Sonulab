@@ -34,6 +34,11 @@
                               IsVisible="{Binding Enabled, Converter={x:Static conv:NotNull.Instance}}"
                               Foreground="{Binding Enabled, Converter={x:Static conv:EnabledToBrush.Instance}}"
                               ToolTip.Tip="{Binding Enabled, Converter={x:Static conv:EnabledToTooltip.Instance}}"/>
+                    <PathIcon Data="{StaticResource Icon.Equalizer}" Width="14" Height="14"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding ShowEqIcon}"
+                              Foreground="{Binding IsEqActive, Converter={x:Static conv:ActiveToBrush.Instance}}"
+                              ToolTip.Tip="Equalizer is not flat"/>
                     <TextBlock Text="{Binding Header}" VerticalAlignment="Center"/>
                   </StackPanel>
                 </Expander.Header>

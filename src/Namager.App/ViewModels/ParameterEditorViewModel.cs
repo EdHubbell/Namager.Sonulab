@@ -98,7 +98,11 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         foreach (var block in Blocks_InScope)
         {
             var prefix = @"root\app\" + block;
-            var section = new BlockSectionViewModel(_labels.Label(prefix, DescOf(records, prefix)));
+            var section = new BlockSectionViewModel(_labels.Label(prefix, DescOf(records, prefix)))
+            {
+                // `eq` is the only block with no on_off field, so its header icon slot is free.
+                ShowEqIcon = string.Equals(block, "eq", StringComparison.OrdinalIgnoreCase),
+            };
             var subgroups = new Dictionary<string, SubGroupViewModel>();
 
             foreach (var rec in records)
