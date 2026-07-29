@@ -186,6 +186,49 @@ public class ParameterFieldViewModelTests
         Assert.True(f.IsDirty);          // otherwise the reset could never be saved to the pedal
     }
 
+    // The tooltip must name the ACTUAL default: only the EQ bands default to 0, and 58 of the
+    // pedal's 86 float params do not (gate threshold -60 dB, comp release 400 ms, ir lo_cut 20 Hz).
+
+    [Fact] public void Reset_tooltip_names_the_default_with_its_unit_and_precision()
+    {
+        var s = Schema(@"{""desc"":""Release"",""value"":400.0,""type"":""float"",""min"":100.0,""max"":2000.0,""def"":400.0,""unit"":""ms"",""dec"":0}",
+                       @"root\app\comp\release");
+        var f = new ParameterFieldViewModel(s, "800");
+        Assert.Equal("Reset to default (400 ms)", f.ResetTooltip);
+    }
+
+    [Fact] public void Reset_tooltip_honours_a_negative_default_and_decimal_places()
+    {
+        var s = Schema(@"{""desc"":""Threshold"",""value"":-60.0,""type"":""float"",""min"":-100.0,""max"":-20.0,""def"":-60.0,""unit"":""dB"",""dec"":1}",
+                       @"root\app\gate\threshold");
+        var f = new ParameterFieldViewModel(s, "-40");
+        Assert.Equal("Reset to default (-60.0 dB)", f.ResetTooltip);
+    }
+
+    [Fact] public void Reset_tooltip_omits_an_absent_unit()
+    {
+        var s = Schema(@"{""desc"":""Sensitivity"",""value"":0.5,""type"":""float"",""min"":0.0,""max"":1.0,""def"":0.5,""dec"":2}",
+                       @"root\app\comp\sensitivity");
+        var f = new ParameterFieldViewModel(s, "0.9");
+        Assert.Equal("Reset to default (0.50)", f.ResetTooltip);
+    }
+
+    [Fact] public void Reset_tooltip_does_not_space_a_percent_sign()
+    {
+        var s = Schema(@"{""desc"":""Vol"",""value"":50.0,""type"":""float"",""min"":0.0,""max"":100.0,""def"":50.0,""unit"":""%"",""dec"":0}",
+                       @"root\app\amp\vol");
+        var f = new ParameterFieldViewModel(s, "80");
+        Assert.Equal("Reset to default (50%)", f.ResetTooltip);
+    }
+
+    [Fact] public void Reset_tooltip_falls_back_when_the_schema_omits_dec()
+    {
+        var s = Schema(@"{""desc"":""Depth"",""value"":5.0,""type"":""float"",""min"":0.0,""max"":10.0,""def"":5.0}",
+                       @"root\app\amp\depth");
+        var f = new ParameterFieldViewModel(s, "7");
+        Assert.Equal("Reset to default (5)", f.ResetTooltip);
+    }
+
     [Fact] public void Reset_is_a_noop_for_a_field_already_at_its_default()
     {
         var s = Schema(@"{""desc"":""Low"",""value"":0.0,""type"":""float"",""min"":-15.0,""max"":15.0,""def"":0.0}",

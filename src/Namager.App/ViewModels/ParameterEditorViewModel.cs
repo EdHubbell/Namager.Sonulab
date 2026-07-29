@@ -156,10 +156,10 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                     schema.Ref is { Length: > 0 } fr && refOptions.TryGetValue(fr, out var opts) && opts.Count > 0
                         ? opts : null);
                 labeled.Label = _labels.Label(rec.Path, schema.Desc.Length > 0 ? schema.Desc : null);
-                // Reset buttons on the EQ bands only: those are the sliders you actually need to
-                // land on 0, and fw 2.5.1 publishes def 0.0 for all four (low/mid/treble/level).
-                labeled.ShowReset = labeled.Kind == "float"
-                                 && string.Equals(block, "eq", StringComparison.OrdinalIgnoreCase);
+                // Reset on every float. fw 2.5.1 publishes `def` for all 86 float nodes, and only
+                // the 4 EQ bands default to 0 — 58 of the rest do not (gate threshold -60 dB, comp
+                // release 400 ms), so this is the only way back to factory without a manual.
+                labeled.ShowReset = labeled.Kind == "float";
                 labeled.PropertyChanged += (_, e) =>
                 {
                     // Only a VALUE edit dirties the preset. Options/Kind change when the device's

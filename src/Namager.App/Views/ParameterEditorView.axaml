@@ -56,11 +56,12 @@
                               <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
                               <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
                                          VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
-                              <!-- Landing exactly on 0 by dragging an EQ band is impractical. -->
+                              <!-- Back to the firmware default. Most are not 0, so the tooltip
+                                   names the actual value rather than claiming "(0)". -->
                               <Button Width="24" Height="24" Padding="0" VerticalAlignment="Center"
                                       IsVisible="{Binding ShowReset}"
                                       Command="{Binding ResetCommand}"
-                                      ToolTip.Tip="Reset to default (0 dB)">
+                                      ToolTip.Tip="{Binding ResetTooltip}">
                                 <PathIcon Data="{StaticResource Icon.Reset}" Width="13" Height="13"/>
                               </Button>
                             </StackPanel>
@@ -112,6 +113,14 @@
                                       <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
                                       <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
                                                  VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
+                                      <!-- Sub-group floats (e.g. delay's Tone and Character) get the
+                                           reset button too, now that it is not EQ-only. -->
+                                      <Button Width="24" Height="24" Padding="0" VerticalAlignment="Center"
+                                              IsVisible="{Binding ShowReset}"
+                                              Command="{Binding ResetCommand}"
+                                              ToolTip.Tip="{Binding ResetTooltip}">
+                                        <PathIcon Data="{StaticResource Icon.Reset}" Width="13" Height="13"/>
+                                      </Button>
                                     </StackPanel>
                                     <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"
                                               IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}"/>

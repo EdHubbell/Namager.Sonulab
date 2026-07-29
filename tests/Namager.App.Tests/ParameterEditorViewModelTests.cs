@@ -497,6 +497,31 @@ public class ParameterEditorViewModelTests
         Assert.NotEmpty(vm.Blocks.Where(b => !b.ShowEqIcon));   // reverb exists and gets no glyph
     }
 
+    // ---- reset buttons: every float, block-level and sub-group alike ----
+
+    [Fact] public async Task Every_float_gets_a_reset_button_and_no_other_kind_does()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var all = vm.Blocks.SelectMany(b => b.Fields.Concat(b.SubGroups.SelectMany(s => s.Fields))).ToList();
+        Assert.NotEmpty(all.Where(f => f.Kind == "float"));
+        Assert.All(all, f => Assert.Equal(f.Kind == "float", f.ShowReset));
+    }
+
+    [Fact] public async Task Sub_group_floats_get_a_reset_button_too()
+    {
+        // Dev() seeds delay\tcfolder\tape inside a folder, so this covers the nested template.
+        var d = Dev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var tape = vm.Blocks.SelectMany(b => b.SubGroups).SelectMany(s => s.Fields)
+                            .Single(f => f.Path.EndsWith(@"\tape"));
+        Assert.True(tape.ShowReset);
+    }
+
     // ---- #10: single-flight, latest-wins preset activation ----
 
     /// <summary>ISonuLink decorator whose preset-activation command blocks until released, so a test

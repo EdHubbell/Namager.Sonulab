@@ -20,14 +20,43 @@ public partial class ParameterFieldViewModel : ObservableObject
     /// assuming 0 — a knob's neutral is not always zero.</summary>
     public double? Default { get; }
 
-    /// <summary>Show a reset-to-default button beside this field's slider. Set for the EQ bands,
-    /// where landing exactly on 0 by dragging is impractical.</summary>
+    /// <summary>The node's display unit ("dB", "ms", "%"), or null. Used by the reset tooltip.</summary>
+    public string? Unit { get; }
+
+    /// <summary>Decimal places the firmware suggests for this node, or null. Used by the reset
+    /// tooltip so a default reads the way the device would print it.</summary>
+    public int? Dec { get; }
+
+    /// <summary>Show a reset-to-default button beside this field's slider. Set for every float:
+    /// fw 2.5.1 publishes `def` for all 86 of them, and 58 of those defaults are NOT zero
+    /// (gate threshold -60 dB, comp release 400 ms, ir lo_cut 20 Hz), so "back to factory" is
+    /// something you cannot do by hand from memory.</summary>
     [ObservableProperty] private bool _showReset;
 
-    /// <summary>Snap back to the firmware default (0 where the schema publishes none) — the same
-    /// neutral the EQ activity glyph tests against, so a reset always leaves that glyph muted.</summary>
+    /// <summary>Snap back to the firmware default (0 where the schema publishes none — never the
+    /// case on fw 2.5.1, kept as a guard for future firmware). For the EQ this is the same neutral
+    /// the activity glyph tests against, so a reset always leaves that glyph muted.</summary>
     [RelayCommand]
     private void Reset() => Number = Default ?? 0.0;
+
+    /// <summary>Names the actual default, e.g. "Reset to default (400 ms)". A fixed "(0)" would be
+    /// a lie on two thirds of the pedal's sliders.</summary>
+    public string ResetTooltip => $"Reset to default ({FormatDefault()})";
+
+    private string FormatDefault()
+    {
+        double v = Default ?? 0.0;
+        // "0.##" rather than a fixed precision when the schema omits `dec`: shows 5 as "5", not "5.00".
+        string num = Dec is int d and >= 0
+            ? v.ToString("F" + d, CultureInfo.InvariantCulture)
+            : v.ToString("0.##", CultureInfo.InvariantCulture);
+        return Unit switch
+        {
+            null or "" => num,
+            "%" => num + "%",          // "50%", not "50 %"
+            _ => $"{num} {Unit}",
+        };
+    }
 
     public IReadOnlyList<string> Options { get; private set; }
 
@@ -49,6 +78,7 @@ public partial class ParameterFieldViewModel : ObservableObject
         Path = schema.Path;
         _label = string.IsNullOrEmpty(schema.Desc) ? schema.Path : schema.Desc;
         Min = schema.Min ?? 0; Max = schema.Max ?? 1; Default = schema.Def;
+        Unit = schema.Unit; Dec = schema.Dec;
 
         Kind = schema.Type switch
         {
