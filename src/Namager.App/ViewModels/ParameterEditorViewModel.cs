@@ -164,10 +164,48 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     /// The content load is skipped when the same preset is already loaded, but the slot index is
     /// updated regardless: a reorder moves the selected preset to a new slot without changing its
     /// name, and a stale index would make the post-save usage update patch the wrong slot.</summary>
+    // ---- #10: single-flight, latest-wins preset activation ----
+    // Selection changes arrive fire-and-forget (MainWindowViewModel wires PresetList.Selected ->
+    // LoadForCommand.Execute). Before this, three quick clicks started three overlapping chains:
+    // their `write root\app\preset` calls interleaved on the serial link and the pedal ended up on
+    // whichever landed last, which need not be the highlighted preset. One chain runs at a time now;
+    // a request arriving mid-flight REPLACES any pending one, so intermediate presets are dropped
+    // rather than queued and audibly replayed. Supersession happens BEFORE a load starts, so there
+    // is no stale-completion path to guard.
+    private PresetTarget? _pendingTarget;
+    private bool _loadRunning;
+
+    /// <summary>Test seam: the currently running load chain, or null when idle. Awaiting it runs to
+    /// quiescence — including any target that was pending when it started.</summary>
+    public Task? PendingLoad { get; private set; }
+
     [RelayCommand]
-    private async Task LoadForAsync(PresetTarget? target)
+    private Task LoadForAsync(PresetTarget? target)
     {
-        if (target is null || string.IsNullOrEmpty(target.Name)) return;
+        if (target is null || string.IsNullOrEmpty(target.Name)) return Task.CompletedTask;
+        _pendingTarget = target;                       // newest wins; any earlier pending is dropped
+        if (_loadRunning) return PendingLoad ?? Task.CompletedTask;
+        _loadRunning = true;
+        return PendingLoad = DrainAsync();
+    }
+
+    private async Task DrainAsync()
+    {
+        try
+        {
+            while (_pendingTarget is { } target)
+            {
+                _pendingTarget = null;
+                await LoadOneAsync(target);
+            }
+        }
+        finally { _loadRunning = false; }
+    }
+
+    /// <summary>One activation + param load. Unchanged in substance from the original LoadForAsync;
+    /// the difference is that it is only ever entered by DrainAsync, one at a time.</summary>
+    private async Task LoadOneAsync(PresetTarget target)
+    {
         int previousIndex = LoadedIndex;
         LoadedIndex = target.Index;
         if (target.Name == _loadedName) return;

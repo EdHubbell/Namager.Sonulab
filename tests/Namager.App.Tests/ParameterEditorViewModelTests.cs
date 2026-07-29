@@ -496,4 +496,156 @@ public class ParameterEditorViewModelTests
         Assert.Equal("Equalizer", eq.Header);
         Assert.NotEmpty(vm.Blocks.Where(b => !b.ShowEqIcon));   // reverb exists and gets no glyph
     }
+
+    // ---- #10: single-flight, latest-wins preset activation ----
+
+    /// <summary>ISonuLink decorator whose preset-activation command blocks until released, so a test
+    /// can hold one load in flight and fire more selections behind it. Mirrors CountingLink.</summary>
+    sealed class GatedLink : ISonuLink
+    {
+        private const string Prefix = "write root\\app\\preset:";
+        private readonly ISonuLink _inner;
+        // A COUNTING gate, not a one-shot TCS: permits accumulate, so a test may Release() before
+        // the activation it unblocks has even started. A swap-on-release TCS deadlocks here — the
+        // pre-release completes a gate nobody is waiting on and the next activation waits forever.
+        private readonly SemaphoreSlim _gate = new(0);
+        public readonly List<string> Activated = new();
+        public GatedLink(ISonuLink inner) => _inner = inner;
+
+        public bool IsOpen => _inner.IsOpen;
+        public Task OpenAsync(CancellationToken ct = default) => _inner.OpenAsync(ct);
+        public void Close() => _inner.Close();
+
+        /// <summary>Grant one activation permission to proceed (now or later).</summary>
+        public void Release() => _gate.Release();
+
+        public async Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (command.StartsWith(Prefix, StringComparison.Ordinal))
+            {
+                Activated.Add(command[Prefix.Length..].Split('"')[3]);   // {"value":"<name>"}
+                await _gate.WaitAsync(ct);
+            }
+            return await _inner.SendAsync(command, ct);
+        }
+    }
+
+    /// <summary>Throws the first time it sees a preset activation, then behaves normally.</summary>
+    sealed class ThrowingOnceLink : ISonuLink
+    {
+        private const string Prefix = "write root\\app\\preset:";
+        private readonly ISonuLink _inner;
+        private bool _thrown;
+        public ThrowingOnceLink(ISonuLink inner) => _inner = inner;
+
+        public bool IsOpen => _inner.IsOpen;
+        public Task OpenAsync(CancellationToken ct = default) => _inner.OpenAsync(ct);
+        public void Close() => _inner.Close();
+
+        public Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            if (!_thrown && command.StartsWith(Prefix, StringComparison.Ordinal))
+            {
+                _thrown = true;
+                throw new InvalidOperationException("boom");
+            }
+            return _inner.SendAsync(command, ct);
+        }
+    }
+
+    /// <summary>Bounded spin so a mid-flight assertion does not depend on how much of the load chain
+    /// happens to run synchronously. Gives up after ~1 s and lets the assertion report the truth.</summary>
+    static async Task WaitUntil(Func<bool> condition)
+    {
+        for (int i = 0; i < 200 && !condition(); i++) await Task.Delay(5);
+    }
+
+    static FakeSonuLink MinimalDev()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}");
+        d.OpenAsync().GetAwaiter().GetResult();
+        return d;
+    }
+
+    static (ParameterEditorViewModel vm, GatedLink link) GatedVm()
+    {
+        var link = new GatedLink(MinimalDev());
+        var vm = new ParameterEditorViewModel(new SonuClient(link),
+            new LabelService(new Dictionary<string, string>()), new ParameterExposure(System.Array.Empty<string>()));
+        return (vm, link);
+    }
+
+    [Fact] public async Task Rapid_selection_activates_only_the_first_and_the_last_target()
+    {
+        var (vm, client) = GatedVm();
+
+        vm.LoadForCommand.Execute(new PresetTarget(0, "One"));     // starts, blocks on the gate
+        vm.LoadForCommand.Execute(new PresetTarget(1, "Two"));     // queued
+        vm.LoadForCommand.Execute(new PresetTarget(2, "Three"));   // replaces "Two"
+
+        await WaitUntil(() => client.Activated.Count >= 1);
+        Assert.Equal(new[] { "One" }, client.Activated);           // nothing interleaved
+
+        client.Release();                                          // "One" completes -> "Three" runs
+        client.Release();
+        await vm.PendingLoad!;
+
+        Assert.Equal(new[] { "One", "Three" }, client.Activated);  // "Two" was dropped, never replayed
+        Assert.Equal("Three", vm.PresetName);
+        Assert.Equal(2, vm.LoadedIndex);
+    }
+
+    [Fact] public async Task A_superseded_load_does_not_overwrite_the_newer_result()
+    {
+        var (vm, client) = GatedVm();
+
+        vm.LoadForCommand.Execute(new PresetTarget(0, "One"));
+        vm.LoadForCommand.Execute(new PresetTarget(2, "Three"));
+        client.Release();
+        client.Release();
+        await vm.PendingLoad!;
+
+        Assert.Equal("Three", vm.PresetName);
+        Assert.Equal(2, vm.LoadedIndex);
+    }
+
+    [Fact] public async Task Reselecting_the_loaded_preset_does_not_reactivate_it()
+    {
+        var (vm, client) = GatedVm();
+
+        vm.LoadForCommand.Execute(new PresetTarget(0, "One"));
+        client.Release();
+        await vm.PendingLoad!;
+        Assert.Equal(new[] { "One" }, client.Activated);
+
+        vm.LoadForCommand.Execute(new PresetTarget(0, "One"));
+        if (vm.PendingLoad is { } t) await t;
+        Assert.Equal(new[] { "One" }, client.Activated);   // still one activation
+    }
+
+    [Fact] public async Task A_failing_load_surfaces_an_error_and_still_runs_the_pending_target()
+    {
+        var link = new ThrowingOnceLink(MinimalDev());
+        var vm = new ParameterEditorViewModel(new SonuClient(link),
+            new LabelService(new Dictionary<string, string>()), new ParameterExposure(System.Array.Empty<string>()));
+
+        // ErrorMessage is observed over time, not at the end: the following successful load clears
+        // it by design (every load starts with ErrorMessage = null), so a lingering error would be
+        // the wrong thing to assert. What matters is that the failure surfaced at all.
+        var errors = new List<string?>();
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ParameterEditorViewModel.ErrorMessage)) errors.Add(vm.ErrorMessage);
+        };
+
+        vm.LoadForCommand.Execute(new PresetTarget(0, "Bad"));
+        vm.LoadForCommand.Execute(new PresetTarget(1, "Good"));
+        await vm.PendingLoad!;
+
+        Assert.Contains(errors, e => e is not null);   // the failure was surfaced, not swallowed
+        Assert.Equal("Good", vm.PresetName);           // and the queue still drained
+        Assert.Equal(1, vm.LoadedIndex);
+    }
 }
