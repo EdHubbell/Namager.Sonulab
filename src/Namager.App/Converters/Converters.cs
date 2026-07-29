@@ -68,6 +68,16 @@ public sealed class BoolToBrush : IValueConverter
             ? b : fallback;
 }
 
+/// <summary>One PresetRef -> "NN Name" (1-based slot, zero-padded) — the same shape
+/// PresetRefFormat.Join produces, so the used-in-presets list reads identically to the tooltip.</summary>
+public sealed class PresetRefLabel : IValueConverter
+{
+    public static readonly PresetRefLabel Instance = new();
+    public object? Convert(object? value, Type t, object? p, CultureInfo c)
+        => value is Sonulab.Core.Services.PresetRef r ? $"{r.Index + 1:00} {r.Name}" : "";
+    public object? ConvertBack(object? v, Type t, object? p, CultureInfo c) => throw new NotSupportedException();
+}
+
 /// <summary>bool -> brush for a state glyph: true => accent (doing something), false => muted.
 /// Used by the EQ header icon so a non-flat EQ reads at a glance.</summary>
 public sealed class ActiveToBrush : IValueConverter

@@ -7,8 +7,18 @@ using Sonulab.Core.Transport;
 
 namespace Namager.App.ViewModels;
 
-public partial class MainWindowViewModel : ObservableObject
+public partial class MainWindowViewModel : ObservableObject, Namager.App.Services.IPresetNavigator
 {
+    /// <summary>#14: jump from an amp's "used in presets" list to the preset itself. Selecting it
+    /// ACTIVATES it on the pedal, exactly as clicking it in the preset list does — the same
+    /// single-flight path added for #10, so a burst of clicks cannot desync the device.</summary>
+    public void NavigateToPreset(int index, string name)
+    {
+        NavigateRequested?.Invoke(0);                       // Presets tab
+        if (Presets is { } p)
+            p.Selected = p.Items.FirstOrDefault(i => i.Index == index);
+    }
+
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
 
     private bool _ampsLoaded, _irsLoaded;
@@ -227,7 +237,7 @@ public partial class MainWindowViewModel : ObservableObject
             var slotBackups = Namager.App.Services.AppPaths.SlotBackups;
 
             var ampService = new AmpService(_connection.Client!, slotBackups);
-            var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status, usage: usage, catalog: catalog);
+            var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status, usage: usage, catalog: catalog, navigator: this);
             Amps = amps;
 
             var irService = new IrService(_connection.Client!, slotBackups);

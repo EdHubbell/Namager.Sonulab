@@ -1,6 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Namager.App.ViewModels"
+             xmlns:conv="using:Namager.App.Converters"
+             xmlns:svc="using:Sonulab.Core.Services"
              x:Class="Namager.App.Views.AmpDetailView"
              x:DataType="vm:AmpDetailViewModel">
 
@@ -48,5 +50,29 @@
             Padding="0" Background="Transparent" FontSize="12" Cursor="Hand"
             Foreground="{DynamicResource Sonulab.AccentBrush}"
             IsVisible="{Binding Url, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+    <!-- #14: which presets use this amp. "Checking…" and "Not used" are deliberately distinct —
+         an empty list during a scan would read as "unused" and mislead a delete decision. -->
+    <Border Classes="rule"/>
+    <TextBlock Classes="section-label" Text="USED IN PRESETS"/>
+    <TextBlock Text="Checking preset usage…" FontSize="11"
+               Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+               IsVisible="{Binding IsUsageChecking}"/>
+    <TextBlock Text="Not used by any preset." FontSize="11"
+               Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+               IsVisible="{Binding IsUsageEmpty}"/>
+    <ItemsControl ItemsSource="{Binding UsedInPresets}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="svc:PresetRef">
+          <Button Padding="0,1" Background="Transparent" Cursor="Hand" FontSize="12"
+                  HorizontalAlignment="Left"
+                  Foreground="{DynamicResource Sonulab.AccentBrush}"
+                  Content="{Binding Converter={x:Static conv:PresetRefLabel.Instance}}"
+                  ToolTip.Tip="Go to this preset (loads it on the pedal)"
+                  Command="{Binding $parent[ItemsControl].((vm:AmpDetailViewModel)DataContext).GoToPresetCommand}"
+                  CommandParameter="{Binding}"/>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
   </StackPanel>
 </UserControl>

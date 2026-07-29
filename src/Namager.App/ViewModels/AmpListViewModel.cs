@@ -32,7 +32,8 @@ public partial class AmpListViewModel : ObservableObject
         Namager.App.Services.IStatusService? status = null,
         DistillRunner? distill = null, string? distilledDir = null, Action<Action>? dispatch = null,
         Namager.App.Services.IPresetUsageService? usage = null,
-        Namager.App.Services.CatalogVersion? catalog = null)
+        Namager.App.Services.CatalogVersion? catalog = null,
+        Namager.App.Services.IPresetNavigator? navigator = null)
     {
         _amps = amps; _writes = writesAllowed;
         _status = status ?? Namager.App.Services.NullStatusService.Instance;
@@ -44,7 +45,7 @@ public partial class AmpListViewModel : ObservableObject
         // Progressive highlight fill: the background scan publishes after each preset resolves.
         // MapUpdated may fire on a worker thread — marshal through the dispatch seam.
         _usage.MapUpdated += () => _dispatch(ApplyUsage);
-        Detail = new AmpDetailViewModel(ReadMetadataAsync);
+        Detail = new AmpDetailViewModel(ReadMetadataAsync, _usage, navigator, _dispatch);
     }
 
     /// <summary>The selected amp's metadata card. Its own view-model so the preset editor can render

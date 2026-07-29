@@ -10,6 +10,11 @@ using Sonulab.Distill;
 
 namespace Namager.App.ViewModels;
 
+/// <summary>Whether the preset-usage answer for an amp is known yet. <see cref="Checking"/> and an
+/// empty <see cref="AmpDetailViewModel.UsedInPresets"/> mean "we don't know"; <see cref="Complete"/>
+/// with an empty list means "genuinely unused". Conflating the two misleads a delete decision.</summary>
+public enum AmpUsageState { Checking, Complete }
+
 /// <summary>The amp *detail* concern, lifted out of AmpListViewModel so it can render in more than
 /// one place: inline on the Amps tab, and in the preset editor's flyout (#9). Knows nothing about
 /// list selection, uploads, or metadata editing — it loads one amp's metadata and exposes it.
@@ -19,9 +24,21 @@ public sealed partial class AmpDetailViewModel : ObservableObject
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
 
     private readonly Func<int, CancellationToken, Task<AmpMetadata?>> _readMetadata;
+    private readonly Namager.App.Services.IPresetUsageService _usage;
+    private readonly Namager.App.Services.IPresetNavigator _navigator;
 
-    public AmpDetailViewModel(Func<int, CancellationToken, Task<AmpMetadata?>> readMetadata) =>
+    public AmpDetailViewModel(Func<int, CancellationToken, Task<AmpMetadata?>> readMetadata,
+        Namager.App.Services.IPresetUsageService? usage = null,
+        Namager.App.Services.IPresetNavigator? navigator = null,
+        Action<Action>? dispatch = null)
+    {
         _readMetadata = readMetadata;
+        _usage = usage ?? Namager.App.Services.NullPresetUsageService.Instance;
+        _navigator = navigator ?? Namager.App.Services.NullPresetNavigator.Instance;
+        var marshal = dispatch ?? (a => Avalonia.Threading.Dispatcher.UIThread.Post(a));
+        // The scan publishes progressively and MAY fire on a worker thread — marshal it.
+        _usage.MapUpdated += () => marshal(RefreshUsage);
+    }
 
     [ObservableProperty] private string? _name;
     [ObservableProperty] private int _displaySlot;
@@ -47,6 +64,7 @@ public sealed partial class AmpDetailViewModel : ObservableObject
     public void Clear()
     {
         _cts?.Cancel();
+        Name = null;
         ResetContent();
         IsVisible = false;
     }
@@ -55,6 +73,9 @@ public sealed partial class AmpDetailViewModel : ObservableObject
     {
         Fields.Clear();
         Notes = null; Url = null; Error = null; ShowNoMetadata = false;
+        UsedInPresets.Clear();
+        UsageState = AmpUsageState.Checking;
+        OnPropertyChanged(nameof(IsUsageEmpty));
     }
 
     /// <summary>Show the detail for one amp slot. <paramref name="index"/> below zero means the name
@@ -85,6 +106,8 @@ public sealed partial class AmpDetailViewModel : ObservableObject
         Name = name;
         DisplaySlot = index + 1;
         IsVisible = true;
+        RefreshUsage();                 // resolves against the map we already have; no device I/O
+        _usage.EnsureScanning();        // and nudges the scan along if it has not finished
 
         if (index < 0)
         {
@@ -149,6 +172,42 @@ public sealed partial class AmpDetailViewModel : ObservableObject
 
     private static string FormatSize(long b) =>
         b >= 1 << 20 ? $"{b / 1048576.0:F1} MB" : b >= 1 << 10 ? $"{b / 1024.0:F1} KB" : $"{b} B";
+
+    // ---- #14: which presets use this amp ----
+
+    /// <summary>Which presets reference this amp. THREE states, not two: rendering an empty list
+    /// while the scan is still running would read as "unused", which is exactly the wrong thing to
+    /// tell someone deciding whether to delete an amp.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsUsageChecking))]
+    [NotifyPropertyChangedFor(nameof(IsUsageEmpty))]
+    private AmpUsageState _usageState = AmpUsageState.Checking;
+
+    public ObservableCollection<PresetRef> UsedInPresets { get; } = new();
+
+    public bool IsUsageChecking => UsageState == AmpUsageState.Checking;
+    public bool IsUsageEmpty => UsageState == AmpUsageState.Complete && UsedInPresets.Count == 0;
+
+    /// <summary>Recompute the usage section from the current map for whatever amp is displayed.</summary>
+    private void RefreshUsage()
+    {
+        UsedInPresets.Clear();
+        if (Name is not { Length: > 0 } name || !_usage.IsComplete)
+        {
+            UsageState = AmpUsageState.Checking;
+            OnPropertyChanged(nameof(IsUsageEmpty));
+            return;
+        }
+        foreach (var r in _usage.Current.PresetsUsingAmp(name)) UsedInPresets.Add(r);
+        UsageState = AmpUsageState.Complete;
+        OnPropertyChanged(nameof(IsUsageEmpty));
+    }
+
+    [RelayCommand]
+    private void GoToPreset(PresetRef? r)
+    {
+        if (r is { } target) _navigator.NavigateToPreset(target.Index, target.Name);
+    }
 
     /// <summary>Cancel any in-flight read without touching what the pane shows. Callers awaiting
     /// <see cref="LoadTask"/> drain it before starting a write burst — a full-slot dread overlapping
