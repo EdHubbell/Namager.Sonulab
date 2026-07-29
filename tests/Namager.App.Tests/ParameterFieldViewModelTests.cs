@@ -109,4 +109,30 @@ public class ParameterFieldViewModelTests
         f.SetRefOptions(new[] { "X" });
         Assert.Equal(new[] { "ON", "OFF" }, f.Options);
     }
+
+    // ---- firmware default (`def`), used by the EQ activity icon ----
+
+    [Fact] public void Float_field_exposes_the_schema_default()
+    {
+        var s = Schema(@"{""desc"":""Bass"",""value"":0.0,""type"":""float"",""min"":-12.0,""max"":12.0,""def"":0.0}",
+                       @"root\app\eq\bass");
+        var f = new ParameterFieldViewModel(s, "3.5");
+        Assert.Equal(0.0, f.Default);
+    }
+
+    [Fact] public void Field_without_a_schema_default_exposes_null()
+    {
+        var s = Schema(@"{""desc"":""Bass"",""value"":0.0,""type"":""float"",""min"":-12.0,""max"":12.0}",
+                       @"root\app\eq\bass");
+        var f = new ParameterFieldViewModel(s, "3.5");
+        Assert.Null(f.Default);
+    }
+
+    [Fact] public void Nonzero_schema_default_is_preserved_not_coerced()
+    {
+        var s = Schema(@"{""desc"":""Mid"",""value"":0.5,""type"":""float"",""min"":0.0,""max"":1.0,""def"":0.5}",
+                       @"root\app\eq\mid");
+        var f = new ParameterFieldViewModel(s, "0.5");
+        Assert.Equal(0.5, f.Default);
+    }
 }

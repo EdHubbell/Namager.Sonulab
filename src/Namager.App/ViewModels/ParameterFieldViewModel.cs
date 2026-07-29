@@ -13,6 +13,12 @@ public partial class ParameterFieldViewModel : ObservableObject
     public string Kind { get; private set; }
     public double Min { get; }
     public double Max { get; }
+
+    /// <summary>The firmware's default for this node (`def` in the browse schema), or null when the
+    /// schema omits one. Neutral-value comparisons (the EQ activity icon) use this rather than
+    /// assuming 0 — a knob's neutral is not always zero.</summary>
+    public double? Default { get; }
+
     public IReadOnlyList<string> Options { get; private set; }
 
     /// <summary>The device list this field's options were fetched from (e.g. <c>root\amp</c>), or
@@ -32,7 +38,7 @@ public partial class ParameterFieldViewModel : ObservableObject
     {
         Path = schema.Path;
         _label = string.IsNullOrEmpty(schema.Desc) ? schema.Path : schema.Desc;
-        Min = schema.Min ?? 0; Max = schema.Max ?? 1;
+        Min = schema.Min ?? 0; Max = schema.Max ?? 1; Default = schema.Def;
 
         Kind = schema.Type switch
         {
