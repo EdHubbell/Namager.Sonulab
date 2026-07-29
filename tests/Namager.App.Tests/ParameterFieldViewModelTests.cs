@@ -135,4 +135,67 @@ public class ParameterFieldViewModelTests
         var f = new ParameterFieldViewModel(s, "0.5");
         Assert.Equal(0.5, f.Default);
     }
+
+    // ---- per-slider reset (EQ sliders are hard to land on 0 by hand) ----
+
+    [Fact] public void Reset_snaps_the_value_back_to_the_firmware_default()
+    {
+        // fw 2.5.1 publishes def 0.0 for every EQ band (see HARDWARE-VALIDATION-ui-issues-9-14),
+        // so reset-to-default and reset-to-zero coincide there; this asserts the general rule.
+        var s = Schema(@"{""desc"":""Low"",""value"":0.0,""type"":""float"",""min"":-15.0,""max"":15.0,""def"":0.0}",
+                       @"root\app\eq\low");
+        var f = new ParameterFieldViewModel(s, "3.6");
+        Assert.Equal(3.6, f.Number);
+
+        f.ResetCommand.Execute(null);
+
+        Assert.Equal(0.0, f.Number);
+    }
+
+    [Fact] public void Reset_honours_a_nonzero_firmware_default()
+    {
+        var s = Schema(@"{""desc"":""Mix"",""value"":0.5,""type"":""float"",""min"":0.0,""max"":1.0,""def"":0.5}",
+                       @"root\app\delay\mix");
+        var f = new ParameterFieldViewModel(s, "0.9");
+
+        f.ResetCommand.Execute(null);
+
+        Assert.Equal(0.5, f.Number);
+    }
+
+    [Fact] public void Reset_falls_back_to_zero_without_a_firmware_default()
+    {
+        var s = Schema(@"{""desc"":""Low"",""value"":0.0,""type"":""float"",""min"":-15.0,""max"":15.0}",
+                       @"root\app\eq\low");
+        var f = new ParameterFieldViewModel(s, "3.6");
+
+        f.ResetCommand.Execute(null);
+
+        Assert.Equal(0.0, f.Number);
+    }
+
+    [Fact] public void Reset_dirties_the_field_so_the_change_can_be_saved()
+    {
+        var s = Schema(@"{""desc"":""Low"",""value"":0.0,""type"":""float"",""min"":-15.0,""max"":15.0,""def"":0.0}",
+                       @"root\app\eq\low");
+        var f = new ParameterFieldViewModel(s, "3.6");
+        Assert.False(f.IsDirty);         // construction captures the loaded value as the baseline
+
+        f.ResetCommand.Execute(null);
+
+        Assert.True(f.IsDirty);          // otherwise the reset could never be saved to the pedal
+    }
+
+    [Fact] public void Reset_is_a_noop_for_a_field_already_at_its_default()
+    {
+        var s = Schema(@"{""desc"":""Low"",""value"":0.0,""type"":""float"",""min"":-15.0,""max"":15.0,""def"":0.0}",
+                       @"root\app\eq\low");
+        var f = new ParameterFieldViewModel(s, "0");
+        f.MarkClean();
+
+        f.ResetCommand.Execute(null);
+
+        Assert.Equal(0.0, f.Number);
+        Assert.False(f.IsDirty);
+    }
 }

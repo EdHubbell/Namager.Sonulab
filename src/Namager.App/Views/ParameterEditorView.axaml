@@ -56,6 +56,13 @@
                               <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
                               <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
                                          VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
+                              <!-- Landing exactly on 0 by dragging an EQ band is impractical. -->
+                              <Button Width="24" Height="24" Padding="0" VerticalAlignment="Center"
+                                      IsVisible="{Binding ShowReset}"
+                                      Command="{Binding ResetCommand}"
+                                      ToolTip.Tip="Reset to default (0 dB)">
+                                <PathIcon Data="{StaticResource Icon.Reset}" Width="13" Height="13"/>
+                              </Button>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="6"
                                         IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}">

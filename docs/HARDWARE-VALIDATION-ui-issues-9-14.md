@@ -8,25 +8,28 @@ pedal — that is expected and is what #10 and #14 exercise.
 
 ## Gate 0 — the `def` assumption behind #13 (DO THIS FIRST)
 
-The EQ icon lights when a dial sits away from its neutral, and neutral is the firmware default
-(`def`) from the browse schema. **Whether the EQ nodes actually publish `def` was never confirmed on
-hardware** — VoidX-Control held COM6 during implementation and could not be closed, so no browse
-dump was taken. The code falls back to neutral = 0 for any field without a `def`, so it behaves
-sanely either way, but the real answer should be recorded here.
+**RESOLVED 2026-07-29** (fw 2.5.1, USB serial, `dotnet run --project tools/HwCheck -- --browse`).
 
-- [ ] Run `dotnet run --project tools/HwCheck -- --browse` (read-only) and find the `root\app\eq\*` nodes.
-- [ ] Record whether each carries a `def`, and its value:
+All four EQ nodes publish `def`, and every default is **0.0**:
 
-      | node | has `def`? | value |
-      | --- | --- | --- |
-      | `root\app\eq\…` |  |  |
+| node | desc | type | range | `def` |
+| --- | --- | --- | --- | --- |
+| `root\app\eq\low` | Low | float | -15..15 dB | 0.0 |
+| `root\app\eq\mid` | Mid | float | -15..15 dB | 0.0 |
+| `root\app\eq\treble` | Treble | float | -15..15 dB | 0.0 |
+| `root\app\eq\level` | Level | float | -20..20 dB | 0.0 |
 
-- [ ] **Every EQ node has `def`** → the icon lights exactly when the EQ is off its firmware neutral.
-      Nothing to change; tick this and move on.
-- [ ] **Some EQ node has no `def`** → that node falls back to neutral = 0. Confirm 0 really is flat
-      for it. If a node's neutral is non-zero and undeclared, the icon would light on every preset
-      and become noise — record the true neutral here and hardcode it in
-      `BlockSectionViewModel.IsAwayFromNeutral`.
+Consequences:
+
+- [x] The `def`-based neutral rule is correct here, and the zero fallback in
+      `BlockSectionViewModel.IsAwayFromNeutral` is never exercised for EQ — firmware neutral and
+      literal zero coincide.
+- [x] The per-slider reset button resets to `Default ?? 0`, so a reset always leaves the EQ glyph
+      muted. Reset and the activity icon cannot disagree.
+
+Re-run this browse if the firmware version changes: a future firmware could ship a non-zero EQ
+default, at which point both the icon and the reset button follow it automatically — but the
+`root\app\eq` node list itself should be re-checked for added bands.
 
 ## #13 — EQ icon
 

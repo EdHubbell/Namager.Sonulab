@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Namager.App.ViewModels"
              xmlns:t3k="using:Namager.Tone3000"
+             xmlns:conv="using:Namager.App.Converters"
              x:Class="Namager.App.Views.Tone3000View"
              x:DataType="vm:Tone3000ViewModel">
   <Panel>
@@ -104,7 +105,7 @@
           <!-- Detail panel -->
           <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,8,0,0" MaxHeight="240"
                   IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
-            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="DetailScroll" HorizontalScrollBarVisibility="Disabled">
               <StackPanel Spacing="6">
                 <TextBlock Text="{Binding Selected.Title}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap"/>
                 <TextBlock FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}">
@@ -165,7 +166,21 @@
                   <Button Padding="0" Background="Transparent" Margin="0,0,8,8"
                           Command="{Binding $parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).SelectToneCommand}"
                           CommandParameter="{Binding}">
+                    <!-- Accent outline on the selected card, so it is obvious which one fed the
+                         detail panel below. Width is fixed, so the thicker border costs no shift. -->
                     <Border Classes="card" Width="200">
+                      <Border.BorderBrush>
+                        <MultiBinding Converter="{x:Static conv:SelectedCard.Brush}">
+                          <Binding/>
+                          <Binding Path="$parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).Selected"/>
+                        </MultiBinding>
+                      </Border.BorderBrush>
+                      <Border.BorderThickness>
+                        <MultiBinding Converter="{x:Static conv:SelectedCard.Thickness}">
+                          <Binding/>
+                          <Binding Path="$parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).Selected"/>
+                        </MultiBinding>
+                      </Border.BorderThickness>
                       <StackPanel Spacing="4">
                         <Border Height="86" CornerRadius="4" ClipToBounds="True"
                                 Background="{DynamicResource Sonulab.SurfaceAltBrush}">

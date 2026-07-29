@@ -1,5 +1,6 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Sonulab.Core.Model;
 using Sonulab.Core.Protocol;
 
@@ -18,6 +19,15 @@ public partial class ParameterFieldViewModel : ObservableObject
     /// schema omits one. Neutral-value comparisons (the EQ activity icon) use this rather than
     /// assuming 0 — a knob's neutral is not always zero.</summary>
     public double? Default { get; }
+
+    /// <summary>Show a reset-to-default button beside this field's slider. Set for the EQ bands,
+    /// where landing exactly on 0 by dragging is impractical.</summary>
+    [ObservableProperty] private bool _showReset;
+
+    /// <summary>Snap back to the firmware default (0 where the schema publishes none) — the same
+    /// neutral the EQ activity glyph tests against, so a reset always leaves that glyph muted.</summary>
+    [RelayCommand]
+    private void Reset() => Number = Default ?? 0.0;
 
     public IReadOnlyList<string> Options { get; private set; }
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
@@ -68,6 +69,34 @@ public sealed class BoolToBrush : IValueConverter
         Application.Current is { } app &&
         app.TryGetResource(key, app.ActualThemeVariant, out var res) && res is IBrush b
             ? b : fallback;
+}
+
+/// <summary>Selection styling for the Tone3000 result cards. The items are API records with no
+/// IsSelected of their own, so "am I the selected one?" is a two-value reference comparison done
+/// here. Bound straight to BorderBrush/BorderThickness rather than through a style class, because
+/// Avalonia's Classes.x binding does not accept a MultiBinding.</summary>
+public static class SelectedCard
+{
+    public static readonly IMultiValueConverter Brush = new BrushConverter();
+    public static readonly IMultiValueConverter Thickness = new ThicknessConverter();
+
+    private static bool IsSelected(IList<object?> v) =>
+        v.Count == 2 && v[0] is not null && ReferenceEquals(v[0], v[1]);
+
+    private sealed class BrushConverter : IMultiValueConverter
+    {
+        public object? Convert(IList<object?> values, Type t, object? p, CultureInfo c)
+            => IsSelected(values)
+                ? BoolToBrush.ResolveBrush("Sonulab.AccentBrush", Brushes.DarkOrange)
+                : BoolToBrush.ResolveBrush("Sonulab.BorderBrush", Brushes.Gray);
+    }
+
+    private sealed class ThicknessConverter : IMultiValueConverter
+    {
+        // The card has a fixed Width, so thickening the border costs no layout shift.
+        public object? Convert(IList<object?> values, Type t, object? p, CultureInfo c)
+            => new Avalonia.Thickness(IsSelected(values) ? 2 : 1);
+    }
 }
 
 /// <summary>One PresetRef -> "NN Name" (1-based slot, zero-padded) — the same shape
