@@ -408,4 +408,55 @@ public class Tone3000ViewModelTests
         Assert.False(vm.IsSignedIn);
         Assert.Empty(vm.Results);
     }
+
+    // ---- #12: per-file selection for the bottom detail panel ----
+
+    private static T3kTone Tone(long id) =>
+        new(id, $"Tone {id}", null, null, null, null, null, null, "nam", new T3kToneAuthor("ed"));
+
+    private static T3kModel Model(string name) => new(name.GetHashCode(), name, "nam", $"https://x/{name}");
+
+    [Fact]
+    public async Task Selecting_a_tone_defaults_to_its_first_file()
+    {
+        var client = new FakeClient { ModelsToReturn = new[] { Model("a"), Model("b"), Model("c") } };
+        var vm = Make(new FakeAuth { SignedIn = true }, client);
+
+        vm.Selected = Tone(1);
+        await vm.PendingOperation!;
+
+        Assert.Equal(3, vm.SelectedModels.Count);
+        Assert.Same(vm.SelectedModels[0], vm.SelectedModel);
+    }
+
+    [Fact]
+    public async Task Selecting_a_tone_with_no_files_leaves_the_selection_null()
+    {
+        var client = new FakeClient { ModelsToReturn = Array.Empty<T3kModel>() };
+        var vm = Make(new FakeAuth { SignedIn = true }, client);
+
+        vm.Selected = Tone(1);
+        await vm.PendingOperation!;
+
+        Assert.Null(vm.SelectedModel);
+        Assert.True(vm.NoModelsForSelection);
+    }
+
+    [Fact]
+    public async Task Switching_tones_reselects_the_new_tones_first_file()
+    {
+        var client = new FakeClient { ModelsToReturn = new[] { Model("a"), Model("b") } };
+        var vm = Make(new FakeAuth { SignedIn = true }, client);
+
+        vm.Selected = Tone(1);
+        await vm.PendingOperation!;
+        var first = vm.SelectedModel;
+
+        client.ModelsToReturn = new[] { Model("x"), Model("y"), Model("z") };
+        vm.Selected = Tone(2);
+        await vm.PendingOperation!;
+
+        Assert.NotSame(first, vm.SelectedModel);
+        Assert.Same(vm.SelectedModels[0], vm.SelectedModel);
+    }
 }

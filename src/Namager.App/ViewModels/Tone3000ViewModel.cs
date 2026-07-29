@@ -64,6 +64,11 @@ public partial class Tone3000ViewModel : ObservableObject
     /// see T3kClient.GetModelsAsync). Drives the "No A2 models for this tone." note.</summary>
     [ObservableProperty] private bool _noModelsForSelection;
 
+    /// <summary>The file the bottom detail panel is showing actions for (#12). A dropdown holds an
+    /// unbounded file count in fixed space, which is what stops long lists pushing the label
+    /// off-screen. Null only when the tone has no A2 files.</summary>
+    [ObservableProperty] private T3kModel? _selectedModel;
+
     /// <summary>Handoff to MainWindowViewModel: local file path, SSMD notes, SSMD url, isIr.</summary>
     public event Action<string, string?, string?, bool>? SendToPedalRequested;
 
@@ -209,6 +214,7 @@ public partial class Tone3000ViewModel : ObservableObject
     {
         int gen = ++_loadGeneration;                          // shares the counter with LoadAsync
         SelectedModels.Clear();
+        SelectedModel = null;
         NoModelsForSelection = false;                         // reset while (re)loading
         if (tone is null || _client is null) return;
         try
@@ -219,6 +225,9 @@ public partial class Tone3000ViewModel : ObservableObject
                 if (gen != _loadGeneration) return;
                 foreach (var m in models) SelectedModels.Add(m);
                 NoModelsForSelection = models.Count == 0;      // A2-only fetch came back empty
+                // The bottom detail panel (#12) shows ONE file at a time; default to the first so
+                // the panel is never in a "nothing chosen" state for a tone that has files.
+                SelectedModel = SelectedModels.FirstOrDefault();
             });
         }
         catch (T3kException ex)

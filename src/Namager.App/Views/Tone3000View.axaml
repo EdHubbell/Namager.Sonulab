@@ -94,10 +94,68 @@
           <Button Content="›" Command="{Binding NextPageCommand}"/>
         </StackPanel>
 
-        <Grid ColumnDefinitions="*,320">
+        <!-- #12: the detail was a fixed 320px right column with an unbounded model list, so long
+             labels truncated and a tone with many files overflowed the viewport. It is now docked
+             full-width at the bottom with a bounded height and its own scroller: full width kills
+             the truncation, the bounded scrolling region means an arbitrarily long file list can
+             never push content out of view. -->
+        <DockPanel>
+
+          <!-- Detail panel -->
+          <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,8,0,0" MaxHeight="240"
+                  IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="6">
+                <TextBlock Text="{Binding Selected.Title}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap"/>
+                <TextBlock FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}">
+                  <TextBlock.Text>
+                    <MultiBinding StringFormat="by {0} · ★ {1}">
+                      <Binding Path="Selected.Author"/><Binding Path="Selected.Stars"/>
+                    </MultiBinding>
+                  </TextBlock.Text>
+                </TextBlock>
+                <TextBlock Text="{Binding Selected.Gear}" FontSize="12" TextWrapping="Wrap"
+                           IsVisible="{Binding Selected.Gear, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <TextBlock Text="{Binding Selected.Description}" FontSize="12" TextWrapping="Wrap"
+                           IsVisible="{Binding Selected.Description, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                  <Button Content="Open on tone3000.com" Padding="0" Background="Transparent" FontSize="12"
+                          Foreground="{DynamicResource Sonulab.AccentBrush}" Cursor="Hand"
+                          Command="{Binding OpenTonePageCommand}"/>
+                  <Button Content="★ Favorite" Padding="0" Background="Transparent" FontSize="12"
+                          Foreground="{DynamicResource Sonulab.AccentBrush}" Cursor="Hand"
+                          Command="{Binding ToggleFavoriteCommand}"
+                          ToolTip.Tip="Add to your Tone3000 favorites"/>
+                </StackPanel>
+                <Border Classes="rule"/>
+                <TextBlock Classes="section-label" Text="MODELS"/>
+                <TextBlock Text="No A2 models for this tone." FontSize="12"
+                           Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                           IsVisible="{Binding NoModelsForSelection}"/>
+                <!-- One dropdown per tone rather than a row per file: fixed footprint no matter how
+                     many files the tone carries. -->
+                <StackPanel Orientation="Horizontal" Spacing="8"
+                            IsVisible="{Binding !NoModelsForSelection}">
+                  <ComboBox MinWidth="280" ItemsSource="{Binding SelectedModels}"
+                            SelectedItem="{Binding SelectedModel}">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="t3k:T3kModel">
+                        <TextBlock Text="{Binding Name}" ToolTip.Tip="{Binding Name}"/>
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <Button Classes="accent-outline" Content="Send to pedal" FontSize="11"
+                          IsEnabled="{Binding IsDeviceReady}"
+                          ToolTip.Tip="Connect to the pedal (with writes allowed) to send tones"
+                          Command="{Binding SendToPedalCommand}"
+                          CommandParameter="{Binding SelectedModel}"/>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
 
           <!-- Card grid -->
-          <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Results}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
@@ -136,55 +194,7 @@
             </ItemsControl>
           </ScrollViewer>
 
-          <!-- Detail panel -->
-          <Border Grid.Column="1" Classes="card" Margin="8,0,0,0" VerticalAlignment="Top"
-                  IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
-            <StackPanel Spacing="6">
-              <TextBlock Text="{Binding Selected.Title}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap"/>
-              <TextBlock FontSize="11" Foreground="{DynamicResource Sonulab.TextMutedBrush}">
-                <TextBlock.Text>
-                  <MultiBinding StringFormat="by {0} · ★ {1}">
-                    <Binding Path="Selected.Author"/><Binding Path="Selected.Stars"/>
-                  </MultiBinding>
-                </TextBlock.Text>
-              </TextBlock>
-              <TextBlock Text="{Binding Selected.Gear}" FontSize="12" TextWrapping="Wrap"
-                         IsVisible="{Binding Selected.Gear, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-              <TextBlock Text="{Binding Selected.Description}" FontSize="12" TextWrapping="Wrap" MaxHeight="120"
-                         IsVisible="{Binding Selected.Description, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-              <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button Content="Open on tone3000.com" Padding="0" Background="Transparent" FontSize="12"
-                        Foreground="{DynamicResource Sonulab.AccentBrush}" Cursor="Hand"
-                        Command="{Binding OpenTonePageCommand}"/>
-                <Button Content="★ Favorite" Padding="0" Background="Transparent" FontSize="12"
-                        Foreground="{DynamicResource Sonulab.AccentBrush}" Cursor="Hand"
-                        Command="{Binding ToggleFavoriteCommand}"
-                        ToolTip.Tip="Add to your Tone3000 favorites"/>
-              </StackPanel>
-              <Border Classes="rule"/>
-              <TextBlock Classes="section-label" Text="MODELS"/>
-              <TextBlock Text="No A2 models for this tone." FontSize="12"
-                         Foreground="{DynamicResource Sonulab.TextMutedBrush}"
-                         IsVisible="{Binding NoModelsForSelection}"/>
-              <ItemsControl ItemsSource="{Binding SelectedModels}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="t3k:T3kModel">
-                    <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                      <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center"
-                                 TextTrimming="CharacterEllipsis"
-                                 ToolTip.Tip="{Binding Name}"/>
-                      <Button Grid.Column="1" Classes="accent-outline" Content="Send to pedal" FontSize="11"
-                              IsEnabled="{Binding $parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).IsDeviceReady}"
-                              ToolTip.Tip="Connect to the pedal (with writes allowed) to send tones"
-                              Command="{Binding $parent[ItemsControl].((vm:Tone3000ViewModel)DataContext).SendToPedalCommand}"
-                              CommandParameter="{Binding}"/>
-                    </Grid>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-          </Border>
-        </Grid>
+        </DockPanel>
       </DockPanel>
     </Panel>
   </Panel>
