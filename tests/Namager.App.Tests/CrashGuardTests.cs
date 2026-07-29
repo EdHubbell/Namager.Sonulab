@@ -163,6 +163,6 @@ public class CrashGuardTests
         link.Dead = true;
         vm.Selected = vm.Items[0];                                         // triggers the details read
         if (vm.DetailsLoadTask is { } t) await t;                          // must NOT throw
-        Assert.False(string.IsNullOrWhiteSpace(vm.DetailsError));
+        Assert.False(string.IsNullOrWhiteSpace(vm.Detail.Error));
     }
 }

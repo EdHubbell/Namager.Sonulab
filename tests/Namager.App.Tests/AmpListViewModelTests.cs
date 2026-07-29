@@ -477,11 +477,11 @@ public class AmpListViewModelTests : IDisposable
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
 
-        Assert.True(vm.IsDetailsVisible);
-        Assert.False(vm.ShowNoMetadata);
-        Assert.Equal("hi", vm.DetailsNotes);
-        Assert.Equal("https://x", vm.DetailsUrl);
-        Assert.Contains(vm.DetailsFields, f => f.Label == "Source file" && f.Value == "Clean.nam");
+        Assert.True(vm.Detail.IsVisible);
+        Assert.False(vm.Detail.ShowNoMetadata);
+        Assert.Equal("hi", vm.Detail.Notes);
+        Assert.Equal("https://x", vm.Detail.Url);
+        Assert.Contains(vm.Detail.Fields, f => f.Label == "Source file" && f.Value == "Clean.nam");
     }
 
     [Fact]
@@ -491,9 +491,9 @@ public class AmpListViewModelTests : IDisposable
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.True(vm.IsDetailsVisible);
-        Assert.True(vm.ShowNoMetadata);
-        Assert.Empty(vm.DetailsFields);
+        Assert.True(vm.Detail.IsVisible);
+        Assert.True(vm.Detail.ShowNoMetadata);
+        Assert.Empty(vm.Detail.Fields);
     }
 
     [Fact]
@@ -503,7 +503,7 @@ public class AmpListViewModelTests : IDisposable
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[5];                          // empty
         if (vm.DetailsLoadTask is not null) await vm.DetailsLoadTask;
-        Assert.False(vm.IsDetailsVisible);
+        Assert.False(vm.Detail.IsVisible);
     }
 
     [Fact]
@@ -573,7 +573,7 @@ public class AmpListViewModelTests : IDisposable
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
 
-        Assert.Equal("hello", vm.DetailsNotes);              // metadata fully loaded...
+        Assert.Equal("hello", vm.Detail.Notes);              // metadata fully loaded...
         int blockLen = VxampMetadata.BlockLength(blob.AsSpan(VxampMetadata.Offset))!.Value;
         int expected = 1 + (VxampMetadata.LastRegionChunk(blockLen) - VxampMetadata.FirstRegionChunk);
         Assert.Equal(expected, DreadCount(dev, 0));          // ...from exactly the block's chunks
@@ -587,7 +587,7 @@ public class AmpListViewModelTests : IDisposable
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.True(vm.ShowNoMetadata);
+        Assert.True(vm.Detail.ShowNoMetadata);
         Assert.Equal(1, DreadCount(dev, 0));
     }
 
@@ -622,7 +622,7 @@ public class AmpListViewModelTests : IDisposable
         Assert.Equal("keepme", (string?)meta.Nam!["name"]); // preserved
         Assert.Equal("2026-01-01T00:00:00Z", meta.Uploaded); // NOT re-stamped on edit
         Assert.False(vm.IsEditingMetadata);
-        Assert.Equal("new notes", vm.DetailsNotes);          // pane refreshed
+        Assert.Equal("new notes", vm.Detail.Notes);          // pane refreshed
     }
 
     [Fact]
@@ -741,7 +741,7 @@ public class AmpListViewModelTests : IDisposable
 
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.True(vm.ShowNoMetadata);                     // precondition: the glitched read poisoned the pane
+        Assert.True(vm.Detail.ShowNoMetadata);                     // precondition: the glitched read poisoned the pane
 
         vm.BeginEditMetadataCommand.Execute(null);
         vm.EditNotes = "bright, edge of breakup";
@@ -790,7 +790,7 @@ public class AmpListViewModelTests : IDisposable
 
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.Equal("keep me", vm.DetailsNotes);            // clean details read
+        Assert.Equal("keep me", vm.Detail.Notes);            // clean details read
 
         vm.BeginEditMetadataCommand.Execute(null);
         vm.EditNotes = "new notes";
@@ -827,19 +827,19 @@ public class AmpListViewModelTests : IDisposable
 
         vm.Selected = vm.Items[0];
         await vm.DetailsLoadTask!;
-        Assert.NotEmpty(vm.DetailsFields);
-        Assert.Equal("a-notes", vm.DetailsNotes);
+        Assert.NotEmpty(vm.Detail.Fields);
+        Assert.Equal("a-notes", vm.Detail.Notes);
 
         dev.GateIndex = 1;                                   // B's read will hang until released
         vm.Selected = vm.Items[1];                           // select B; do NOT await the load yet
 
-        Assert.Empty(vm.DetailsFields);                      // pane must clear IMMEDIATELY, not on data arrival
-        Assert.Null(vm.DetailsNotes);
-        Assert.Null(vm.DetailsUrl);
+        Assert.Empty(vm.Detail.Fields);                      // pane must clear IMMEDIATELY, not on data arrival
+        Assert.Null(vm.Detail.Notes);
+        Assert.Null(vm.Detail.Url);
 
         dev.Gate.SetResult();
         await vm.DetailsLoadTask!;
-        Assert.Equal("b-notes", vm.DetailsNotes);            // and then fill with B's data
+        Assert.Equal("b-notes", vm.Detail.Notes);            // and then fill with B's data
     }
 
     // ---- preset-usage highlight & guards (Task 4) ----

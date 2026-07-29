@@ -44,7 +44,12 @@ public partial class AmpListViewModel : ObservableObject
         // Progressive highlight fill: the background scan publishes after each preset resolves.
         // MapUpdated may fire on a worker thread — marshal through the dispatch seam.
         _usage.MapUpdated += () => _dispatch(ApplyUsage);
+        Detail = new AmpDetailViewModel(ReadMetadataAsync);
     }
+
+    /// <summary>The selected amp's metadata card. Its own view-model so the preset editor can render
+    /// the identical card in a flyout (#9) — see AmpDetailViewModel.</summary>
+    public AmpDetailViewModel Detail { get; }
 
     public ObservableCollection<AmpItemViewModel> Items { get; } = new();
     [ObservableProperty] private AmpItemViewModel? _selected;
@@ -69,7 +74,7 @@ public partial class AmpListViewModel : ObservableObject
         // Drain any in-flight details read before a write burst starts: a full-slot dread
         // overlapping a write burst can silently discard the commit (HwCheck finding) — the
         // two must never interleave even though SonuClient serializes individual commands.
-        _detailsCts?.Cancel();
+        Detail.CancelInFlight();
         if (DetailsLoadTask is { } detailsLoad)
         { try { await detailsLoad; } catch { /* cancelled/superseded read */ } }
         IsBusy = true; BusyMessage = message; ErrorMessage = null;
@@ -101,8 +106,8 @@ public partial class AmpListViewModel : ObservableObject
 
     private async Task ReloadAsync()
     {
-        _detailsCts?.Cancel();      // an in-flight details read must not repopulate the cache below
-        _detailsCache.Clear();
+        Detail.CancelInFlight();    // an in-flight details read must not repopulate the cache below
+        Detail.ClearCache();
         var slots = await _amps.ListAmpsAsync();
         Items.Clear();
         foreach (var s in slots) Items.Add(new AmpItemViewModel(s));
@@ -360,7 +365,7 @@ public partial class AmpListViewModel : ObservableObject
 
         // Drain any in-flight details read before device work begins: a full-slot dread
         // overlapping the write burst can silently discard the commit (HwCheck finding).
-        _detailsCts?.Cancel();
+        Detail.CancelInFlight();
         if (DetailsLoadTask is { } detailsLoad)
         { try { await detailsLoad; } catch { /* cancelled/superseded read */ } }
 
@@ -410,7 +415,9 @@ public partial class AmpListViewModel : ObservableObject
             UploadStatus = $"Done — '{name}' in slot {slot + 1}";
             await ReloadAsync();
             Selected = Items.FirstOrDefault(i => i.Index == slot);
-            DetailsLoadTask = LoadDetailsCoreAsync(Selected);
+            DetailsLoadTask = Selected is { } sel
+                ? Detail.LoadAsync(sel.Index, sel.Name, sel.IsEmpty)
+                : Task.CompletedTask;
             await DetailsLoadTask;
 
             IsUploadPanelOpen = false;                               // #5: auto-close into the detail view
@@ -452,23 +459,11 @@ public partial class AmpListViewModel : ObservableObject
     }
 
     // ---- details pane (selected amp metadata) ----
-    [ObservableProperty] private bool _isDetailsVisible;
-    [ObservableProperty] private bool _isDetailsLoading;
-    [ObservableProperty] private bool _showNoMetadata;
-    [ObservableProperty] private string? _detailsNotes;
-    [ObservableProperty] private string? _detailsUrl;
-    [ObservableProperty] private string? _detailsError;
-    public ObservableCollection<MetadataField> DetailsFields { get; } = new();
+    // The detail concern itself lives in AmpDetailViewModel so the preset editor can render the same
+    // card in a flyout (#9). This VM keeps only the wiring: when to load, and when to stand down.
 
     /// <summary>Last details load — test seam: set Selected, then await this.</summary>
     public Task? DetailsLoadTask { get; private set; }
-
-    private readonly Dictionary<int, (string Name, AmpMetadata? Meta)> _detailsCache = new();
-    // Cancelled but deliberately never disposed: a superseded in-flight read may still be
-    // awaiting on this token when the next selection cancels it, and disposing here could
-    // throw ObjectDisposedException on that read's resumption. The CTS is small and
-    // short-lived, so leaking it until GC is an acceptable tradeoff over that race.
-    private CancellationTokenSource? _detailsCts;
 
     partial void OnSelectedChanged(AmpItemViewModel? value)
     {
@@ -479,54 +474,11 @@ public partial class AmpListViewModel : ObservableObject
         IsEditingMetadata = false;
         // Never issue a read while another device operation may be in flight — serial
         // commands must not interleave. The pane just stays hidden; explicit callers
-        // (post-upload, post-save) use LoadDetailsCoreAsync directly once idle.
-        if (IsBusy || IsUploading) { IsDetailsVisible = false; return; }
-        DetailsLoadTask = LoadDetailsCoreAsync(value);
-    }
-
-    private async Task LoadDetailsCoreAsync(AmpItemViewModel? item)
-    {
-        _detailsCts?.Cancel();
-        // Clear the pane SYNCHRONOUSLY on every load: the previous amp's fields must never
-        // remain visible while another amp's read is in flight (or after a cancelled one).
-        DetailsFields.Clear();
-        DetailsNotes = null; DetailsUrl = null; DetailsError = null; ShowNoMetadata = false;
-        if (item is null || item.IsEmpty) { IsDetailsVisible = false; return; }
-        IsDetailsVisible = true;
-
-        if (!_detailsCache.TryGetValue(item.Index, out var entry) || entry.Name != item.Name)
-        {
-            var cts = new CancellationTokenSource();
-            _detailsCts = cts;
-            IsDetailsLoading = true;
-            try
-            {
-                entry = (item.Name, await ReadMetadataAsync(item.Index, cts.Token));
-            }
-            catch (OperationCanceledException) { return; }   // superseded by a newer selection,
-                                                              // which owns the pane now — don't touch it
-            catch (AmpServiceException ex)
-            { DetailsError = ex.Message; DetailsFields.Clear(); return; }
-            catch (Exception ex)
-            {
-                // Raw transport failure (e.g. the link dying mid-session). This task is awaited by
-                // SaveMetadataAsync's tail — an escape there is an unhandled UI-thread rethrow
-                // (field-crash class). Surface it like a service failure.
-                Log.Warn(ex, "amp details read failed");
-                DetailsError = $"Read failed: {ex.Message}";
-                DetailsFields.Clear();
-                return;
-            }
-            finally { if (_detailsCts == cts) IsDetailsLoading = false; }
-            // Superseded by a newer selection: don't let a stale read populate the cache.
-            if (cts.IsCancellationRequested || Selected != item) return;
-            _detailsCache[item.Index] = entry;
-        }
-        else
-        {
-            IsDetailsLoading = false;   // cache hit: no read is in flight, so the spinner never applies
-        }
-        PopulateDetails(entry.Meta);
+        // (post-upload, post-save) use Detail.LoadAsync directly once idle.
+        if (IsBusy || IsUploading) { Detail.Clear(); return; }
+        DetailsLoadTask = value is null
+            ? Task.CompletedTask
+            : Detail.LoadAsync(value.Index, value.Name, value.IsEmpty);
     }
 
     /// <summary>Region-only metadata fetch: one chunk to find the SSMD block and its length,
@@ -551,43 +503,6 @@ public partial class AmpListViewModel : ObservableObject
         return VxampMetadata.TryReadRegion(region);
     }
 
-    private void PopulateDetails(AmpMetadata? meta)
-    {
-        DetailsFields.Clear();
-        if (meta is null) { ShowNoMetadata = true; return; }
-        ShowNoMetadata = false;
-        if (meta.Source?.File is { } f) DetailsFields.Add(new("Source file", f));
-        if (meta.Source?.Size is { } sz) DetailsFields.Add(new("Source size", FormatSize(sz)));
-        if (meta.Source?.Modified is { } mo) DetailsFields.Add(new("Source date", mo));
-        if (meta.Uploaded is { } up) DetailsFields.Add(new("Uploaded", up));
-        if (meta.Nam is { } nam)
-            foreach (var kv in nam)
-                if (kv.Value is System.Text.Json.Nodes.JsonValue v)
-                    DetailsFields.Add(new($"NAM {kv.Key}", v.ToString()));
-        if (meta.Distill?.Version is { } dv) DetailsFields.Add(new("Distilled by", $"v{dv}"));
-        if (meta.Distill?.ShapeErr is { } se) DetailsFields.Add(new("Fit error", $"{se:F3} (lower is better)"));
-        DetailsNotes = meta.Notes;
-        DetailsUrl = meta.Url;
-    }
-
-    private static string FormatSize(long b) =>
-        b >= 1 << 20 ? $"{b / 1048576.0:F1} MB" : b >= 1 << 10 ? $"{b / 1024.0:F1} KB" : $"{b} B";
-
-    [RelayCommand]
-    private void OpenDetailsUrl()
-    {
-        if (DetailsUrl is { Length: > 0 } url &&
-            (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-             url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
-        {
-            try
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
-            }
-            catch { /* opening a link (missing handler, OS quirk, etc.) must never crash the app */ }
-        }
-    }
-
     // ---- metadata editing (notes/url only; auto-captured fields are read-only) ----
     [ObservableProperty] private bool _isEditingMetadata;
     [ObservableProperty] private string _editNotes = "";
@@ -603,9 +518,9 @@ public partial class AmpListViewModel : ObservableObject
     {
         get
         {
-            if (Selected is not { IsEmpty: false } s || !_detailsCache.TryGetValue(s.Index, out var entry))
+            if (Selected is not { IsEmpty: false } s || !Detail.TryGetCached(s.Index, out var cached))
                 return null;
-            var meta = (entry.Meta ?? new AmpMetadata()) with
+            var meta = (cached ?? new AmpMetadata()) with
             {
                 Notes = NullIfEmpty(EditNotes),
                 Url = NullIfEmpty(EditUrl),
@@ -620,9 +535,9 @@ public partial class AmpListViewModel : ObservableObject
     private void BeginEditMetadata()
     {
         if (!CanMutate || Selected is not { IsEmpty: false } s) return;
-        if (!_detailsCache.ContainsKey(s.Index)) return;    // details not loaded yet
-        EditNotes = DetailsNotes ?? "";
-        EditUrl = DetailsUrl ?? "";
+        if (!Detail.TryGetCached(s.Index, out _)) return;   // details not loaded yet
+        EditNotes = Detail.Notes ?? "";
+        EditUrl = Detail.Url ?? "";
         IsEditingMetadata = true;
     }
 

@@ -1,0 +1,52 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Namager.App.ViewModels"
+             x:Class="Namager.App.Views.AmpDetailView"
+             x:DataType="vm:AmpDetailViewModel">
+
+  <!-- The amp metadata card. Rendered inline on the Amps tab AND inside the preset editor's
+       flyout (#9), so it must stay free of Amps-tab-only concerns: the notes/link EDIT controls
+       deliberately live in AmpDetailPanel, not here. -->
+  <StackPanel Spacing="4">
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="15"/>
+      <TextBlock Text="{Binding DisplaySlot, StringFormat='SLOT {0:00}'}"
+                 FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"
+                 Foreground="{DynamicResource Sonulab.AccentBrush}"/>
+    </StackPanel>
+    <TextBlock Text="Reading amp metadata…" FontSize="11"
+               Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+               IsVisible="{Binding IsLoading}"/>
+    <TextBlock Text="No metadata — uploaded outside NAMager." FontSize="11"
+               Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+               IsVisible="{Binding ShowNoMetadata}"/>
+    <TextBlock Text="{Binding Error}" FontSize="11" TextWrapping="Wrap"
+               Foreground="{DynamicResource Sonulab.DangerBrush}"
+               IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+    <Border Classes="rule"/>
+
+    <!-- Values are SelectableTextBlock so metadata can be copied out (#9). Labels stay plain:
+         the values are what anyone actually wants on the clipboard. -->
+    <ItemsControl ItemsSource="{Binding Fields}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:MetadataField">
+          <Grid ColumnDefinitions="130,*" Margin="0,1">
+            <TextBlock Grid.Column="0" Classes="section-label" Text="{Binding Label}" VerticalAlignment="Center"/>
+            <SelectableTextBlock Grid.Column="1" Text="{Binding Value}" FontSize="12" TextWrapping="Wrap"/>
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <StackPanel IsVisible="{Binding Notes, Converter={x:Static ObjectConverters.IsNotNull}}">
+      <Border Classes="rule"/>
+      <TextBlock Classes="section-label" Text="NOTES"/>
+      <SelectableTextBlock Text="{Binding Notes}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>
+    </StackPanel>
+
+    <Button Content="{Binding Url}" Command="{Binding OpenUrlCommand}"
+            Padding="0" Background="Transparent" FontSize="12" Cursor="Hand"
+            Foreground="{DynamicResource Sonulab.AccentBrush}"
+            IsVisible="{Binding Url, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+  </StackPanel>
+</UserControl>
