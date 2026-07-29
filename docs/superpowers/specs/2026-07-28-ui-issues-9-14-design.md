@@ -127,13 +127,24 @@ API responses during implementation rather than guessed here.
 ## #13 — EQ icon that lights when the EQ is not flat
 
 Add `Icon.Equalizer` to `Icons.axaml` (a `StreamGeometry`, consistent with every other icon; no
-third-party icon library — see the Avalonia 12 constraint in `CLAUDE.md`). Render it on the EQ
-sub-group header in the parameter editor.
+third-party icon library — see the Avalonia 12 constraint in `CLAUDE.md`).
 
-`SubGroupViewModel` currently holds only `Header` and `Fields`. It gains:
+**The EQ is a block, not a sub-group.** `labels.en.json:4` maps `root\app\eq` → "Equalizer", and
+blocks are built as `root\app\<block>` (`ParameterEditorViewModel.cs:100`), so EQ is a
+`BlockSectionViewModel` rendered as an `Expander`. Its header already hosts a `PathIcon` for the
+on/off state — and `BlockSectionViewModel.cs:30` notes EQ is precisely the block with no `on_off`
+field, so that header slot is empty today. The equalizer icon goes there.
 
-- `IconKey` — optional, so only groups that warrant an icon get one.
-- `IsActive` — true when any field's value differs from its neutral, recomputed on field change.
+`BlockSectionViewModel` gains two properties, following the existing `Icon.Power` pattern exactly
+(geometry hardcoded in the view, visibility and brush bound):
+
+- `ShowEqIcon` — set for the `eq` block; the block loop already has the block name in hand.
+- `IsEqActive` — true when any of the block's fields differs from its neutral, recomputed when a
+  field's `Number`/`Text` changes.
+
+Deliberately *not* a general `IconKey` → geometry lookup: that needs a resource-resolving converter
+to serve exactly one caller. The existing header icon hardcodes its geometry and binds visibility;
+this follows suit.
 
 **Neutral is the firmware default (`def`) from the browse schema**, not a hardcoded 0. `NodeSchema`
 already parses it (`NodeSchema.cs:14`), but `ParameterFieldViewModel` currently discards it — it
