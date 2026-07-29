@@ -19,6 +19,8 @@ Here's the honest version:
 | Reorder preset slots | ✅ | ✅ |
 | Reorder amp / IR slots | ✅ | ✅ |
 | Rename a preset in place (F2) | ✅ | ✅ |
+| Rename a Amp or IR in place (F2) | ✅ | ✅ |
+| Prevent Preset-breaking Amp/IR rename | ✅ | ❌ |
 | Duplicate a preset | ✅ | ✅ |
 | Back up / restore presets to your PC | ✅ | ✅ |
 | Browse and install Tone3000 tones in-app | ✅ | ⚠️ awkward |
