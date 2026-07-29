@@ -1,5 +1,7 @@
+using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Namager.App.ViewModels;
@@ -10,7 +12,37 @@ public sealed partial class BlockSectionViewModel : ObservableObject
     [ObservableProperty] private bool _isExpanded;   // collapsed by default (editor-polish spec)
     public ObservableCollection<ParameterFieldViewModel> Fields { get; } = new();
     public ObservableCollection<SubGroupViewModel> SubGroups { get; } = new();
-    public BlockSectionViewModel(string header) => Header = header;
+
+    public BlockSectionViewModel(string header)
+    {
+        Header = header;
+        Fields.CollectionChanged += (_, e) =>
+        {
+            foreach (var f in e.NewItems?.Cast<ParameterFieldViewModel>() ?? Enumerable.Empty<ParameterFieldViewModel>())
+                f.PropertyChanged += OnFieldValueChanged;
+            foreach (var f in e.OldItems?.Cast<ParameterFieldViewModel>() ?? Enumerable.Empty<ParameterFieldViewModel>())
+                f.PropertyChanged -= OnFieldValueChanged;
+            OnPropertyChanged(nameof(IsEqActive));
+        };
+    }
+
+    /// <summary>True for the `eq` block: show the equalizer glyph in the header. EQ is the one block
+    /// with no `on_off` field (see <see cref="Enabled"/>), so that header slot is otherwise empty.</summary>
+    [ObservableProperty] private bool _showEqIcon;
+
+    /// <summary>True when any float field in this block sits away from its neutral. Neutral is the
+    /// firmware default (`def`); where the schema omits one, neutral is 0. Drives the equalizer
+    /// glyph's highlight so a non-flat EQ is visible without expanding the block.</summary>
+    public bool IsEqActive => Fields.Any(IsAwayFromNeutral);
+
+    private static bool IsAwayFromNeutral(ParameterFieldViewModel f) =>
+        f.Kind == "float" && Math.Abs(f.Number - (f.Default ?? 0.0)) > 1e-9;
+
+    private void OnFieldValueChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ParameterFieldViewModel.Number) or nameof(ParameterFieldViewModel.Text))
+            OnPropertyChanged(nameof(IsEqActive));
+    }
 
     private ParameterFieldViewModel? _enableField;
 
