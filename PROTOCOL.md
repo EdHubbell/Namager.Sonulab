@@ -220,12 +220,21 @@ CONFIRMED structure (identical across all 20 models, regardless of source archit
 
 ## Renumber / rename
 - **Renumber** = the `index` (slot) field in `dwrite`.
-- **Rename** = the name (`chunk:0` for amps; `chunk:-1` for presets), re-sent for the slot.
+- **Rename** = the name re-sent for the slot at **`chunk:-1`** — the name-table entry — for ALL
+  THREE kinds (`root\presets`, `root\amp`, `root\ir`). A single write, ~45–200 ms; content
+  untouched. (`chunk:0` is the *staging* name in the upload sequence, not a rename.)
 - CONFIRMED rename (SonulabCapture_RenamePresetPrincetonCompTestTwo, slot 4):
   `dwrite root\presets:{"index":4,"chunk":-1,"value":"<hex(name) zero-padded to 128 bytes>"}`
   — name only; content untouched. Name = ASCII hex, padded to 128 bytes (256 hex chars).
-- `app.so` also exposes file ops: "rename the item", `File_LengthFromPath` — there may be a
-  lighter rename path; confirm live with `browse root\amp` to see how slots/names are listed.
+- CONFIRMED on amps and IRs too (fw 2.5.1 serial; docs/HARDWARE-VALIDATION-amps-tab.md,
+  docs/HARDWARE-VALIDATION-ir-tab.md): same `chunk:-1` name write, blob untouched (an amp's SSMD
+  metadata block survives a rename). This is the one shipped implementation —
+  `SlotBlobService.RenameAsync`, shared by presets/amps/IRs. VoidX's fast rename does the same
+  thing; there is no lighter firmware rename verb.
+- Reminder: at `chunk:-1`, a name renames, **all-zeros deletes** (see the dwrite upload section).
+- Renaming an amp/IR is not free at the app level: presets reference amps/IRs **by name**, so a
+  rename orphans every preset pointing at the old name (VoidX does this silently). NAMager gates
+  the rename on a complete preset-usage scan and refuses when the slot is in use.
 
 ## Extracted artifacts in this folder
 - `host_cmds_reassembled.txt` — all 1556 logical host commands, NUL-reassembled.
