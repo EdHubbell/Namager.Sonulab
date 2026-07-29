@@ -29,7 +29,10 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                                      IStatusService? status = null,
                                      Sonulab.Core.Services.DeviceRepository? repo = null,
                                      IPresetUsageService? usage = null,
-                                     CatalogVersion? catalog = null)
+                                     CatalogVersion? catalog = null,
+                                     Func<int, System.Threading.CancellationToken,
+                                          Task<Sonulab.Distill.AmpMetadata?>>? readAmpMetadata = null,
+                                     IPresetNavigator? navigator = null)
     {
         _client = client;
         _labels = labels ?? LabelService.Default;
@@ -38,6 +41,41 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         _repo = repo;
         _usage = usage ?? NullPresetUsageService.Instance;
         _catalog = catalog ?? new CatalogVersion();
+        AmpDetail = new AmpDetailViewModel(
+            readAmpMetadata ?? ((_, _) => Task.FromResult<Sonulab.Distill.AmpMetadata?>(null)),
+            _usage, navigator);
+    }
+
+    /// <summary>#9: the amp referenced by this preset, shown in a read-only flyout off the amp field
+    /// so you can decide whether it wants an IR without leaving the editor. Same control as the
+    /// Amps tab renders inline.</summary>
+    public AmpDetailViewModel AmpDetail { get; }
+
+    /// <summary>Load the detail for the amp named by <paramref name="field"/>. Loaded on OPEN, not
+    /// per selection: a metadata read on every preset click would put device reads on the hot path
+    /// of browsing presets.</summary>
+    [RelayCommand]
+    private async Task ShowAmpDetailAsync(ParameterFieldViewModel? field)
+    {
+        if (field?.Text is not { Length: > 0 } name) { AmpDetail.Clear(); return; }
+        try
+        {
+            // Resolve the name to a SLOT index against the RAW device list. field.Options cannot be
+            // used: RefreshRefOptionsAsync filters empty slots out of the picker, so an option's
+            // position is not its slot number. The raw list keeps the gaps.
+            var names = await _client.ReadListAsync(@"root\amp");
+            int index = -1;
+            for (int i = 0; i < names.Count; i++)
+                if (string.Equals(names[i], name, StringComparison.Ordinal)) { index = i; break; }
+
+            await AmpDetail.LoadAsync(index, name, isEmpty: false);
+        }
+        catch (Exception ex)
+        {
+            // [RelayCommand] async: an escape here is an unhandled UI-thread rethrow (process death).
+            Log.Warn(ex, "amp detail flyout for '{0}' failed", name);
+            AmpDetail.SetError($"Couldn't read the amp list: {ex.Message}");
+        }
     }
 
     public ObservableCollection<BlockSectionViewModel> Blocks { get; } = new();

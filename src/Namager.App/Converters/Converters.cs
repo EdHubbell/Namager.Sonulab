@@ -20,6 +20,8 @@ public static class Eq
     public static readonly IValueConverter EnumOrPlist = new KindMultiConverter("enum", "plist");
     /// <summary>int == 0 -> true (used for empty-state TextBlock visibility).</summary>
     public static readonly IValueConverter ZeroCount   = new ZeroCountConverter();
+    /// <summary>RefSource == root\amp -> true: only the amp picker gets the detail button (#9).</summary>
+    public static readonly IValueConverter AmpRef      = new KindConverter(@"root\amp");
 
     private sealed class KindConverter(string kind) : IValueConverter
     {

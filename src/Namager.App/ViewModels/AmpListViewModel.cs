@@ -482,12 +482,16 @@ public partial class AmpListViewModel : ObservableObject
             : Detail.LoadAsync(value.Index, value.Name, value.IsEmpty);
     }
 
+    private Task<AmpMetadata?> ReadMetadataAsync(int index, CancellationToken ct) =>
+        ReadMetadataAsync(_amps, index, ct);
+
     /// <summary>Region-only metadata fetch: one chunk to find the SSMD block and its length,
     /// then exactly the chunks it spans (~0.4 s typical vs ~5 s full-slot). Display-only —
-    /// SaveMetadataAsync still does a FULL fresh read with integrity guards before flashing.</summary>
-    private async Task<AmpMetadata?> ReadMetadataAsync(int index, CancellationToken ct)
+    /// SaveMetadataAsync still does a FULL fresh read with integrity guards before flashing.
+    /// Static so the preset editor's amp flyout (#9) reads metadata exactly the same way.</summary>
+    public static async Task<AmpMetadata?> ReadMetadataAsync(AmpService amps, int index, CancellationToken ct)
     {
-        var head = await _amps.ReadChunksAsync(index, VxampMetadata.FirstRegionChunk, 1, ct);
+        var head = await amps.ReadChunksAsync(index, VxampMetadata.FirstRegionChunk, 1, ct);
         var regionStart = head.AsSpan(VxampMetadata.OffsetInFirstChunk);
         if (VxampMetadata.BlockLength(regionStart) is not { } blockLen) return null;
 
@@ -497,8 +501,8 @@ public partial class AmpListViewModel : ObservableObject
         int lastChunk = VxampMetadata.LastRegionChunk(blockLen);
         if (lastChunk > VxampMetadata.FirstRegionChunk)
         {
-            var rest = await _amps.ReadChunksAsync(index, VxampMetadata.FirstRegionChunk + 1,
-                                                   lastChunk - VxampMetadata.FirstRegionChunk, ct);
+            var rest = await amps.ReadChunksAsync(index, VxampMetadata.FirstRegionChunk + 1,
+                                                  lastChunk - VxampMetadata.FirstRegionChunk, ct);
             rest.CopyTo(region, firstChunkLen);
         }
         return VxampMetadata.TryReadRegion(region);

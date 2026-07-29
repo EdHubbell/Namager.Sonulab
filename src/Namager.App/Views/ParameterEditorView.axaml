@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Namager.App.ViewModels" xmlns:conv="using:Namager.App.Converters"
+             xmlns:views="using:Namager.App.Views"
              x:Class="Namager.App.Views.ParameterEditorView" x:DataType="vm:ParameterEditorViewModel">
   <Grid>
     <DockPanel IsEnabled="{Binding !IsLoading}">
@@ -56,8 +57,31 @@
                               <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
                                          VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
                             </StackPanel>
-                            <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"
-                                      IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}"/>
+                            <StackPanel Orientation="Horizontal" Spacing="6"
+                                        IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}">
+                              <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"/>
+                              <!-- #9: amp detail without leaving the editor. Only the amp picker
+                                   gets it; loaded on open so browsing presets stays read-free. -->
+                              <Button Width="26" Height="26" Padding="0" VerticalAlignment="Center"
+                                      ToolTip.Tip="Amp details"
+                                      IsVisible="{Binding RefSource, Converter={x:Static conv:Eq.AmpRef}}"
+                                      Command="{Binding $parent[views:ParameterEditorView].((vm:ParameterEditorViewModel)DataContext).ShowAmpDetailCommand}"
+                                      CommandParameter="{Binding}">
+                                <PathIcon Data="{StaticResource Icon.Amp}" Width="13" Height="13"/>
+                                <Button.Flyout>
+                                  <Flyout Placement="RightEdgeAlignedTop">
+                                    <!-- Bounded + scrolling: amp metadata can carry an arbitrary
+                                         number of NAM fields, and an unbounded flyout would run
+                                         off-screen (the same clipping class of bug as #12). -->
+                                    <ScrollViewer MaxHeight="420" MaxWidth="420"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                      <views:AmpDetailView
+                                          DataContext="{Binding $parent[views:ParameterEditorView].((vm:ParameterEditorViewModel)DataContext).AmpDetail}"/>
+                                    </ScrollViewer>
+                                  </Flyout>
+                                </Button.Flyout>
+                              </Button>
+                            </StackPanel>
                             <TextBox Text="{Binding Text}" IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Str}}"/>
                           </Panel>
                         </Grid>

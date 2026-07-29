@@ -219,8 +219,18 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
                 _connection.WritesAllowed,
                 Status,
                 usage);
+            // Absolute, under Documents: the old relative "docs\backups" resolved against the
+            // process working directory, so in an installed build these landed where no user would
+            // look. Only upload writes here now — delete archives nothing. See AppPaths.
+            var slotBackups = Namager.App.Services.AppPaths.SlotBackups;
+            // Built before the editor: the editor's amp-detail flyout (#9) reads metadata through
+            // the same service and the same region-read helper the Amps tab uses.
+            var ampService = new AmpService(_connection.Client!, slotBackups);
+
             var editor = new ParameterEditorViewModel(_connection.Client!, status: Status,
-                repo: _connection.Repository!, usage: usage, catalog: catalog);
+                repo: _connection.Repository!, usage: usage, catalog: catalog,
+                readAmpMetadata: (i, ct) => AmpListViewModel.ReadMetadataAsync(ampService, i, ct),
+                navigator: this);
             // Selecting a preset activates + loads it into the editor (dedup is handled in LoadForAsync).
             presets.PropertyChanged += (_, e) =>
             {
@@ -231,12 +241,6 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             Presets = presets;
             Editor = editor;
 
-            // Absolute, under Documents: the old relative "docs\backups" resolved against the
-            // process working directory, so in an installed build these landed where no user would
-            // look. Only upload writes here now — delete archives nothing. See AppPaths.
-            var slotBackups = Namager.App.Services.AppPaths.SlotBackups;
-
-            var ampService = new AmpService(_connection.Client!, slotBackups);
             var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status, usage: usage, catalog: catalog, navigator: this);
             Amps = amps;
 
