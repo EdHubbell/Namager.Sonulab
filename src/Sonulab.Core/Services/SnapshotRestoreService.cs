@@ -70,4 +70,68 @@ public sealed class SnapshotRestoreService(
         yield return (SnapshotSlotKind.Amp, amps);
         yield return (SnapshotSlotKind.Preset, presets);
     }
+
+    /// <summary>Applies a plan: exact mirror. Writes overwrite (or land, for a previously-empty
+    /// slot); slots the snapshot didn't occupy are cleared. currentBlobs (from a prior safety
+    /// snapshot read) lets the caller skip a redundant compare dread — otherwise this reads the
+    /// pedal's blob itself (archiving it as a "-prerestore" file) ONLY for slots PlanAsync marked
+    /// occupied, never dreading an empty slot. Every device call inside an action runs on
+    /// CancellationToken.None: an abandoned staged burst mid-slot is the one shape the write
+    /// discipline can't make safe, so cancellation only lands BETWEEN actions.</summary>
+    public async Task<RestoreResult> ExecuteAsync(
+        SnapshotRestorePlan plan,
+        IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]>? currentBlobs = null,
+        IProgress<SnapshotRestoreProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        int total = plan.Actions.Count, done = 0;
+        int written = 0, skipped = 0, cleared = 0;
+        foreach (var a in plan.Actions)
+        {
+            ct.ThrowIfCancellationRequested();
+            var svc = ServiceFor(a.Kind);
+            if (a.Action == RestoreAction.Write)
+            {
+                var snapBlob = plan.Blobs[(a.Kind, a.Index)];
+                byte[]? current = null;
+                if (currentBlobs is not null) currentBlobs.TryGetValue((a.Kind, a.Index), out current);
+                else if (a.PedalOccupied)
+                {
+                    progress?.Report(new(a.Kind, RestoreSlotPhase.Comparing, done, total, a.Name));
+                    current = await svc.ReadAndArchiveAsync(a.Index, "-prerestore", CancellationToken.None);
+                }
+                if (current is not null && current.AsSpan().SequenceEqual(snapBlob))
+                {
+                    skipped++;
+                }
+                else
+                {
+                    progress?.Report(new(a.Kind, RestoreSlotPhase.Writing, done, total, a.Name));
+                    await svc.UploadAsync(a.Index, snapBlob, a.Name,
+                                          progress: null, skipBackup: true, ct: CancellationToken.None);
+                    written++;
+                }
+            }
+            else
+            {
+                progress?.Report(new(a.Kind, RestoreSlotPhase.Clearing, done, total, a.Name));
+                if (currentBlobs is null || !currentBlobs.ContainsKey((a.Kind, a.Index)))
+                    await svc.ReadAndArchiveAsync(a.Index, "-prerestore", CancellationToken.None);
+                await svc.DeleteAsync(a.Index, CancellationToken.None);
+                cleared++;
+            }
+            done++;
+            progress?.Report(new(a.Kind,
+                a.Action == RestoreAction.Clear ? RestoreSlotPhase.Clearing : RestoreSlotPhase.Writing,
+                done, total, a.Name));
+        }
+        return new RestoreResult(written, skipped, cleared);
+    }
+
+    private SlotBlobService ServiceFor(SnapshotSlotKind kind) => kind switch
+    {
+        SnapshotSlotKind.Preset => presets,
+        SnapshotSlotKind.Amp => amps,
+        _ => irs,
+    };
 }

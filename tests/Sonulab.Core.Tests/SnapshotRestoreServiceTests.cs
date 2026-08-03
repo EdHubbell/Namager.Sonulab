@@ -84,4 +84,96 @@ public class SnapshotRestoreServiceTests
         Assert.Equal(1, plan.WriteCount);
         Assert.Equal(0, plan.ClearCount);
     }
+
+    [Fact]
+    public async Task Execute_mirrors_the_snapshot_writes_clears_and_skips_identical()
+    {
+        var rig = MakeRig();
+        var identical = Blob(4096, 5);
+        rig.Irs.SeedSlot(0, "SameIr", identical);               // identical → skip
+        rig.Amps.SeedSlot(1, "OldAmp", Blob(12288, 1));         // differs → write
+        rig.Presets.SeedSlot(4, "Doomed", Blob(8192, 2));       // not in snapshot → clear
+        var (manifest, blobs) = Snap(
+            (SnapshotSlotKind.Ir, 0, "SameIr", identical),
+            (SnapshotSlotKind.Amp, 1, "NewAmp", Blob(12288, 9)),
+            (SnapshotSlotKind.Preset, 0, "NewPreset", Blob(8192, 8)));
+
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+        var result = await rig.Svc.ExecuteAsync(plan);
+
+        Assert.Equal(new RestoreResult(Written: 2, SkippedIdentical: 1, Cleared: 1), result);
+        Assert.Equal(identical, rig.Irs.SlotBlobs[0]);           // untouched
+        Assert.Equal(Blob(12288, 9), rig.Amps.SlotBlobs[1]);     // overwritten
+        Assert.Equal("NewAmp", rig.Amps.SlotNames[1]);
+        Assert.Equal(Blob(8192, 8), rig.Presets.SlotBlobs[0]);   // written to empty slot
+        Assert.Null(rig.Presets.SlotNames[4]);                   // cleared
+        Directory.Delete(rig.BackupDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Execute_skip_identical_costs_zero_staged_writes()
+    {
+        var rig = MakeRig();
+        var same = Blob(4096, 5);
+        rig.Irs.SeedSlot(0, "Same", same);
+        var (manifest, blobs) = Snap((SnapshotSlotKind.Ir, 0, "Same", same));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+
+        await rig.Svc.ExecuteAsync(plan);
+
+        Assert.DoesNotContain(rig.Irs.CommandLog, c => c.StartsWith("dwrite", StringComparison.Ordinal));
+        Directory.Delete(rig.BackupDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Execute_reuses_provided_current_blobs_no_compare_read_no_backup_file()
+    {
+        var rig = MakeRig();
+        var pedalBlob = Blob(4096, 1);
+        rig.Irs.SeedSlot(0, "Old", pedalBlob);
+        var (manifest, blobs) = Snap((SnapshotSlotKind.Ir, 0, "New", Blob(4096, 9)));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+        int dreadsAfterPlan = rig.Irs.CommandLog.Count(c => c.StartsWith("dread", StringComparison.Ordinal));
+
+        await rig.Svc.ExecuteAsync(plan,
+            currentBlobs: new Dictionary<(SnapshotSlotKind, int), byte[]> { [(SnapshotSlotKind.Ir, 0)] = pedalBlob });
+
+        // Only the upload's verify read-back (32 chunks) — no compare dread, no backup file.
+        int dreads = rig.Irs.CommandLog.Count(c => c.StartsWith("dread", StringComparison.Ordinal)) - dreadsAfterPlan;
+        Assert.Equal(32, dreads);
+        Assert.False(Directory.Exists(rig.BackupDir) &&
+                     Directory.GetFiles(rig.BackupDir, "*-prerestore*").Length > 0);
+    }
+
+    [Fact]
+    public async Task Execute_writes_prerestore_backups_when_reading_itself()
+    {
+        var rig = MakeRig();
+        rig.Irs.SeedSlot(0, "Old", Blob(4096, 1));               // differs → compare read + backup
+        rig.Presets.SeedSlot(4, "Doomed", Blob(8192, 2));        // clear → backup
+        var (manifest, blobs) = Snap((SnapshotSlotKind.Ir, 0, "New", Blob(4096, 9)));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+
+        await rig.Svc.ExecuteAsync(plan);
+
+        Assert.Single(Directory.GetFiles(rig.BackupDir, "ir-0-*-prerestore.irblob"));
+        Assert.Single(Directory.GetFiles(rig.BackupDir, "preset-4-*-prerestore.pst"));
+        Directory.Delete(rig.BackupDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Execute_never_dreads_an_empty_slot()
+    {
+        var rig = MakeRig();
+        var (manifest, blobs) = Snap((SnapshotSlotKind.Amp, 2, "IntoEmpty", Blob(12288, 9)));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+        int dreadsAfterPlan = rig.Amps.CommandLog.Count(c => c.StartsWith("dread", StringComparison.Ordinal));
+
+        await rig.Svc.ExecuteAsync(plan);
+
+        // Upload verify (96) only; no compare dread of the empty target.
+        Assert.Equal(96, rig.Amps.CommandLog.Count(c => c.StartsWith("dread", StringComparison.Ordinal)) - dreadsAfterPlan);
+        // No compare read means no backup dir was ever created — nothing to clean up.
+        Assert.False(Directory.Exists(rig.BackupDir));
+    }
 }
