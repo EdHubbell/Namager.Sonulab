@@ -7,5 +7,6 @@
   "root\\app\\delay\\modfolder": "Modulation",
   "root\\app\\delay\\ddfolder": "Dual Delay",
   "root\\app\\mod\\tcfolder": "Tone and Character",
-  "root\\app\\ir\\ir2": "Stereo IR"
+  "root\\app\\ir\\ir2": "Stereo IR",
+  "root\\app\\output\\pst\\level": "Preset Level"
 }

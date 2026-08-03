@@ -20,8 +20,11 @@ public class ParameterEditorViewModelTests
             "root\\app\\delay\\tcfolder:{\"desc\":\"Tone and Character\",\"value\":\"\",\"type\":\"item\",\"item_type\":\"vfolder\"}",
             "root\\app\\delay\\tcfolder\\tape:{\"desc\":\"Tape\",\"value\":0.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0}",
             "root\\app\\delay\\newknob:{\"desc\":\"New Knob\",\"value\":1.0,\"type\":\"float\",\"min\":0.0,\"max\":10.0}",
-            // output block must be skipped (out of scope)
-            "root\\app\\output\\vol:{\"desc\":\"Volume\",\"value\":50.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0}");
+            // output block: the global Master leaves must still be skipped, `pst\level` must be
+            // promoted into its own Level block, and `pst\tmp` must stay invisible.
+            "root\\app\\output\\vol:{\"desc\":\"Volume\",\"value\":50.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0}",
+            "root\\app\\output\\pst\\level:{\"desc\":\"Preset Level\",\"value\":-3.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0,\"def\":0.0,\"unit\":\"dB\",\"dec\":1}",
+            "root\\app\\output\\pst\\tmp:{\"desc\":\"Preset TEMPO\",\"value\":120.0,\"type\":\"float\",\"min\":30.0,\"max\":240.0,\"def\":120.0,\"unit\":\"BPM\",\"dec\":1}");
         return d;
     }
 
@@ -35,7 +38,8 @@ public class ParameterEditorViewModelTests
         var d = Dev(); await d.OpenAsync();
         var vm = Vm(d);
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
-        Assert.Equal(new[] { "amp", "delay" }, vm.Blocks.Select(b => b.Header.ToLowerInvariant()).ToArray());
+        // Level is pinned first (this task); amp/delay follow in Blocks_InScope order.
+        Assert.Equal(new[] { "level", "amp", "delay" }, vm.Blocks.Select(b => b.Header.ToLowerInvariant()).ToArray());
     }
 
     [Fact] public async Task Hidden_param_is_excluded_but_new_param_appears()
@@ -66,6 +70,70 @@ public class ParameterEditorViewModelTests
         var vm = Vm(d);
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         Assert.DoesNotContain(vm.Blocks, b => b.Header.Equals("output", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- Level block: the per-preset output trim, promoted out of the (skipped) output block ----
+
+    [Fact] public async Task Level_block_is_first_and_holds_only_the_preset_trim()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var level = vm.Blocks[0];
+        Assert.Equal("Level", level.Header);
+        Assert.True(level.ShowLevelIcon);
+        var field = Assert.Single(level.Fields);
+        Assert.Equal(Sonulab.Distill.LevelModel.PresetLevelPath, field.Path);
+        Assert.Equal(-3.0, field.Number);
+        Assert.Equal(-20.0, field.Min);
+        Assert.Equal(20.0, field.Max);
+        Assert.True(field.ShowReset);
+    }
+
+    [Fact] public async Task Level_block_is_expanded_by_default()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        Assert.True(vm.Blocks[0].IsExpanded);
+        Assert.All(vm.Blocks.Skip(1), b => Assert.False(b.IsExpanded));
+    }
+
+    [Fact] public async Task Preset_tempo_and_global_master_leaves_never_appear()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        var all = vm.Blocks.SelectMany(b => b.Fields.Concat(b.SubGroups.SelectMany(s => s.Fields)));
+        Assert.DoesNotContain(all, f => f.Path == @"root\app\output\pst\tmp");
+        Assert.DoesNotContain(all, f => f.Path == @"root\app\output\vol");
+    }
+
+    [Fact] public async Task Firmware_without_a_preset_level_node_still_loads()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0}");
+        await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        Assert.DoesNotContain(vm.Blocks, b => b.Header == "Level");
+        Assert.Contains(vm.Blocks, b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact] public async Task Editing_the_level_slider_dirties_the_editor_and_save_writes_it()
+    {
+        var d = Dev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        Assert.False(vm.IsDirty);
+
+        vm.Blocks[0].Fields[0].Number = -6.0;
+        Assert.True(vm.IsDirty);
+
+        await vm.SaveCommand.ExecuteAsync(null);
+        Assert.Contains(d.CommandLog, c => c.StartsWith(@"write root\app\output\pst\level:", StringComparison.Ordinal));
     }
 
     [Fact] public async Task Save_writes_only_dirty_fields_across_blocks()

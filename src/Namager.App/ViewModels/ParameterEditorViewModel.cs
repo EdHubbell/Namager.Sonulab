@@ -15,6 +15,10 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
     public static IReadOnlyList<string> Blocks_InScope { get; } = new[] { "gate", "exp", "comp", "amp", "eq", "ir", "delay", "reverb" };
 
+    /// <summary>Header for the synthetic block that fronts the pedal's per-preset output trim.</summary>
+    public const string LevelBlockHeader = "Level";
+    private const string levelKey = @"root\app\output\pst";
+
     private readonly SonuClient _client;
     private readonly LabelService _labels;
     private readonly ParameterExposure _exposure;
@@ -132,6 +136,40 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             catch { refOptions[r] = Array.Empty<string>(); }
         }
         _optionsVersion = catalogAtLoad;
+
+        // The pedal's per-preset output trim, promoted to its own block at the top of the editor.
+        // Deliberately NOT a Blocks_InScope entry: `root\app\output` is the GLOBAL Master block
+        // (its `vol` is the master volume, not a preset value), and the only other leaf under
+        // `pst` is a per-preset BPM we don't surface. Addressed by exact path so nothing else
+        // under `output` can leak in, which also means no hidden-params.json entry is needed.
+        var levelRec = records.FirstOrDefault(r => r.Path == Sonulab.Distill.LevelModel.PresetLevelPath);
+        if (levelRec is not null)
+        {
+            var levelSchema = NodeSchema.FromRecord(levelRec);
+            var levelSection = new BlockSectionViewModel(LevelBlockHeader) { ShowLevelIcon = true };
+            var levelValue = levelRec.Json.TryGetProperty("value", out var lv) ? lv.GetRawText() : "0";
+            var levelField = new ParameterFieldViewModel(levelSchema, levelValue)
+            {
+                Label = _labels.Label(levelSchema.Path, levelSchema.Desc.Length > 0 ? levelSchema.Desc : null),
+                ShowReset = true,
+            };
+            levelField.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(ParameterFieldViewModel.Number)
+                                   or nameof(ParameterFieldViewModel.Text)) IsDirty = true;
+            };
+            levelSection.Fields.Add(levelField);
+            // Expanded by default — unlike every other block. This is the headline control and
+            // was invisible before; a collapsed default would leave it just as hard to find.
+            // The per-session memory still wins once the user has collapsed it.
+            levelSection.IsExpanded = !_expansion.TryGetValue(levelKey, out var lexp) || lexp;
+            levelSection.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(BlockSectionViewModel.IsExpanded) && s is BlockSectionViewModel b)
+                    _expansion[levelKey] = b.IsExpanded;
+            };
+            Blocks.Add(levelSection);
+        }
 
         foreach (var block in Blocks_InScope)
         {

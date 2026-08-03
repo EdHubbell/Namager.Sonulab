@@ -30,6 +30,10 @@ public sealed partial class BlockSectionViewModel : ObservableObject
     /// with no `on_off` field (see <see cref="Enabled"/>), so that header slot is otherwise empty.</summary>
     [ObservableProperty] private bool _showEqIcon;
 
+    /// <summary>True for the synthetic `Level` block: show the volume glyph in the header. That
+    /// block has no `on_off` field either, so the same header slot is free.</summary>
+    [ObservableProperty] private bool _showLevelIcon;
+
     /// <summary>True when any float field in this block sits away from its firmware default (where
     /// the schema omits one, 0). Drives the equalizer glyph's highlight so a non-flat EQ is visible
     /// without expanding the block. Delegates to the field's own
