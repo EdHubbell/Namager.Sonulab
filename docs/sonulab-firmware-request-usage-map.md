@@ -21,11 +21,13 @@ device captures, the amp ref lands around chunk 7, the primary IR around chunk 1
 secondary IR around chunk 23 (of 64 total, 8192 B / 128 B per preset). A head-read stopping as
 soon as all three ref lines are complete needs roughly 14–25 chunks per preset in practice.
 
-Scanning every occupied slot (up to 30) to build the full map therefore costs, at minimum,
-14–25 round trips x 30 presets, i.e. roughly 15–30 s per connect even with the trimmed head-read
-and paced sends — before any amp/IR list can be shown with usage highlights, and before a
-rename/delete guard can trust its answer. There is no firmware verb that returns this mapping, or
-even a subset of it, in fewer than one round trip per chunk per preset.
+Scanning every occupied slot to build the full map is correspondingly expensive even with the
+trimmed head-read: measured on a bank of ~25–30 occupied presets, the scan costs ~14 s with
+paced-overlap sends (~33 ms/chunk) and ~25 s lockstep (~57 ms/chunk)
+(`docs/superpowers/2026-07-24-preset-usage-scan-perf-handoff.md`) — before any amp/IR list can be
+shown with usage highlights, and before a rename/delete guard can trust its answer. There is no
+firmware verb that returns this mapping, or even a subset of it, in fewer than one round trip per
+chunk per preset.
 
 ## 2. Request A (preferred): a preset-refs read
 
@@ -49,9 +51,10 @@ returning one record per occupied slot:
 (empty slots omitted, or included with blank fields — either is fine; a host filters on the
 existing `root\presets` name list either way). Even served as ~30 individual CRLF records — one
 per occupied slot, matching the existing `path:{json}` framing (`PROTOCOL.md` "Wire framing") —
-this is at worst one round trip per occupied preset instead of 14–25, i.e. roughly 1–2 s total for
-a full bank versus 15–30 s: a 10–20x improvement, and comparable to how `read root\presets`
-already returns the 30-name list as one node today.
+this is at worst one round trip per occupied preset instead of 14–25 chunks, i.e. roughly 1–2 s
+total for a full bank — an order of magnitude faster than the measured ~14–25 s scan above (roughly
+10–20x vs the ~25 s lockstep case, ~7–14x vs the ~14 s paced case) — and comparable to how
+`read root\presets` already returns the 30-name list as one node today.
 
 This fits the existing self-describing node convention: `browse <path>` already returns a schema
 object per node (`desc`/`type`/`min`/`max`/`options`/`ref`/…, `PROTOCOL.md` "CONFIRMED via live
