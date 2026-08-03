@@ -44,7 +44,6 @@ public partial class MainWindow : Window
         RestoreMenuItem.Click += async (_, _) => await RestoreAsync();
         RestorePresetMenuItem.Click += async (_, _) => await RestoreSinglePresetAsync();
         ExportSnapshotMenuItem.Click += async (_, _) => await ExportSnapshotFlowAsync();
-        ImportSnapshotMenuItem.Click += async (_, _) => await ImportSnapshotFlowAsync();
     }
 
     /// <summary>The single .namsnap file type offered by both the save and open pickers below.</summary>
@@ -90,51 +89,6 @@ public partial class MainWindow : Window
         {
             // async void-style handler: never let this escape onto the UI thread.
             vm.Status.Failure($"Export failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>File ▸ Import Snapshot… — picks a .namsnap and hands it to
-    /// MainWindowViewModel.ImportSnapshotAsync, which validates the file and rebuilds the IR
-    /// identity index from it. Does NOT write anything to the pedal — restoring a snapshot onto
-    /// hardware is a separate, not-yet-built feature. A damaged/incompatible file throws
-    /// SnapshotArchiveException, which this handler turns into a dialog naming the exact reason.</summary>
-    private async System.Threading.Tasks.Task ImportSnapshotFlowAsync()
-    {
-        if (DataContext is not MainWindowViewModel vm) return;
-        try
-        {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "Import Snapshot",
-                AllowMultiple = false,
-                FileTypeFilter = new[] { NamsnapFileType },
-            });
-            if (files.Count != 1 || files[0].TryGetLocalPath() is not { } path) return;
-
-            var manifest = await vm.ImportSnapshotAsync(path);
-            int presetCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Preset);
-            int ampCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Amp);
-            int irCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Ir);
-            await ConfirmDialog.ShowAsync(this, "Snapshot imported",
-                $"Read a snapshot of a {manifest.Device.Model} (firmware {manifest.Device.Fw}), " +
-                $"captured {manifest.CreatedUtc}: {manifest.Slots.Count} file{(manifest.Slots.Count == 1 ? "" : "s")} total — " +
-                $"{presetCount} Preset{(presetCount == 1 ? "" : "s")}, " +
-                $"{ampCount} Amp{(ampCount == 1 ? "" : "s")}, " +
-                $"{irCount} IR{(irCount == 1 ? "" : "s")}.\n\n" +
-                "This only reads and validates the file — nothing was written to the pedal.",
-                confirmText: null, cancelText: "Close");
-        }
-        catch (SnapshotArchiveException ex)
-        {
-            vm.Status.Failure($"Import failed: {ex.Message}");
-            await ConfirmDialog.ShowAsync(this, "Import failed",
-                $"This file isn't a usable .namsnap snapshot:\n\n{ex.Message}",
-                confirmText: null, cancelText: "Close");
-        }
-        catch (System.Exception ex)
-        {
-            // async void-style handler: never let this escape onto the UI thread.
-            vm.Status.Failure($"Import failed: {ex.Message}");
         }
     }
 

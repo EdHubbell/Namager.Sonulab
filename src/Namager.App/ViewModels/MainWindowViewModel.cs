@@ -485,54 +485,15 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             }
 
             using var op = Status.BeginOperation("Exporting snapshot…");
-            // Same directory as the destination, so the final move below is an in-place rename
-            // (not a cross-volume copy that could itself fail partway).
-            var tempPath = path + $".{Guid.NewGuid():N}.tmp";
             try
             {
-                var slotBackups = AppPaths.SlotBackups;
-                var svc = new SnapshotService(
-                    repo,
-                    new AmpService(Connection.Client!, slotBackups),
-                    new IrService(Connection.Client!, slotBackups));
-                var index = IrIndex.Load(_irIndexPath);
-
-                await using (var file = File.Create(tempPath))
-                {
-                    // CancellationToken.None, deliberately: a full pedal is 30 presets + 30 amps +
-                    // 30 IRs = 5760 chunks at ~33 ms/chunk (SonuClient.DReadChunkRangeAsync) —
-                    // roughly three minutes with no way to stop it. That is a known limitation of
-                    // this release, not an oversight: adding a cancel button is scope growth here
-                    // (see the fix-wave report), and the user isn't left blind while it runs —
-                    // op.Report below drives the status bar with live per-slot progress.
-                    await svc.CaptureAsync(
-                        file,
-                        new SnapshotDevice("StompStation", Connection.FirmwareVersion ?? "unknown"),
-                        Namager.App.AppInfo.Version,
-                        DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-                        resolveIrIdentity: blob => index.Lookup(IrIndex.ShaOf(blob)) is { } e
-                            ? new SnapshotT3k(e.ToneId, e.ModelId)
-                            : null,
-                        // Done is the capture-wide file counter, so the message must say so —
-                        // "Presets 31/81" read as "preset 31 of 81 presets" when only 30 exist.
-                        progress: new Progress<SnapshotCaptureProgress>(p => op.Report(p.Stage switch
-                        {
-                            SnapshotSlotKind.Preset => $"Saving Preset files from pedal first — #{p.Done} of {p.Total} total files",
-                            SnapshotSlotKind.Amp => $"Saving Amp files from pedal next — #{p.Done} of {p.Total} total files",
-                            _ => $"Saving IR files from pedal last — #{p.Done} of {p.Total} total files",
-                        })),
-                        ct: CancellationToken.None);
-                }
-
-                // Only touch the real destination once the temp file is a complete, valid archive.
-                File.Move(tempPath, path, overwrite: true);
+                await CaptureSnapshotToFileAsync(path, op.Report);
                 Status.Success($"Snapshot written to {Path.GetFileName(path)}");
             }
             catch (Exception ex)
             {
-                // The real destination was never opened for writing above, so it is untouched
-                // regardless of where the capture failed — only the temp file needs cleanup.
-                try { File.Delete(tempPath); } catch { /* best effort; a stray temp file costs disk space, not correctness */ }
+                // CaptureSnapshotToFileAsync already cleaned up its temp file on any failure —
+                // the real destination was never touched.
                 Log.Warn(ex, "snapshot export failed");
                 Status.Failure($"Export failed: {ex.Message}");
             }
@@ -540,44 +501,154 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
         finally { FileOperationInFlight = false; }
     }
 
-    /// <summary>Reads and validates a .namsnap, and records any IR Tone3000 identities it carries
-    /// into the local IR index. Does NOT write anything to the pedal — restoring a snapshot onto
-    /// hardware is a deliberately separate, not-yet-built feature (it needs selective slot choice,
-    /// a resumable multi-minute write, and cross-device rules).
-    ///
-    /// Unlike ExportSnapshotAsync, a validation failure here is NOT swallowed: it propagates as
-    /// SnapshotArchiveException so the file-picker handler can show the exact reason the file was
-    /// rejected, rather than a generic status-bar message.</summary>
-    public async Task<SnapshotManifest> ImportSnapshotAsync(string path)
+    /// <summary>The throwing capture core shared by Export Snapshot and the pre-restore safety
+    /// backup: captures every occupied slot into a temp file beside <paramref name="path"/> and
+    /// renames onto it only on full success (SnapshotArchive.Write is not atomic on its stream).
+    /// Throws on any failure with the temp file cleaned up; the destination is never left
+    /// half-written.</summary>
+    private async Task CaptureSnapshotToFileAsync(string path, Action<string>? report, CancellationToken ct = default)
     {
-        await using var file = File.OpenRead(path);
-        var (manifest, blobs) = SnapshotArchive.Read(file);
+        if (Connection.Repository is not { } repo)
+            throw new InvalidOperationException("Connect to the pedal first.");
 
+        // Same directory as the destination, so the final move below is an in-place rename
+        // (not a cross-volume copy that could itself fail partway).
+        var tempPath = path + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            var slotBackups = AppPaths.SlotBackups;
+            var svc = new SnapshotService(
+                repo,
+                new AmpService(Connection.Client!, slotBackups),
+                new IrService(Connection.Client!, slotBackups));
+            var index = IrIndex.Load(_irIndexPath);
+
+            await using (var file = File.Create(tempPath))
+            {
+                // CancellationToken.None, deliberately: a full pedal is 30 presets + 30 amps +
+                // 30 IRs = 5760 chunks at ~33 ms/chunk (SonuClient.DReadChunkRangeAsync) —
+                // roughly three minutes with no way to stop it. That is a known limitation of
+                // this release, not an oversight: adding a cancel button is scope growth here
+                // (see the fix-wave report), and the user isn't left blind while it runs —
+                // report below drives the status bar with live per-slot progress.
+                await svc.CaptureAsync(
+                    file,
+                    new SnapshotDevice("StompStation", Connection.FirmwareVersion ?? "unknown"),
+                    Namager.App.AppInfo.Version,
+                    DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+                    resolveIrIdentity: blob => index.Lookup(IrIndex.ShaOf(blob)) is { } e
+                        ? new SnapshotT3k(e.ToneId, e.ModelId)
+                        : null,
+                    // Done is the capture-wide file counter, so the message must say so —
+                    // "Presets 31/81" read as "preset 31 of 81 presets" when only 30 exist.
+                    progress: new Progress<SnapshotCaptureProgress>(p => report?.Invoke(p.Stage switch
+                    {
+                        SnapshotSlotKind.Preset => $"Saving Preset files from pedal first — #{p.Done} of {p.Total} total files",
+                        SnapshotSlotKind.Amp => $"Saving Amp files from pedal next — #{p.Done} of {p.Total} total files",
+                        _ => $"Saving IR files from pedal last — #{p.Done} of {p.Total} total files",
+                    })),
+                    ct: ct);
+            }
+
+            // Only touch the real destination once the temp file is a complete, valid archive.
+            File.Move(tempPath, path, overwrite: true);
+        }
+        catch
+        {
+            // The real destination was never opened for writing above, so it is untouched
+            // regardless of where the capture failed — only the temp file needs cleanup.
+            try { File.Delete(tempPath); } catch { /* best effort; a stray temp file costs disk space, not correctness */ }
+            throw;
+        }
+    }
+
+    /// <summary>Reads + validates the .namsnap at <paramref name="path"/> and plans the restore
+    /// against the connected pedal. Read-only. Throws SnapshotArchiveException (bad file) or
+    /// InvalidOperationException (no connection) — the view surfaces both.</summary>
+    public async Task<SnapshotRestorePlan> PlanRestoreAsync(string path)
+    {
+        if (Connection.Client is null)
+            throw new InvalidOperationException("Connect to the pedal first.");
+        SnapshotManifest manifest;
+        IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]> blobs;
+        await using (var file = File.OpenRead(path))
+            (manifest, blobs) = SnapshotArchive.Read(file);
+        return await BuildRestoreService().PlanAsync(manifest, blobs);
+    }
+
+    private SnapshotRestoreService BuildRestoreService()
+    {
+        var backups = AppPaths.SlotBackups;
+        SlotBlobService S(SlotBlobKind kind) => new(Connection.Client!, kind, backups,
+            msg => new SnapshotRestoreException(msg));
+        return new SnapshotRestoreService(S(SlotBlobKind.Preset), S(SlotBlobKind.Amp), S(SlotBlobKind.Ir));
+    }
+
+    /// <summary>Executes a restore plan. When <paramref name="backupFirst"/> is true, first
+    /// captures a safety .namsnap of the pedal's current state to Documents\NAMager Backups and
+    /// feeds its blobs to the skip-compare. Returns the result plus the safety file's path (null
+    /// when skipped). Throws on failure — the view shows the reason; completed slots stay
+    /// verified and a re-run resumes via skip-if-identical.</summary>
+    public async Task<(RestoreResult Result, string? SafetyPath)> ExecuteRestoreAsync(
+        SnapshotRestorePlan plan, bool backupFirst,
+        IProgress<SnapshotRestoreProgress>? progress = null, CancellationToken ct = default)
+    {
+        FileOperationInFlight = true;
+        try
+        {
+            using var op = Status.BeginOperation("Restoring snapshot…");
+            string? safetyPath = null;
+            IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]>? currentBlobs = null;
+            if (backupFirst)
+            {
+                safetyPath = Path.Combine(AppPaths.BackupRoot,
+                    $"pre-restore-{DateTime.Now:yyyyMMdd-HHmmss}.namsnap");
+                // A failed safety backup ABORTS the restore — the one thing this feature must
+                // never do is destroy the only copy of the pedal's state while failing to save it.
+                await CaptureSnapshotToFileAsync(safetyPath, op.Report, ct);
+                await using var f = File.OpenRead(safetyPath);
+                currentBlobs = SnapshotArchive.Read(f).Blobs;   // feeds skip-compare: no re-reads
+            }
+
+            var result = await BuildRestoreService().ExecuteAsync(plan, currentBlobs,
+                new Progress<SnapshotRestoreProgress>(p => op.Report(FormatRestoreProgress(p))), ct);
+
+            // The pedal's content just changed wholesale under the usage map and the amp detail
+            // cache — invalidate so the background scan rebuilds from the restored truth.
+            _usageService?.Invalidate();
+
+            RecordRestoredIrIdentities(plan);
+            Status.Success($"Restore complete — {result.Written} written, " +
+                           $"{result.SkippedIdentical} already identical, {result.Cleared} cleared.");
+            return (result, safetyPath);
+        }
+        finally { FileOperationInFlight = false; }
+    }
+
+    internal static string FormatRestoreProgress(SnapshotRestoreProgress p) => p.Phase switch
+    {
+        RestoreSlotPhase.Clearing => $"Clearing slot not in snapshot — #{p.Done + 1} of {p.Total} total",
+        RestoreSlotPhase.Comparing => $"Checking '{p.SlotName}' — #{p.Done + 1} of {p.Total} total files",
+        _ => p.Stage switch
+        {
+            SnapshotSlotKind.Ir => $"Restoring IR files to pedal first — #{Math.Min(p.Done + 1, p.Total)} of {p.Total} total files",
+            SnapshotSlotKind.Amp => $"Restoring Amp files to pedal next — #{Math.Min(p.Done + 1, p.Total)} of {p.Total} total files",
+            _ => $"Restoring Preset files to pedal last — #{Math.Min(p.Done + 1, p.Total)} of {p.Total} total files",
+        },
+    };
+
+    /// <summary>Restore replaces Import's one useful behavior: any restored IR that carries a
+    /// Tone3000 identity in the manifest is recorded in the local index, keyed by blob content.</summary>
+    private void RecordRestoredIrIdentities(SnapshotRestorePlan plan)
+    {
         var index = IrIndex.Load(_irIndexPath);
         int learned = 0;
-        foreach (var slot in manifest.Slots.Where(s => s.Kind == SnapshotSlotKind.Ir && s.T3k is not null))
+        foreach (var slot in plan.Manifest.Slots.Where(s => s.Kind == SnapshotSlotKind.Ir && s.T3k is not null))
         {
-            var blob = blobs[(SnapshotSlotKind.Ir, slot.Index)];
-            // Title: null, not slot.Name. slot.Name is the device slot name — exactly the
-            // user-renamed string the index exists to see past (IrListViewModel's own writer uses
-            // the real Tone3000 tone title instead). SnapshotT3k carries no title field, so import
-            // has no way to recover the real one; recording the slot name here would just put the
-            // renamed string back into the field meant to escape it.
-            index = index.Record(new IrIndexEntry(
-                IrIndex.ShaOf(blob), slot.T3k!.ToneId, slot.T3k.ModelId, Title: null));
+            var blob = plan.Blobs[(SnapshotSlotKind.Ir, slot.Index)];
+            index = index.Record(new IrIndexEntry(IrIndex.ShaOf(blob), slot.T3k!.ToneId, slot.T3k.ModelId, Title: null));
             learned++;
         }
-        index.Save(_irIndexPath);
-
-        // Same per-kind vocabulary as the export progress line. Import is a local file read
-        // (nothing is written to the pedal), so it finishes too fast for per-file progress —
-        // the breakdown lands in this one summary instead.
-        int presets = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Preset);
-        int ampCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Amp);
-        int irCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Ir);
-        Status.Success(
-            $"Read {manifest.Slots.Count} files from snapshot ({presets} Presets, {ampCount} Amps, {irCount} IRs) — " +
-            $"learned {learned} IR identit{(learned == 1 ? "y" : "ies")}");
-        return manifest;
+        if (learned > 0) index.Save(_irIndexPath);
     }
 }

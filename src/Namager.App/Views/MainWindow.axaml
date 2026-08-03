@@ -27,7 +27,6 @@
         <Separator/>
         <MenuItem x:Name="ExportSnapshotMenuItem" Header="_Export Snapshot…"
                   IsEnabled="{Binding CanBackup}"/>
-        <MenuItem x:Name="ImportSnapshotMenuItem" Header="_Import Snapshot…"/>
         <Separator/>
         <MenuItem x:Name="ExitMenuItem" Header="E_xit"/>
       </MenuItem>
