@@ -55,3 +55,7 @@ would show real names instead of whatever a slot was renamed to; nothing display
 today. **That hash is never sent over the network.** Exporting a snapshot does write it into the
 backup's manifest, since it's how the app recognizes that IR again — so it travels with the file
 wherever you take it.
+
+NAMager also keeps `%APPDATA%\Namager\preset-usage-cache.json`, which stores, per connected pedal id,
+each preset's name and the amp/IR names it references — so reconnecting shows usage highlights
+instantly. **Local only; never transmitted.**
