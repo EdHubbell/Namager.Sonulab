@@ -4,10 +4,13 @@ public class LoudnessTests
 {
     const int Fs = 44100;
 
-    static double[] Sine(double hz, double amplitude, int seconds = 3)
+    static double[] Sine(double hz, double amplitude, int seconds = 3) =>
+        SineSamples(hz, amplitude, Fs * seconds);
+
+    static double[] SineSamples(double hz, double amplitude, int samples)
     {
-        var x = new double[Fs * seconds];
-        for (int i = 0; i < x.Length; i++)
+        var x = new double[samples];
+        for (int i = 0; i < samples; i++)
             x[i] = amplitude * Math.Sin(2 * Math.PI * hz * i / Fs);
         return x;
     }
@@ -78,9 +81,25 @@ public class LoudnessTests
         Assert.Equal(double.NegativeInfinity, Loudness.IntegratedLufs(new double[Fs]));
     }
 
+    // A signal shorter than one block is measured as a single block spanning the whole thing
+    // (see IntegratedLufs) rather than short-circuited — but the absolute gate still applies,
+    // so a short signal that is silent must still read -Infinity.
     [Fact]
-    public void Lufs_of_a_signal_shorter_than_one_block_is_negative_infinity()
+    public void Lufs_of_a_short_silent_signal_is_still_negative_infinity()
     {
         Assert.Equal(double.NegativeInfinity, Loudness.IntegratedLufs(new double[100]));
+    }
+
+    // A stationary tone's mean square doesn't depend on how much of it you look at, once the
+    // K-weighting filters have settled (tens of ms for these low-order biquads). The short
+    // single-block path must converge to the same reading as the long multi-block gated
+    // average of the identical continuous tone — this is the property the whole single-block
+    // fallback exists to preserve.
+    [Fact]
+    public void Lufs_of_a_short_signal_matches_what_it_converges_to_once_longer()
+    {
+        var shortTone = SineSamples(1000, 0.5, 8000);   // ~181 ms, under the 400 ms block
+        var longTone = Sine(1000, 0.5);                 // 3 s of the identical continuous tone
+        Assert.Equal(Loudness.IntegratedLufs(longTone), Loudness.IntegratedLufs(shortTone), 2);
     }
 }

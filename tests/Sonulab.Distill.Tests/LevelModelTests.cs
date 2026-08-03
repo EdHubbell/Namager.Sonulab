@@ -12,6 +12,28 @@ public class LevelModelTests
                                                VxampFormat.NlmixHeaderFloats(), 0f));
     }
 
+    // A memory-bearing amp model: a decaying-exponential pre-FIR and cab (a few dozen non-zero
+    // taps each) plus a real nonlinearity, unlike the single-tap/nlmix=0 toy fixture above. This
+    // is the shape a real amp model actually has (1024-tap pre-FIR + 1024-tap cab), so it
+    // exercises the FIR-convolution code paths Task 5's real presets will take.
+    static byte[] SlotWithMemory()
+    {
+        var pre = new float[1024];
+        for (int i = 0; i < 32; i++) pre[i] = (float)(0.5 * Math.Pow(0.85, i));
+        var g2 = new float[1024];
+        for (int i = 0; i < 32; i++) g2[i] = (float)(0.3 * Math.Pow(0.8, i));
+        return VxampCodec.Encode(new WhTensors(pre, VxampFormat.G2HeaderFloats(), g2,
+                                               VxampFormat.NlmixHeaderFloats(), 0.3f));
+    }
+
+    // An IR with a decaying tail rather than a single delta tap.
+    static byte[] IrWithMemory()
+    {
+        var ir = new double[IrFormat.SampleCount];
+        for (int i = 0; i < 64; i++) ir[i] = 0.2 * Math.Pow(0.9, i);
+        return IrFormat.Encode(ir);
+    }
+
     static Dictionary<string, string> Values(params (string Path, string Json)[] overrides)
     {
         var v = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -150,6 +172,23 @@ public class LevelModelTests
                                          Slot(), IrFormat.Encode(ir), null, Defaults());
         // A 0.5-tap impulse IR is exactly -6.02 dB.
         Assert.Equal(-6.020599913279624, withIr.RelativeLufs - Est(Values()).RelativeLufs, 4);
+    }
+
+    [Fact]
+    public void A_pure_gain_term_moves_the_estimate_by_exactly_that_many_db_through_a_memory_bearing_chain()
+    {
+        // EQ Level is scaled in strictly after the (nonlinear, memory-bearing) amp sim and
+        // strictly before the (memory-bearing) IR convolution, so it is a uniform scalar
+        // multiply on the whole waveform regardless of what surrounds it — the property that
+        // actually matters for Task 5's "make this preset as loud as that one" arithmetic.
+        var slot = SlotWithMemory();
+        var ir = IrWithMemory();
+        var flat = Values((@"root\app\ir\on_off", "\"ON\""));
+        var lifted = Values((@"root\app\ir\on_off", "\"ON\""), (@"root\app\eq\level", "4.0"));
+
+        double a = LevelModel.Estimate(flat, slot, ir, null, Defaults()).RelativeLufs;
+        double b = LevelModel.Estimate(lifted, slot, ir, null, Defaults()).RelativeLufs;
+        Assert.Equal(4.0, b - a, 6);
     }
 
     [Fact]

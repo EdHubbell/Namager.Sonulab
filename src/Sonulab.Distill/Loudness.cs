@@ -77,27 +77,48 @@ public static class Loudness
     public static double[] KWeight(double[] x) => Apply(HighPass(), Apply(HighShelf(), x));
 
     /// <summary>Integrated K-weighted loudness in LUFS, or <see cref="double.NegativeInfinity"/>
-    /// when the signal is shorter than one 400 ms block or every block falls under the
-    /// absolute gate.</summary>
+    /// for silence (every candidate block falls under the absolute gate).
+    ///
+    /// A signal shorter than one 400 ms block has no room for the sliding-window average, so it
+    /// is measured as a single block spanning the whole signal instead: for a stationary signal
+    /// that single measurement is exactly the quantity the gated multi-block form converges to,
+    /// and — being one block — it has no seam to introduce artifacts across. The absolute gate
+    /// still applies, so a short but genuinely silent signal still reads
+    /// <see cref="double.NegativeInfinity"/>.</summary>
     public static double IntegratedLufs(double[] x)
     {
         var y = KWeight(x);
-        int block = (int)(BlockSeconds * SampleRate);
-        int hop = (int)(HopSeconds * SampleRate);
-        if (y.Length < block) return double.NegativeInfinity;
+        if (y.Length == 0) return double.NegativeInfinity;
 
+        int block = (int)(BlockSeconds * SampleRate);
+        if (y.Length < block) return GatedLufs(MeanSquare(y, 0, y.Length));
+
+        int hop = (int)(HopSeconds * SampleRate);
         double sum = 0;
         int kept = 0;
         for (int start = 0; start + block <= y.Length; start += hop)
         {
-            double ms = 0;
-            for (int i = start; i < start + block; i++) ms += y[i] * y[i];
-            ms /= block;
+            double ms = MeanSquare(y, start, block);
             if (ms <= 0) continue;
             if (LufsOffset + 10.0 * Math.Log10(ms) <= AbsoluteGateLufs) continue;
             sum += ms;
             kept++;
         }
         return kept == 0 ? double.NegativeInfinity : LufsOffset + 10.0 * Math.Log10(sum / kept);
+    }
+
+    private static double MeanSquare(double[] y, int start, int length)
+    {
+        double ms = 0;
+        for (int i = start; i < start + length; i++) ms += y[i] * y[i];
+        return ms / length;
+    }
+
+    /// <summary>Convert one block's mean square to LUFS, applying the absolute gate.</summary>
+    private static double GatedLufs(double ms)
+    {
+        if (ms <= 0) return double.NegativeInfinity;
+        double lufs = LufsOffset + 10.0 * Math.Log10(ms);
+        return lufs <= AbsoluteGateLufs ? double.NegativeInfinity : lufs;
     }
 }

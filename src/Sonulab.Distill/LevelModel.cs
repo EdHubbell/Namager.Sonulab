@@ -117,23 +117,12 @@ public static class LevelModel
         foreach (var (path, label) in UnmodeledAmpKnobs)
             if (OffDefault(values, defaults, path)) flags.Add($"{label} is away from default (not modeled)");
 
+        // DriveSignal is 16000 samples (~363 ms) — under Loudness.IntegratedLufs's 400 ms
+        // sliding-window block. That method measures a signal this short as a single block
+        // spanning the whole thing rather than refusing it, so this reads a real number here
+        // with no splicing needed on this side.
         return new PresetLevelEstimate(
-            Loudness.IntegratedLufs(Loop(x, Loudness.SampleRate * 2)),
-            Num(values, PresetLevelPath, 0.0), flags);
-    }
-
-    /// <summary><see cref="DriveSignal"/> is 16000 samples (~363 ms) — under
-    /// <see cref="Loudness.IntegratedLufs"/>'s 400 ms minimum block, which would make it read
-    /// -Infinity every time. Loop the already-processed chain output to a couple of seconds
-    /// before measuring; this changes nothing about the per-sample chain above, only how much
-    /// of it the meter gets to look at.</summary>
-    private static double[] Loop(double[] x, int minSamples)
-    {
-        if (x.Length == 0 || x.Length >= minSamples) return x;
-        int copies = (minSamples + x.Length - 1) / x.Length;
-        var y = new double[x.Length * copies];
-        for (int c = 0; c < copies; c++) x.CopyTo(y, c * x.Length);
-        return y;
+            Loudness.IntegratedLufs(x), Num(values, PresetLevelPath, 0.0), flags);
     }
 
     private static double[] ApplyIr(double[] x, IReadOnlyDictionary<string, string> values,
