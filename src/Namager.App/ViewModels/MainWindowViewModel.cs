@@ -255,6 +255,11 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             // Device id keys the warm-start cache; a blank id (unknown firmware) disables it.
             var usage = _usageService = new PresetUsageService(
                 _connection.Repository!, _connection.DeviceId, _usageCachePath);
+            // Start the scan NOW, not on first tab visit: the warm start publishes the cached
+            // map a second or two after connect (background lane, zero dreads), so the Amps/IRs
+            // tabs render already-highlighted instead of popping in after their first load.
+            // Idempotent — the tabs' own EnsureScanning calls become no-ops.
+            usage.EnsureScanning();
             var catalog = _catalog = new Namager.App.Services.CatalogVersion();
 
             var presets = new PresetListViewModel(
