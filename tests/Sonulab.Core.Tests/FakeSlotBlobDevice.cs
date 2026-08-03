@@ -47,6 +47,11 @@ public class FakeSlotBlobDevice : ISonuLink
     public void SeedSlot(int index, string name, byte[] blob)
     { _slots[index].Name = name; _slots[index].Blob = (byte[])blob.Clone(); }
 
+    /// <summary>Empties a slot WITHOUT going through the protocol (no command logged) — simulates
+    /// an out-of-band change (e.g. a front-panel edit) landing between a caller's PlanAsync and
+    /// ExecuteAsync, for TOCTOU tests.</summary>
+    public void ClearSlot(int index) { _slots[index].Name = null; _slots[index].Blob = null; }
+
     private static readonly Regex DWriteRx = new(@"^dwrite (\S+):\{""index"":(-?\d+),""chunk"":(-?\d+),""value"":""([0-9a-fA-F]*)""\}$");
     private static readonly Regex DReadRx = new(@"^dread (\S+):\{""index"":(-?\d+),""chunk"":(-?\d+)\}$");
     private static readonly Regex DSwapRx = new(@"^dswap (\S+):\{""index"":(-?\d+),""index2"":(-?\d+)\}$");

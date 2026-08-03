@@ -176,4 +176,69 @@ public class SnapshotRestoreServiceTests
         // No compare read means no backup dir was ever created — nothing to clean up.
         Assert.False(Directory.Exists(rig.BackupDir));
     }
+
+    // CRITICAL — rename on this device is a name-table-only write, so "bytes equal, name
+    // differs" is reachable, and presets reference amps/IRs BY NAME: a stale name here would
+    // silently orphan every restored preset that names this slot.
+    [Fact]
+    public async Task Execute_renames_slot_when_content_matches_but_name_differs()
+    {
+        var rig = MakeRig();
+        var same = Blob(4096, 5);
+        rig.Irs.SeedSlot(0, "OldName", same);
+        var (manifest, blobs) = Snap((SnapshotSlotKind.Ir, 0, "NewName", same));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+        int dwritesAfterPlan = rig.Irs.CommandLog.Count(c => c.StartsWith("dwrite", StringComparison.Ordinal));
+
+        var result = await rig.Svc.ExecuteAsync(plan);
+
+        Assert.Equal("NewName", rig.Irs.SlotNames[0]);
+        Assert.Equal(same, rig.Irs.SlotBlobs[0]);              // content untouched
+        Assert.Equal(new RestoreResult(Written: 0, SkippedIdentical: 1, Cleared: 0), result);
+        // Only the chunk:-1 rename — no content chunks re-staged.
+        Assert.Equal(1, rig.Irs.CommandLog.Count(c => c.StartsWith("dwrite", StringComparison.Ordinal)) - dwritesAfterPlan);
+        Directory.Delete(rig.BackupDir, recursive: true);
+    }
+
+    // IMPORTANT 1 — plan-time PedalOccupied can go stale on a multi-minute restore (a
+    // front-panel edit mid-run); a since-emptied slot must never be dreaded.
+    [Fact]
+    public async Task Execute_reverifies_occupancy_before_self_reading_a_slot_emptied_after_planning()
+    {
+        var rig = MakeRig();
+        rig.Irs.SeedSlot(0, "Old", Blob(4096, 1));
+        var (manifest, blobs) = Snap((SnapshotSlotKind.Ir, 0, "New", Blob(4096, 9)));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+        Assert.True(plan.Actions.Single().PedalOccupied);          // true at plan time...
+
+        rig.Irs.ClearSlot(0);                                      // ...but emptied before execute
+        int dreadsBeforeExecute = rig.Irs.CommandLog.Count(c => c.StartsWith("dread", StringComparison.Ordinal));
+
+        var result = await rig.Svc.ExecuteAsync(plan);
+
+        int dreads = rig.Irs.CommandLog.Count(c => c.StartsWith("dread", StringComparison.Ordinal)) - dreadsBeforeExecute;
+        Assert.Equal(32, dreads);              // upload verify read-back only; no compare dread
+        Assert.Equal(new RestoreResult(Written: 1, SkippedIdentical: 0, Cleared: 0), result);
+        Assert.False(Directory.Exists(rig.BackupDir) &&
+                     Directory.GetFiles(rig.BackupDir, "*-prerestore*").Length > 0);
+    }
+
+    // IMPORTANT 2 — a partial currentBlobs dict missing a key for an occupied Write slot must
+    // still fall back to a self-read, so the archive duty is never silently dropped.
+    [Fact]
+    public async Task Execute_falls_back_to_self_read_when_currentBlobs_is_partial()
+    {
+        var rig = MakeRig();
+        rig.Irs.SeedSlot(0, "Old", Blob(4096, 1));
+        var (manifest, blobs) = Snap((SnapshotSlotKind.Ir, 0, "New", Blob(4096, 9)));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+
+        // currentBlobs is provided (not null) but does NOT cover this occupied slot.
+        var result = await rig.Svc.ExecuteAsync(plan,
+            currentBlobs: new Dictionary<(SnapshotSlotKind, int), byte[]>());
+
+        Assert.Single(Directory.GetFiles(rig.BackupDir, "ir-0-*-prerestore.irblob"));
+        Assert.Equal(new RestoreResult(Written: 1, SkippedIdentical: 0, Cleared: 0), result);
+        Directory.Delete(rig.BackupDir, recursive: true);
+    }
 }

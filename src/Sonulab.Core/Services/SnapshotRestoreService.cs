@@ -7,9 +7,12 @@ public sealed class SnapshotRestoreException(string message) : Exception(message
 public enum RestoreAction { Write, Clear }
 
 /// <summary>One slot's planned operation. PedalOccupied is captured at plan time so execute
-/// never dreads an empty slot.</summary>
+/// never dreads an empty slot (re-verified fresh at execute time too — see ExecuteAsync).
+/// PedalName is the pedal's name at plan time (null when unoccupied) — rename on this device
+/// is a name-table-only write, so a Write action can find its bytes already identical while its
+/// name still differs; ExecuteAsync compares PedalName against Name to catch that case.</summary>
 public sealed record RestoreSlotAction(
-    SnapshotSlotKind Kind, int Index, string Name, RestoreAction Action, bool PedalOccupied);
+    SnapshotSlotKind Kind, int Index, string Name, RestoreAction Action, bool PedalOccupied, string? PedalName);
 
 public sealed record SnapshotRestorePlan(
     SnapshotManifest Manifest,
@@ -54,9 +57,10 @@ public sealed class SnapshotRestoreService(
             {
                 bool occupied = !string.IsNullOrEmpty(pedal[i].Name);
                 if (inSnapshot.TryGetValue(i, out var snap))
-                    actions.Add(new RestoreSlotAction(kind, i, snap.Name, RestoreAction.Write, occupied));
+                    actions.Add(new RestoreSlotAction(kind, i, snap.Name, RestoreAction.Write, occupied,
+                        occupied ? pedal[i].Name : null));
                 else if (occupied)
-                    actions.Add(new RestoreSlotAction(kind, i, pedal[i].Name, RestoreAction.Clear, true));
+                    actions.Add(new RestoreSlotAction(kind, i, pedal[i].Name, RestoreAction.Clear, true, pedal[i].Name));
             }
         }
         return new SnapshotRestorePlan(manifest, blobs, actions);
@@ -73,11 +77,15 @@ public sealed class SnapshotRestoreService(
 
     /// <summary>Applies a plan: exact mirror. Writes overwrite (or land, for a previously-empty
     /// slot); slots the snapshot didn't occupy are cleared. currentBlobs (from a prior safety
-    /// snapshot read) lets the caller skip a redundant compare dread — otherwise this reads the
-    /// pedal's blob itself (archiving it as a "-prerestore" file) ONLY for slots PlanAsync marked
-    /// occupied, never dreading an empty slot. Every device call inside an action runs on
-    /// CancellationToken.None: an abandoned staged burst mid-slot is the one shape the write
-    /// discipline can't make safe, so cancellation only lands BETWEEN actions.</summary>
+    /// snapshot read) lets the caller skip a redundant compare dread for the slots it covers —
+    /// the dict may be PARTIAL, and a missing key falls back to this method reading the slot
+    /// itself (archiving it as a "-prerestore" file), exactly as if currentBlobs were absent.
+    /// Occupancy is re-verified fresh immediately before every such self-read (not trusted from
+    /// plan-time PedalOccupied, which can go stale on a multi-minute restore — e.g. a
+    /// front-panel edit mid-run) so this NEVER dreads a slot that is empty right now. Every
+    /// device call inside an action runs on CancellationToken.None: an abandoned staged burst
+    /// mid-slot is the one shape the write discipline can't make safe, so cancellation only
+    /// lands BETWEEN actions.</summary>
     public async Task<RestoreResult> ExecuteAsync(
         SnapshotRestorePlan plan,
         IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]>? currentBlobs = null,
@@ -95,13 +103,20 @@ public sealed class SnapshotRestoreService(
                 var snapBlob = plan.Blobs[(a.Kind, a.Index)];
                 byte[]? current = null;
                 if (currentBlobs is not null) currentBlobs.TryGetValue((a.Kind, a.Index), out current);
-                else if (a.PedalOccupied)
+                if (current is null && await IsOccupiedNowAsync(svc, a.Index))
                 {
                     progress?.Report(new(a.Kind, RestoreSlotPhase.Comparing, done, total, a.Name));
                     current = await svc.ReadAndArchiveAsync(a.Index, "-prerestore", CancellationToken.None);
                 }
                 if (current is not null && current.AsSpan().SequenceEqual(snapBlob))
                 {
+                    // Bytes already match, but rename on this device is a name-table-only write —
+                    // a slot can be "content identical, name stale" (e.g. renamed since the
+                    // snapshot was taken). Presets reference amps/IRs BY NAME, so leaving a stale
+                    // name here would silently orphan every restored preset that names this slot.
+                    // Content matched, so this still counts as SkippedIdentical.
+                    if (a.PedalName != a.Name)
+                        await svc.RenameAsync(a.Index, a.Name, CancellationToken.None);
                     skipped++;
                 }
                 else
@@ -115,7 +130,12 @@ public sealed class SnapshotRestoreService(
             else
             {
                 progress?.Report(new(a.Kind, RestoreSlotPhase.Clearing, done, total, a.Name));
-                if (currentBlobs is null || !currentBlobs.ContainsKey((a.Kind, a.Index)))
+                bool haveCurrent = currentBlobs is not null && currentBlobs.ContainsKey((a.Kind, a.Index));
+                // Same TOCTOU concern as the Write branch above: only self-read if the slot is
+                // occupied RIGHT NOW. DeleteAsync itself already no-ops safely on an empty slot
+                // (one cheap list read, no dwrite), so it still runs unconditionally below —
+                // only the archive dread is skipped when there's nothing left to archive.
+                if (!haveCurrent && await IsOccupiedNowAsync(svc, a.Index))
                     await svc.ReadAndArchiveAsync(a.Index, "-prerestore", CancellationToken.None);
                 await svc.DeleteAsync(a.Index, CancellationToken.None);
                 cleared++;
@@ -126,6 +146,14 @@ public sealed class SnapshotRestoreService(
                 done, total, a.Name));
         }
         return new RestoreResult(written, skipped, cleared);
+    }
+
+    /// <summary>Fresh occupancy check for one slot, used immediately before a self-read so a
+    /// slot that emptied after PlanAsync (front-panel edit mid-restore) is never dreaded.</summary>
+    private static async Task<bool> IsOccupiedNowAsync(SlotBlobService svc, int index)
+    {
+        var pedal = await svc.ListAsync(CancellationToken.None);
+        return !string.IsNullOrEmpty(pedal[index].Name);
     }
 
     private SlotBlobService ServiceFor(SnapshotSlotKind kind) => kind switch
