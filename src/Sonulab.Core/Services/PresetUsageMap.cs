@@ -5,6 +5,12 @@ namespace Sonulab.Core.Services;
 /// <summary>One preset that references an amp/IR file. <see cref="Index"/> is the 0-based slot.</summary>
 public readonly record struct PresetRef(int Index, string Name);
 
+/// <summary>One slot's usage row: the preset in <see cref="Index"/> references <see cref="Amp"/>
+/// (null = no amp ref) and each IR in <see cref="Irs"/>. The serialization shape of
+/// <see cref="PresetUsageMap"/> — irs is a NAME LIST, not positional (the map does not preserve
+/// which IR node a name came from).</summary>
+public sealed record SlotUsage(int Index, string PresetName, string? Amp, IReadOnlyList<string> Irs);
+
 /// <summary>Which presets reference each amp / IR file, by NAME. Built once from the set of
 /// occupied preset documents. Pure — no device I/O. A preset stores its amp/IR selection as a
 /// plain node line — real dread/.pst documents carry only <c>{"value":…}</c>, never a schema
@@ -172,5 +178,69 @@ public sealed class PresetUsageMap
             result[k] = v;
         }
         return result;
+    }
+
+    /// <summary>Invert the map into per-slot rows (the disk-cache shape). One row per slot that has
+    /// at least one ref, slot-ascending; Irs ordinal-sorted so output is deterministic.</summary>
+    public IReadOnlyList<SlotUsage> ToSlotUsages()
+    {
+        var names = new Dictionary<int, string>();
+        var amps = new Dictionary<int, string>();
+        var irs = new Dictionary<int, List<string>>();
+        foreach (var (ampName, refs) in _amp)
+            foreach (var r in refs) { names[r.Index] = r.Name; amps[r.Index] = ampName; }
+        foreach (var (irName, refs) in _ir)
+            foreach (var r in refs)
+            {
+                names[r.Index] = r.Name;
+                if (!irs.TryGetValue(r.Index, out var list)) irs[r.Index] = list = new List<string>();
+                list.Add(irName);
+            }
+        return names.Keys.OrderBy(i => i).Select(i => new SlotUsage(
+            i, names[i],
+            amps.TryGetValue(i, out var a) ? a : null,
+            irs.TryGetValue(i, out var l)
+                ? l.OrderBy(s => s, StringComparer.Ordinal).ToList()
+                : (IReadOnlyList<string>)Array.Empty<string>())).ToList();
+    }
+
+    /// <summary>Rebuild a map from per-slot rows (the inverse of <see cref="ToSlotUsages"/>).
+    /// Dedupes by slot (first row wins), trims names, ignores blank names — mirrors what
+    /// <see cref="Collect"/> tolerates so a cache written by a future/buggy writer degrades
+    /// to fewer highlights, never to a throw.</summary>
+    public static PresetUsageMap FromSlotUsages(IEnumerable<SlotUsage> slots)
+    {
+        var amp = new Dictionary<string, List<PresetRef>>();
+        var ir = new Dictionary<string, List<PresetRef>>();
+        var seen = new HashSet<int>();
+        foreach (var s in slots)
+        {
+            if (!seen.Add(s.Index)) continue;
+            var entry = new PresetRef(s.Index, s.PresetName);
+            var a = s.Amp?.Trim();
+            if (!string.IsNullOrEmpty(a)) AddRef(amp, a, entry);
+            foreach (var irName in s.Irs ?? Array.Empty<string>())
+            {
+                var n = irName?.Trim();
+                if (!string.IsNullOrEmpty(n)) AddRef(ir, n!, entry);
+            }
+        }
+        return new PresetUsageMap(Freeze(amp), Freeze(ir));
+
+        static void AddRef(Dictionary<string, List<PresetRef>> map, string key, PresetRef r)
+        {
+            if (!map.TryGetValue(key, out var list)) map[key] = list = new List<PresetRef>();
+            if (!list.Any(x => x.Index == r.Index)) list.Add(r);
+        }
+    }
+
+    /// <summary>One slot's row parsed from a document. Implemented via <see cref="Build"/> so this
+    /// can never disagree with the scan's own parsing. A doc with no refs yields an empty row
+    /// (null amp, no irs) rather than nothing — callers use it to overwrite a provisional row.</summary>
+    public static SlotUsage ExtractSlotUsage(int index, string presetName, PresetDocument doc)
+    {
+        var rows = Build(new[] { (index, presetName, doc) }).ToSlotUsages();
+        return rows.Count > 0 ? rows[0]
+             : new SlotUsage(index, presetName, null, Array.Empty<string>());
     }
 }

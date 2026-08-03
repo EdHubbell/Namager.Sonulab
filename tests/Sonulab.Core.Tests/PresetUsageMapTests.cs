@@ -134,4 +134,62 @@ public class PresetUsageMapTests
         Assert.False(PresetUsageMap.HeadComplete(text[..(ir2 + 10)]));
         Assert.False(PresetUsageMap.HeadComplete(""));
     }
+
+    [Fact]
+    public void SlotUsages_roundtrip_preserves_lookups()
+    {
+        var doc0 = Doc(Amp("Plexi"), Ir("Cab A"), Ir2("Cab B"));
+        var doc1 = Doc(Amp("Plexi"), Ir("Cab A"));
+        var map = PresetUsageMap.Build(new[] { (0, "Lead", doc0), (3, "Rhythm", doc1) });
+
+        var rows = map.ToSlotUsages();
+        var back = PresetUsageMap.FromSlotUsages(rows);
+
+        Assert.Equal(map.PresetsUsingAmp("Plexi"), back.PresetsUsingAmp("Plexi"));
+        Assert.Equal(map.PresetsUsingIr("Cab A"), back.PresetsUsingIr("Cab A"));
+        Assert.Equal(map.PresetsUsingIr("Cab B"), back.PresetsUsingIr("Cab B"));
+    }
+
+    [Fact]
+    public void ToSlotUsages_is_ordered_and_deterministic()
+    {
+        var doc = Doc(Amp("Plexi"), Ir("Zeta"), Ir2("Alpha"));
+        var rows = PresetUsageMap.Build(new[] { (5, "Solo", doc), (2, "Clean", doc) }).ToSlotUsages();
+
+        Assert.Equal(new[] { 2, 5 }, rows.Select(r => r.Index));
+        Assert.Equal(new[] { "Alpha", "Zeta" }, rows[0].Irs);   // ordinal-sorted
+        Assert.Equal("Plexi", rows[0].Amp);
+        Assert.Equal("Clean", rows[0].PresetName);
+    }
+
+    [Fact]
+    public void ExtractSlotUsage_matches_Build_and_handles_refless_docs()
+    {
+        var doc = Doc(Amp("Plexi"), Ir("Cab A"));
+        var one = PresetUsageMap.ExtractSlotUsage(4, "Lead", doc);
+        Assert.Equal(4, one.Index);
+        Assert.Equal("Lead", one.PresetName);
+        Assert.Equal("Plexi", one.Amp);
+        Assert.Equal(new[] { "Cab A" }, one.Irs);
+
+        var refless = PresetUsageMap.ExtractSlotUsage(7, "Empty-ish",
+            Doc(@"root\app\eq\low:{""value"":0}"));
+        Assert.Equal(7, refless.Index);
+        Assert.Null(refless.Amp);
+        Assert.Empty(refless.Irs);
+    }
+
+    [Fact]
+    public void FromSlotUsages_dedupes_by_slot_and_drops_blank_names()
+    {
+        var back = PresetUsageMap.FromSlotUsages(new[]
+        {
+            new SlotUsage(1, "A", "Plexi", new[] { "Cab", "" }),
+            new SlotUsage(1, "A-dupe", "Other", Array.Empty<string>()),
+            new SlotUsage(2, "B", null, new[] { "Cab" }),
+        });
+        Assert.Equal(new[] { new PresetRef(1, "A") }, back.PresetsUsingAmp("Plexi"));
+        Assert.Empty(back.PresetsUsingAmp("Other"));
+        Assert.Equal(new[] { new PresetRef(1, "A"), new PresetRef(2, "B") }, back.PresetsUsingIr("Cab"));
+    }
 }
