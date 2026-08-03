@@ -76,6 +76,34 @@ public class PresetUsageCacheTests
     }
 
     [Fact]
+    public void Prunes_oldest_insertion_when_all_savedUtc_tie()
+    {
+        // MaxDevices + 1 = 9 devices, all with an IDENTICAL savedUtc, dev-0..dev-8 in file
+        // (insertion) order. The tie must be broken by insertion order, not by whatever order
+        // a naive stable-sort-then-Take happens to preserve: dev-0 (earliest in file, i.e. the
+        // oldest inserted) must be pruned, while dev-8 (latest in file) and the brand-new
+        // dev-new (inserted after load) must both survive.
+        var path = TempPath();
+        try
+        {
+            var devices = string.Join(",", Enumerable.Range(0, PresetUsageCache.MaxDevices + 1)
+                .Select(i => $$"""
+                { "id": "dev-{{i}}", "savedUtc": "2026-08-03T00:00:00Z",
+                  "slots": [ { "slot": 0, "preset": "P{{i}}", "amp": "Plexi", "irs": [] } ] }
+                """));
+            File.WriteAllText(path, $$"""{ "schema": 1, "devices": [ {{devices}} ] }""");
+
+            var cache = PresetUsageCache.Load(path)
+                .WithDevice("dev-new", new[] { new SlotUsage(0, "New", "AC30", Array.Empty<string>()) });
+
+            Assert.Empty(cache.SlotsFor("dev-0"));
+            Assert.NotEmpty(cache.SlotsFor($"dev-{PresetUsageCache.MaxDevices}"));
+            Assert.NotEmpty(cache.SlotsFor("dev-new"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Load_drops_malformed_slot_entries()
     {
         var path = TempPath();

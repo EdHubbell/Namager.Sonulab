@@ -53,13 +53,23 @@ public sealed class PresetUsageCache
 
     /// <summary>Returns a new cache with <paramref name="deviceId"/>'s rows replaced and its
     /// savedUtc stamped now; devices beyond <see cref="MaxDevices"/> are pruned oldest-first.
-    /// Does not write to disk — call Save.</summary>
+    /// Ties in savedUtc (e.g. several WithDevice calls in the same tick) are broken explicitly
+    /// by insertion order — the earliest-inserted of a tied group is pruned first — rather than
+    /// relying on however a stable sort happens to interact with Take. Does not write to disk —
+    /// call Save.</summary>
     public PresetUsageCache WithDevice(string deviceId, IReadOnlyList<SlotUsage> slots)
     {
-        var next = _devices.Where(d => !string.Equals(d.Id, deviceId, StringComparison.Ordinal))
+        var candidates = _devices
+            .Where(d => !string.Equals(d.Id, deviceId, StringComparison.Ordinal))
             .Append(DeviceEntry.From(deviceId, DateTime.UtcNow, slots))
-            .OrderByDescending(d => d.SavedUtc)
+            .ToList();
+        var next = candidates
+            .Select((d, i) => (Device: d, Pos: i))
+            .OrderByDescending(x => x.Device.SavedUtc)
+            .ThenByDescending(x => x.Pos)          // tie: later position = newer insertion, keep it
             .Take(MaxDevices)
+            .OrderBy(x => x.Pos)                   // restore insertion order for stable file output
+            .Select(x => x.Device)
             .ToList();
         return new PresetUsageCache(next);
     }
