@@ -184,12 +184,15 @@ public class PresetUsageMapTests
     {
         var back = PresetUsageMap.FromSlotUsages(new[]
         {
-            new SlotUsage(1, "A", "Plexi", new[] { "Cab", "" }),
+            new SlotUsage(1, "A", "Plexi", new[] { "Cab", "", " " }),
             new SlotUsage(1, "A-dupe", "Other", Array.Empty<string>()),
             new SlotUsage(2, "B", null, new[] { "Cab" }),
         });
         Assert.Equal(new[] { new PresetRef(1, "A") }, back.PresetsUsingAmp("Plexi"));
         Assert.Empty(back.PresetsUsingAmp("Other"));
         Assert.Equal(new[] { new PresetRef(1, "A"), new PresetRef(2, "B") }, back.PresetsUsingIr("Cab"));
+        // Verify blank and whitespace-only IR names are dropped
+        Assert.Empty(back.PresetsUsingIr(""));
+        Assert.Empty(back.PresetsUsingIr(" "));
     }
 }
