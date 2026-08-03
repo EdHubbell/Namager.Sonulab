@@ -899,7 +899,7 @@ git commit -m "feat(restore): VM plan/execute with optional safety snapshot; rem
 - Modify: `src/Namager.App/Views/MainWindow.axaml` (menu item)
 - Modify: `src/Namager.App/Views/MainWindow.axaml.cs` (flows)
 - Create: `src/Namager.App/Views/RestoreConfirmDialog.axaml` + `.axaml.cs`
-- Create: `src/Namager.App/Views/RestoreProgressDialog.axaml` + `.axaml.cs`
+- Modify: `src/Namager.App/Views/RestoreProgressDialog.axaml.cs` — **this dialog ALREADY EXISTS** (built for the .pst restore-presets flow, used at MainWindow.axaml.cs:201). Do NOT create a new one: reuse it via a new counts-driven entry point. Its existing structure deliberately fixes a race (work must start from the `Opened` handler, never before `ShowDialog`, or an instantly-finishing run can post `Close()` before the window opens and deadlock `ShowDialog`) and has idempotent `SafeClose` — preserve both properties in anything you add.
 - Test: compile + existing suite only (repo has no axaml-code-behind unit tests; behavior lives in the VM, already tested)
 
 - [ ] **Step 1: Menu.** In `MainWindow.axaml` replace the Import item:
@@ -941,32 +941,37 @@ public partial class RestoreConfirmDialog : Window
 }
 ```
 
-- [ ] **Step 4: `RestoreProgressDialog`.** Modal window: message `TextBlock` (`x:Name="ProgressText"`), `ProgressBar` (`x:Name="Bar"`, Minimum 0), Cancel button. No close box dismissal mid-run (set `CanResize="False"`; intercept `Closing` to route through the same cancel path while running). Code-behind exposes:
+- [ ] **Step 4: generalize the EXISTING `RestoreProgressDialog`.** Read `src/Namager.App/Views/RestoreProgressDialog.axaml.cs` first. Its `RunAsync(owner, RestorePlan plan, run)` drives the bar by counting messages (one message per preset) — snapshot restore reports several phase messages per slot, so it needs an entry point where (done, total) are explicit. ADD (do not modify `RunAsync` or the axaml):
 
 ```csharp
-public partial class RestoreProgressDialog : Window
-{
-    private readonly CancellationTokenSource _cts = new();
-    public CancellationToken Token => _cts.Token;
-
-    public RestoreProgressDialog() { InitializeComponent(); Closing += (_, e) => { if (!_done) { e.Cancel = true; RequestCancel(); } }; }
-
-    private bool _done;
-
-    public void Report(string message, int done, int total) =>
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-        { ProgressText.Text = message; Bar.Maximum = Math.Max(1, total); Bar.Value = done; });
-
-    /// <summary>Cancellation is honored between slots — the in-flight slot completes first, so
-    /// the button flips to "Canceling…" rather than closing immediately.</summary>
-    private void RequestCancel()
-    { _cts.Cancel(); CancelButton.Content = "Canceling…"; CancelButton.IsEnabled = false; }
-
-    private void OnCancelClick(object? sender, RoutedEventArgs e) => RequestCancel();
-
-    public void Finish() { _done = true; Close(); }
-}
+    /// <summary>Counts-driven variant for runs that report several messages per work item
+    /// (snapshot restore emits phase + completion events per slot, so message-count can't drive
+    /// the bar). Unlike RunAsync, this RETHROWS the run's failure/cancellation — the snapshot
+    /// flow turns OperationCanceledException into its own "canceled between files" dialog.
+    /// Same race discipline as RunAsync: the work starts from Opened, never before ShowDialog.</summary>
+    public static async Task RunWithCountsAsync(Window owner,
+        Func<IProgress<(string Message, int Done, int Total)>, CancellationToken, Task> run)
+    {
+        var dlg = new RestoreProgressDialog();
+        var progress = new Progress<(string Message, int Done, int Total)>(p =>
+            Dispatcher.UIThread.Post(() =>
+            {
+                dlg.ProgressText.Text = p.Message;
+                dlg.Bar.Value = p.Total > 0 ? (double)p.Done / p.Total : 0;
+            }));
+        Task? work = null;
+        dlg.Opened += (_, _) =>
+        {
+            work = run(progress, dlg._cts.Token);
+            _ = work.ContinueWith(_ => Dispatcher.UIThread.Post(dlg.SafeClose),
+                                  TaskScheduler.Default);
+        };
+        await dlg.ShowDialog(owner);
+        if (work is not null) await work;          // rethrow cancel/failure to the caller
+    }
 ```
+
+Also generalize the cancel-click copy, which currently says "finishing the current preset…": change to "Cancelling — finishing the current file…" (it serves both the .pst restore and snapshot restore; "file" covers both).
 
 - [ ] **Step 5: Restore flow** in `MainWindow.axaml.cs` (replaces `ImportSnapshotFlowAsync`; keep the `SnapshotArchiveException` → exact-reason dialog behavior):
 
@@ -1004,22 +1009,17 @@ public partial class RestoreProgressDialog : Window
                 mismatch);
             if (!confirmed) return;
 
-            var dlg = new RestoreProgressDialog();
-            var run = System.Threading.Tasks.Task.Run(async () =>
-            {
-                try
-                {
-                    return await vm.ExecuteRestoreAsync(plan, backupFirst,
-                        new Progress<SnapshotRestoreProgress>(p => dlg.Report(
-                            MainWindowViewModel.FormatRestoreProgress(p), p.Done, p.Total)),
-                        dlg.Token);
-                }
-                finally { Avalonia.Threading.Dispatcher.UIThread.Post(dlg.Finish); }
-            });
-            await dlg.ShowDialog(this);
             try
             {
-                var (result, safetyPath) = await run;
+                (RestoreResult Result, string? SafetyPath) outcome = default;
+                await RestoreProgressDialog.RunWithCountsAsync(this, async (progress, ct) =>
+                {
+                    outcome = await vm.ExecuteRestoreAsync(plan, backupFirst,
+                        new Progress<SnapshotRestoreProgress>(p => progress.Report(
+                            (MainWindowViewModel.FormatRestoreProgress(p), p.Done, p.Total))),
+                        ct);
+                });
+                var (result, safetyPath) = outcome;
                 await ConfirmDialog.ShowAsync(this, "Restore complete",
                     $"{result.Written} file{(result.Written == 1 ? "" : "s")} written, " +
                     $"{result.SkippedIdentical} already identical, {result.Cleared} cleared." +
