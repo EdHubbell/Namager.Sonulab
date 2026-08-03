@@ -157,6 +157,23 @@ public class MatchVolumeTests
     }
 
     [Fact]
+    public async Task The_amp_volume_flag_surfaces_when_both_are_off_default_but_at_different_values()
+    {
+        // Both sides are off the 50% schema default, but at DIFFERENT values (75 vs 60) — the
+        // assumed taper does NOT cancel here, so the flag must surface, not be suppressed just
+        // because both happen to be "off default".
+        var d = Dev(); await d.OpenAsync();
+        var status = new FakeStatusService();
+        var vm = Vm(d, status, TargetPst(eqLevel: 6.0, ampVol: 60.0));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+        vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path == @"root\app\amp\vol").Number = 75.0;
+
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
+
+        Assert.Contains(status.Succeeded, m => m.Contains("Amp Volume", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task The_amp_blob_is_read_once_per_session_not_once_per_estimate()
     {
         var d = Dev(); await d.OpenAsync();

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Namager.App.Services;
@@ -460,18 +461,20 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             var mine = await EstimateLoadedAsync();
             var theirs = await EstimateSlotAsync(targetIndex);
 
-            double proposed = theirs.RelativeLufs + theirs.CurrentTrimDb - mine.RelativeLufs;
+            double proposed = theirs.Estimate.RelativeLufs + theirs.Estimate.CurrentTrimDb - mine.Estimate.RelativeLufs;
             double clamped = Math.Clamp(proposed, LevelField.Min, LevelField.Max);
             LevelField.Number = clamped;
 
             var notes = new List<string>();
             if (Math.Abs(clamped - proposed) > 1e-6)
                 notes.Add($"that's as far as it goes ({proposed:F1} dB needed)");
-            // The assumed amp-Volume taper cancels out of the difference when both presets share
-            // a `vol`, so it is only worth mentioning when they differ.
-            foreach (var f in mine.Unmodeled.Concat(theirs.Unmodeled).Distinct(StringComparer.Ordinal))
-                if (f != Sonulab.Distill.LevelModel.AmpVolFlag
-                    || mine.Unmodeled.Contains(f) != theirs.Unmodeled.Contains(f))
+            // The assumed amp-Volume taper cancels out of the difference ONLY when both presets
+            // sit at the same amp\vol — two different off-default values do NOT cancel, even
+            // though each one individually looks "off default" to the flag. So this compares the
+            // actual values, not whether each side happens to raise the flag.
+            bool ampVolCancels = Math.Abs(mine.AmpVolPercent - theirs.AmpVolPercent) <= 1e-9;
+            foreach (var f in mine.Estimate.Unmodeled.Concat(theirs.Estimate.Unmodeled).Distinct(StringComparer.Ordinal))
+                if (f != Sonulab.Distill.LevelModel.AmpVolFlag || !ampVolCancels)
                     notes.Add(f);
 
             _status.Success(notes.Count == 0
@@ -487,16 +490,23 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         }
     }
 
+    /// <summary>A <see cref="Sonulab.Distill.PresetLevelEstimate"/> plus the actual amp\vol PERCENT
+    /// it was computed from. Carried alongside the estimate — rather than re-derived from its
+    /// `Unmodeled` flags — so <see cref="MatchVolumeAsync"/> can tell whether the assumed taper
+    /// truly cancels between two presets (their values are equal) instead of guessing from
+    /// whether each one individually happens to differ from ITS OWN default.</summary>
+    private readonly record struct SideEstimate(Sonulab.Distill.PresetLevelEstimate Estimate, double AmpVolPercent);
+
     /// <summary>Estimate the preset currently in the editor, using the live field values rather
     /// than re-reading the slot — the editor already holds them, including unsaved edits, which
     /// is what the user is actually listening to.</summary>
-    private async Task<Sonulab.Distill.PresetLevelEstimate> EstimateLoadedAsync()
+    private async Task<SideEstimate> EstimateLoadedAsync()
     {
         var byPath = AllFields().ToDictionary(f => f.Path, f => f.ToJsonValue(), StringComparer.Ordinal);
         return await EstimateAsync(byPath);
     }
 
-    private async Task<Sonulab.Distill.PresetLevelEstimate> EstimateSlotAsync(int index)
+    private async Task<SideEstimate> EstimateSlotAsync(int index)
     {
         var doc = await _readPresetDoc!(index, CancellationToken.None);
         var byPath = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -506,8 +516,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     }
 
     /// <summary>Resolve the preset's named amp and IRs to slot blobs, then run the model.</summary>
-    private async Task<Sonulab.Distill.PresetLevelEstimate> EstimateAsync(
-        IReadOnlyDictionary<string, string> byPath)
+    private async Task<SideEstimate> EstimateAsync(IReadOnlyDictionary<string, string> byPath)
     {
         byte[] amp = await BlobForAsync(@"root\amp", byPath, Sonulab.Distill.LevelModel.AmpNamePath,
                                         _readAmpBlob!) ?? Array.Empty<byte>();
@@ -520,7 +529,15 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             .Where(f => f.Default is not null)
             .ToDictionary(f => f.Path, f => f.Default!.Value, StringComparer.Ordinal);
 
-        return Sonulab.Distill.LevelModel.Estimate(byPath, amp, ir1, ir2, defaults);
+        var estimate = Sonulab.Distill.LevelModel.Estimate(byPath, amp, ir1, ir2, defaults);
+
+        // Same fallback LevelModel.Estimate itself uses for a missing amp\vol node, so this can
+        // never disagree with what the model actually computed the estimate against.
+        double ampVolPercent = byPath.TryGetValue(Sonulab.Distill.LevelModel.AmpVolPath, out var raw)
+            && double.TryParse(raw.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var n)
+            ? n : Sonulab.Distill.LevelModel.AmpVolReferencePercent;
+
+        return new SideEstimate(estimate, ampVolPercent);
     }
 
     /// <summary>A preset names its amp/IR by NAME, so resolve the name against the device list to
