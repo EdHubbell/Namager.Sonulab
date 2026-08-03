@@ -72,6 +72,28 @@ public class SnapshotExportImportTests
         }
     }
 
+    /// <summary>Same identity as <see cref="IdentifyingEmptyDevice"/>, but the SECOND "read root\amp"
+    /// throws — not the first. A restore reads the amp list once during PlanAsync (which must
+    /// succeed so the test actually exercises ExecuteRestoreAsync's safety capture, not an earlier
+    /// PlanAsync failure) and once more inside the pre-restore safety capture that ExecuteRestoreAsync
+    /// runs when backupFirst is true — that second read is the fault this device targets.
+    ///
+    /// CommandLog records every command sent (FakePresetDevice itself has no such log) — the
+    /// restore safety-abort test below asserts no "dwrite" ever reaches the device.</summary>
+    private class FailingAmpListOnSecondReadDevice : IdentifyingEmptyDevice
+    {
+        public List<string> CommandLog { get; } = new();
+        private int _ampListReads;
+
+        public override Task<string> SendAsync(string command, CancellationToken ct = default)
+        {
+            CommandLog.Add(command);
+            if (command == @"read root\amp" && ++_ampListReads == 2)
+                throw new IOException("simulated amp-list read fault (2nd read)");
+            return base.SendAsync(command, ct);
+        }
+    }
+
     private static (ConnectionViewModel Vm, TDevice Dev) Connected<TDevice>(TDevice dev) where TDevice : ISonuLink
     {
         dev.OpenAsync().GetAwaiter().GetResult();
@@ -222,19 +244,23 @@ public class SnapshotExportImportTests
     [Fact]
     public async Task ExecuteRestoreAsync_aborts_before_writing_if_the_safety_backup_fails()
     {
-        // FailingAmpListDevice kills the amp-list read INSIDE the safety capture — restore must
-        // abort with the failure and never reach a device write.
-        var (connVm, dev) = Connected(new FailingAmpListDevice());
+        // FailingAmpListOnSecondReadDevice lets PlanAsync's amp-list read (the 1st) succeed, so
+        // PlanRestoreAsync returns a real plan — the fault only fires on the amp-list read INSIDE
+        // the safety capture (the 2nd). That is what makes this test non-vacuous: without the
+        // "2nd read only" gate, PlanRestoreAsync itself would throw and ExecuteRestoreAsync would
+        // never even be called. (Confirmed by tracing the old single-fault device: it threw
+        // straight out of PlanAsync's `read root\amp`, so the test's `catch (IOException) return`
+        // path fired every run and ExecuteRestoreAsync/CommandLog were never exercised.)
+        var (connVm, dev) = Connected(new FailingAmpListOnSecondReadDevice());
         var vm = new MainWindowViewModel(settingsPath: null, irIndexPath: TempJson()) { Connection = connVm };
         var snapPath = WriteSnapshotFile((SnapshotSlotKind.Ir, 0, "IrZero", FilledBlob(4096, 7)));
         try
         {
-            SnapshotRestorePlan plan;
-            try { plan = await vm.PlanRestoreAsync(snapPath); }
-            catch (IOException) { return; }   // if the plan itself trips the fault first, the guarantee holds trivially — but assert the write never happened below either way
+            var plan = await vm.PlanRestoreAsync(snapPath);   // must succeed — the fault is not yet tripped
+
             await Assert.ThrowsAnyAsync<Exception>(() => vm.ExecuteRestoreAsync(plan, backupFirst: true));
-            Assert.DoesNotContain(dev.CommandLog ?? Enumerable.Empty<string>(),
-                c => c.StartsWith("dwrite", StringComparison.Ordinal));
+
+            Assert.DoesNotContain(dev.CommandLog, c => c.StartsWith("dwrite", StringComparison.Ordinal));
         }
         finally { File.Delete(snapPath); }
     }

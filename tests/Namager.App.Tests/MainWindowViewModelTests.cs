@@ -319,4 +319,29 @@ public class MainWindowViewModelTests
         Assert.False(vm.FileOperationInFlight);
     }
 
+    // ---- FormatRestoreProgress: the pure function whose Clearing-branch off-by-one (missing the
+    // Math.Min clamp the other branches had) survived a whole review pass uncaught. ----
+
+    [Fact]
+    public void FormatRestoreProgress_clamps_the_count_when_Clearing_finishes_the_plan()
+    {
+        // A plan ending in a Clear is the common case under exact-mirror restore: without the
+        // Math.Min clamp this read "#31 of 30 total" on the last action.
+        var p = new SnapshotRestoreProgress(SnapshotSlotKind.Preset, RestoreSlotPhase.Clearing, Done: 30, Total: 30, SlotName: "Old Preset");
+        Assert.Equal("Clearing slot not in snapshot — #30 of 30 total", MainWindowViewModel.FormatRestoreProgress(p));
+    }
+
+    [Fact]
+    public void FormatRestoreProgress_clamps_the_count_when_Writing_finishes_the_plan()
+    {
+        var p = new SnapshotRestoreProgress(SnapshotSlotKind.Ir, RestoreSlotPhase.Writing, Done: 12, Total: 12, SlotName: "IrLast");
+        Assert.Equal("Restoring IR files to pedal first — #12 of 12 total files", MainWindowViewModel.FormatRestoreProgress(p));
+    }
+
+    [Fact]
+    public void FormatRestoreProgress_reports_the_slot_name_while_Comparing()
+    {
+        var p = new SnapshotRestoreProgress(SnapshotSlotKind.Amp, RestoreSlotPhase.Comparing, Done: 2, Total: 10, SlotName: "MyAmp");
+        Assert.Equal("Checking 'MyAmp' — #3 of 10 total files", MainWindowViewModel.FormatRestoreProgress(p));
+    }
 }

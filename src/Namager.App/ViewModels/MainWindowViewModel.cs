@@ -593,6 +593,8 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
         SnapshotRestorePlan plan, bool backupFirst,
         IProgress<SnapshotRestoreProgress>? progress = null, CancellationToken ct = default)
     {
+        if (Connection.Client is null)
+            throw new InvalidOperationException("Connect to the pedal first.");
         FileOperationInFlight = true;
         try
         {
@@ -601,6 +603,10 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]>? currentBlobs = null;
             if (backupFirst)
             {
+                // Documents\NAMager Backups may not exist yet on a fresh install — the default
+                // restore path (backupFirst: true) must be able to create its safety file rather
+                // than throw DirectoryNotFoundException before ever touching the pedal.
+                Directory.CreateDirectory(AppPaths.BackupRoot);
                 safetyPath = Path.Combine(AppPaths.BackupRoot,
                     $"pre-restore-{DateTime.Now:yyyyMMdd-HHmmss}.namsnap");
                 // A failed safety backup ABORTS the restore — the one thing this feature must
@@ -611,11 +617,24 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             }
 
             var result = await BuildRestoreService().ExecuteAsync(plan, currentBlobs,
-                new Progress<SnapshotRestoreProgress>(p => op.Report(FormatRestoreProgress(p))), ct);
+                new Progress<SnapshotRestoreProgress>(p =>
+                {
+                    op.Report(FormatRestoreProgress(p));
+                    progress?.Report(p);   // Task 6's dialog drives its own UI off the raw progress
+                }), ct);
 
-            // The pedal's content just changed wholesale under the usage map and the amp detail
-            // cache — invalidate so the background scan rebuilds from the restored truth.
+            // The pedal's content just changed wholesale, under the usage map AND under the
+            // Amps/IRs tabs' lazy-load latches (EnsureTabLoaded only reloads a tab on its FIRST
+            // visit after connect). Invalidate the usage map so the background scan rebuilds from
+            // the restored truth, and clear the latches so the next visit to Amps/IRs re-reads the
+            // device instead of showing pre-restore content — that revisit runs
+            // AmpListViewModel.RefreshCommand -> ReloadAsync, which also clears the amp-detail
+            // cache (Detail.ClearCache()), so no separate amp-detail invalidation is needed.
+            // Presets isn't lazy-loaded the same way, so refresh it directly here, same as
+            // RestorePresetsAsync does after its writes.
             _usageService?.Invalidate();
+            _ampsLoaded = _irsLoaded = false;
+            if (Presets is { } p) { try { await p.RefreshCommand.ExecuteAsync(null); } catch { /* list resync is best effort */ } }
 
             RecordRestoredIrIdentities(plan);
             Status.Success($"Restore complete — {result.Written} written, " +
@@ -627,7 +646,7 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
 
     internal static string FormatRestoreProgress(SnapshotRestoreProgress p) => p.Phase switch
     {
-        RestoreSlotPhase.Clearing => $"Clearing slot not in snapshot — #{p.Done + 1} of {p.Total} total",
+        RestoreSlotPhase.Clearing => $"Clearing slot not in snapshot — #{Math.Min(p.Done + 1, p.Total)} of {p.Total} total",
         RestoreSlotPhase.Comparing => $"Checking '{p.SlotName}' — #{p.Done + 1} of {p.Total} total files",
         _ => p.Stage switch
         {
