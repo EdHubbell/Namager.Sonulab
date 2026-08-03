@@ -219,6 +219,7 @@ public sealed class PresetUsageService : IPresetUsageService
     private async Task RunScanPassAsync(CancellationToken ct)
     {
         Dictionary<int, SlotUsage>? working = null;
+        Log.Info("usage scan pass starting (urgent={0})", _urgent);
         while (true)
         {
             int version; lock (_sync) version = _version;
@@ -230,6 +231,8 @@ public sealed class PresetUsageService : IPresetUsageService
             {
                 working = new Dictionary<int, SlotUsage>();
                 foreach (var row in LoadCacheRows(slots)) working[row.Index] = row;
+                Log.Info("usage cache warm start: {0} row(s) seeded (deviceId {1})",
+                         working.Count, _deviceId is null ? "MISSING — caching disabled" : "set");
                 if (working.Count > 0)
                 {
                     _current = PresetUsageMap.FromSlotUsages(working.Values);
@@ -266,6 +269,8 @@ public sealed class PresetUsageService : IPresetUsageService
             _current = PresetUsageMap.FromSlotUsages(working.Values);
             lock (_sync) { if (_version == version) _isComplete = true; else continue; }
             PersistCache();
+            Log.Info("usage scan complete: {0} slot row(s); cache persisted={1}",
+                     working.Count, _deviceId is not null);
             MapUpdated?.Invoke();
             return;
         }
