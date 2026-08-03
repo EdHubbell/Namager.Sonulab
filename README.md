@@ -58,7 +58,7 @@ OK, so there's a lot of green checks for both.
 
 ### Windows
 
-1. Grab the latest `.msi` from the [Releases page](https://github.com/EdHubbell/Namager.Sonulab/releases/latest).
+1. Download the latest `.msi` from [www.namager.app](https://www.namager.app).
 2. Run it. Windows SmartScreen will warn that the app is unrecognized (the installer is
    unsigned) — click **More info → Run anyway**. Installation is per-user: no admin rights
    needed, and .NET does not need to be installed.
