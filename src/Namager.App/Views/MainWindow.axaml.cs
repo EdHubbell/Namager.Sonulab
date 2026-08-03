@@ -127,7 +127,7 @@ public partial class MainWindow : Window
                 $"Restoring will make this pedal EXACTLY match the snapshot: " +
                 $"{plan.WriteCount} file{(plan.WriteCount == 1 ? "" : "s")} will be written and " +
                 $"{plan.ClearCount} slot{(plan.ClearCount == 1 ? "" : "s")} not in the snapshot will be cleared. " +
-                $"This takes roughly {(plan.WriteCount * 8 + 59) / 60 + 1} minutes; slots already " +
+                $"This takes roughly {((plan.WriteCount * 8 + plan.ClearCount * 3) + 59) / 60 + 1} minutes; slots already " +
                 "identical to the snapshot are skipped, so re-running after an interruption is fast." +
                 mismatch);
             if (!confirmed) return;

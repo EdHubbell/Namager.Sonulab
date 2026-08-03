@@ -525,12 +525,12 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
 
             await using (var file = File.Create(tempPath))
             {
-                // CancellationToken.None, deliberately: a full pedal is 30 presets + 30 amps +
+                // Token defaults to None for Export (full capture ~3 min with no cancel UI — status
+                // bar shows live progress instead); Restore passes its dialog's token so the user
+                // can cancel the pre-restore safety backup. Full pedal = 30 presets + 30 amps +
                 // 30 IRs = 5760 chunks at ~33 ms/chunk (SonuClient.DReadChunkRangeAsync) —
-                // roughly three minutes with no way to stop it. That is a known limitation of
-                // this release, not an oversight: adding a cancel button is scope growth here
-                // (see the fix-wave report), and the user isn't left blind while it runs —
-                // report below drives the status bar with live per-slot progress.
+                // roughly three minutes. That is a known limitation of this release, not an
+                // oversight: adding a cancel button is scope growth here (see the fix-wave report).
                 await svc.CaptureAsync(
                     file,
                     new SnapshotDevice("StompStation", Connection.FirmwareVersion ?? "unknown"),
