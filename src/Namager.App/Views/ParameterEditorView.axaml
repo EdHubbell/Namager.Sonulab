@@ -40,6 +40,11 @@
                               IsVisible="{Binding ShowEqIcon}"
                               Foreground="{Binding IsEqActive, Converter={x:Static conv:ActiveToBrush.Instance}}"
                               ToolTip.Tip="Equalizer is not flat"/>
+                    <PathIcon Data="{StaticResource Icon.VolumeHigh}" Width="14" Height="14"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding ShowLevelIcon}"
+                              Foreground="{Binding IsEqActive, Converter={x:Static conv:ActiveToBrush.Instance}}"
+                              ToolTip.Tip="This preset is trimmed away from 0 dB"/>
                     <TextBlock Text="{Binding Header}" VerticalAlignment="Center"/>
                   </StackPanel>
                 </Expander.Header>
@@ -97,6 +102,13 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
+                  <!-- Only the Level block explains itself: it is the one control whose PURPOSE
+                       is not obvious from its label, and it was invisible before this change. -->
+                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="4,2,4,4"
+                              IsVisible="{Binding ShowLevelIcon}">
+                    <TextBlock Classes="section-label" TextWrapping="Wrap" MaxWidth="300"
+                               Text="Trims this preset's output after every effect — use it to match loudness between presets. It doesn't change the tone."/>
+                  </StackPanel>
                   <ItemsControl ItemsSource="{Binding SubGroups}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:SubGroupViewModel">

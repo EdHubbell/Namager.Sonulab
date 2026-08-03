@@ -16,4 +16,8 @@
   <StreamGeometry x:Key="Icon.Equalizer">M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z</StreamGeometry>
   <!-- Material "settings_backup_restore": restore arc + centre dot. Reads as reset-to-default. -->
   <StreamGeometry x:Key="Icon.Reset">M14 12c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2zm-2-9c-4.97 0-9 4.03-9 9H0l4 4 4-4H5c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.51 0-2.91-.49-4.06-1.3l-1.42 1.44C8.04 20.3 9.94 21 12 21c4.97 0 9-4.03 9-9s-4.03-9-9-9z</StreamGeometry>
+  <StreamGeometry x:Key="Icon.VolumeHigh">M14,3.23V5.29C16.89,6.15 19,8.83 19,12C19,15.17 16.89,17.84 14,18.7V20.77C18,19.86 21,16.28 21,12C21,7.72 18,4.14 14,3.23M16.5,12C16.5,10.23 15.5,8.71 14,7.97V16C15.5,15.29 16.5,13.76 16.5,12M3,9V15H7L12,20V4L7,9H3Z</StreamGeometry>
+  <!-- Composed here rather than lifted from MDI: the speaker cone from volume-high plus an
+       equals sign, on the same 24x24 grid. Reads as "make these two the same volume". -->
+  <StreamGeometry x:Key="Icon.VolumeEqual">M3,9V15H7L12,20V4L7,9H3M14,10H21V12H14V10M14,13H21V15H14V13Z</StreamGeometry>
 </ResourceDictionary>
