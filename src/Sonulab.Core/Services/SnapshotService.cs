@@ -2,7 +2,10 @@ using Sonulab.Core.Model;
 
 namespace Sonulab.Core.Services;
 
-public sealed record SnapshotCaptureProgress(string Stage, int Done, int Total);
+/// <summary><see cref="Done"/> is a GLOBAL counter across all three stages (1..Total over the
+/// whole capture), not per-kind — the UI renders "file N of Total", so it must never reset when
+/// the stage changes.</summary>
+public sealed record SnapshotCaptureProgress(SnapshotSlotKind Stage, int Done, int Total);
 
 /// <summary>Reads every occupied slot off the pedal and writes a .namsnap.
 ///
@@ -31,7 +34,7 @@ public sealed class SnapshotService(DeviceRepository presets, AmpService amps, I
             blobs[(SnapshotSlotKind.Preset, p.Index)] = bytes;
             slots.Add(new SnapshotSlot(SnapshotSlotKind.Preset, p.Index, p.Name,
                                        SnapshotArchive.ShaOf(bytes), null));
-            progress?.Report(new SnapshotCaptureProgress("Presets", ++done, total));
+            progress?.Report(new SnapshotCaptureProgress(SnapshotSlotKind.Preset, ++done, total));
         }
 
         foreach (var a in ampList)
@@ -44,7 +47,7 @@ public sealed class SnapshotService(DeviceRepository presets, AmpService amps, I
             // slug parsing or a source-hash index. See docs/superpowers/sdd task-6 brief.
             slots.Add(new SnapshotSlot(SnapshotSlotKind.Amp, a.Index, a.Name,
                                        SnapshotArchive.ShaOf(bytes), null));
-            progress?.Report(new SnapshotCaptureProgress("Amps", ++done, total));
+            progress?.Report(new SnapshotCaptureProgress(SnapshotSlotKind.Amp, ++done, total));
         }
 
         foreach (var i in irList)
@@ -55,7 +58,7 @@ public sealed class SnapshotService(DeviceRepository presets, AmpService amps, I
             slots.Add(new SnapshotSlot(SnapshotSlotKind.Ir, i.Index, i.Name,
                                        SnapshotArchive.ShaOf(bytes),
                                        resolveIrIdentity?.Invoke(bytes)));
-            progress?.Report(new SnapshotCaptureProgress("IRs", ++done, total));
+            progress?.Report(new SnapshotCaptureProgress(SnapshotSlotKind.Ir, ++done, total));
         }
 
         var manifest = new SnapshotManifest(

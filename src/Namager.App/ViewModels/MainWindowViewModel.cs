@@ -513,8 +513,14 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
                         resolveIrIdentity: blob => index.Lookup(IrIndex.ShaOf(blob)) is { } e
                             ? new SnapshotT3k(e.ToneId, e.ModelId)
                             : null,
-                        progress: new Progress<SnapshotCaptureProgress>(
-                            p => op.Report($"{p.Stage} {p.Done}/{p.Total}")),
+                        // Done is the capture-wide file counter, so the message must say so —
+                        // "Presets 31/81" read as "preset 31 of 81 presets" when only 30 exist.
+                        progress: new Progress<SnapshotCaptureProgress>(p => op.Report(p.Stage switch
+                        {
+                            SnapshotSlotKind.Preset => $"Saving Preset files from pedal first — #{p.Done} of {p.Total} total files",
+                            SnapshotSlotKind.Amp => $"Saving Amp files from pedal next — #{p.Done} of {p.Total} total files",
+                            _ => $"Saving IR files from pedal last — #{p.Done} of {p.Total} total files",
+                        })),
                         ct: CancellationToken.None);
                 }
 

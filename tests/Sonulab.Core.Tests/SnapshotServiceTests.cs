@@ -127,6 +127,10 @@ public class SnapshotServiceTests
         Assert.NotEmpty(seen);
         Assert.Equal(seen.Count, seen.Last().Done);
         Assert.Equal(3, seen.Last().Total);
+        // Done is capture-wide (never resets per stage) and stages arrive typed, in capture order.
+        Assert.Equal(new[] { 1, 2, 3 }, seen.Select(p => p.Done));
+        Assert.Equal(new[] { SnapshotSlotKind.Preset, SnapshotSlotKind.Amp, SnapshotSlotKind.Ir },
+                     seen.Select(p => p.Stage));
     }
 }
 
