@@ -14,6 +14,18 @@ public partial class ParameterEditorView : UserControl
         DownloadButton.Click += async (_, _) => await DownloadAsync();
     }
 
+    private async void OnMatchVolumeClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is not ViewModels.ParameterEditorViewModel vm) return;
+        if (TopLevel.GetTopLevel(this) is not Window owner) return;
+        var presets = (owner.DataContext as ViewModels.MainWindowViewModel)?.Presets;
+        if (presets is null) return;
+        // async void event handler: nothing may escape to the UI thread. MatchVolumeAsync
+        // already catches its own failures; this guards the picker itself.
+        try { await vm.MatchVolumeAsync(() => MatchPresetDialog.ShowAsync(owner, presets.Items, vm.LoadedIndex)); }
+        catch (Exception ex) { vm.ErrorMessage = $"Match failed: {ex.Message}"; }
+    }
+
     /// <summary>Read the pedal's copy of the loaded preset and write it wherever the user says.
     /// The VM owns the device read and the error reporting; the view owns the dialogs.</summary>
     private async Task DownloadAsync()

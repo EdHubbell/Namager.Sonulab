@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Namager.App.Views.MatchPresetDialog"
+        Title="Match volume"
+        Width="420" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False" ShowInTaskbar="False"
+        Background="{DynamicResource Sonulab.SurfaceBrush}">
+  <StackPanel Margin="20" Spacing="16">
+    <TextBlock TextWrapping="Wrap"
+               Text="Which preset should this one match? Its Preset Level will be set so the two sound equally loud — nothing is written until you press Save."/>
+    <ComboBox x:Name="PresetCombo" HorizontalAlignment="Stretch"/>
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button Content="Cancel" Click="OnCancelClick"/>
+      <Button Classes="accent-outline" Content="Match" Click="OnConfirmClick"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

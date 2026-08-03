@@ -273,13 +273,18 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             // look. Only upload writes here now — delete archives nothing. See AppPaths.
             var slotBackups = Namager.App.Services.AppPaths.SlotBackups;
             // Built before the editor: the editor's amp-detail flyout (#9) reads metadata through
-            // the same service and the same region-read helper the Amps tab uses.
+            // the same service and the same region-read helper the Amps tab uses, and the
+            // volume-match command (#15) reads amp/IR blobs through these same two services.
             var ampService = new AmpService(_connection.Client!, slotBackups);
+            var irService = new IrService(_connection.Client!, slotBackups);
 
             var editor = new ParameterEditorViewModel(_connection.Client!, status: Status,
                 repo: _connection.Repository!, usage: usage, catalog: catalog,
                 readAmpMetadata: (i, ct) => AmpListViewModel.ReadMetadataAsync(ampService, i, ct),
-                navigator: this);
+                navigator: this,
+                readAmpBlob: (i, ct) => ampService.ReadAmpAsync(i, ct),
+                readIrBlob: async (i, ct) => await irService.ReadIrAsync(i, ct),
+                readPresetDoc: (i, ct) => _connection.Repository!.ReadPresetAsync(i, ct));
             // Selecting a preset activates + loads it into the editor (dedup is handled in LoadForAsync).
             presets.PropertyChanged += (_, e) =>
             {
@@ -293,7 +298,6 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             var amps = new AmpListViewModel(ampService, _connection.WritesAllowed, Status, usage: usage, catalog: catalog, navigator: this);
             Amps = amps;
 
-            var irService = new IrService(_connection.Client!, slotBackups);
             var irs = new IrListViewModel(irService, _connection.WritesAllowed, Status, usage: usage,
                 catalog: catalog, irIndexPath: _irIndexPath);
             Irs = irs;

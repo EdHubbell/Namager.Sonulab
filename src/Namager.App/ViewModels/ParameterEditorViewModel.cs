@@ -27,6 +27,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     private readonly IPresetUsageService _usage;
     private readonly CatalogVersion _catalog;
     private int _optionsVersion = -1;
+    private readonly Func<int, CancellationToken, Task<byte[]>>? _readAmpBlob;
+    private readonly Func<int, CancellationToken, Task<byte[]?>>? _readIrBlob;
+    private readonly Func<int, CancellationToken, Task<Sonulab.Core.Model.PresetDocument>>? _readPresetDoc;
 
     public ParameterEditorViewModel(SonuClient client, LabelService? labels = null,
                                      ParameterExposure? exposure = null,
@@ -36,6 +39,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                                      CatalogVersion? catalog = null,
                                      Func<int, System.Threading.CancellationToken,
                                           Task<Sonulab.Distill.AmpMetadata?>>? readAmpMetadata = null,
+                                     Func<int, CancellationToken, Task<byte[]>>? readAmpBlob = null,
+                                     Func<int, CancellationToken, Task<byte[]?>>? readIrBlob = null,
+                                     Func<int, CancellationToken, Task<Sonulab.Core.Model.PresetDocument>>? readPresetDoc = null,
                                      IPresetNavigator? navigator = null)
     {
         _client = client;
@@ -45,6 +51,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         _repo = repo;
         _usage = usage ?? NullPresetUsageService.Instance;
         _catalog = catalog ?? new CatalogVersion();
+        _readAmpBlob = readAmpBlob;
+        _readIrBlob = readIrBlob;
+        _readPresetDoc = readPresetDoc;
         AmpDetail = new AmpDetailViewModel(
             readAmpMetadata ?? ((_, _) => Task.FromResult<Sonulab.Distill.AmpMetadata?>(null)),
             _usage, navigator);
@@ -96,9 +105,22 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     /// <summary>A preset is loaded and a repository is available, so its bytes can be read.</summary>
     public bool CanDownload => _repo is not null && LoadedIndex >= 0 && !IsLoading;
 
-    // CanDownload depends on IsLoading, so every IsLoading transition must re-notify it —
-    // not just the ones the load path happens to pass through.
-    partial void OnIsLoadingChanged(bool value) => OnPropertyChanged(nameof(CanDownload));
+    /// <summary>The Preset Level field, or null when the firmware has no such node.</summary>
+    public ParameterFieldViewModel? LevelField { get; private set; }
+
+    /// <summary>Volume matching needs to read another preset and its amp model, so it is only
+    /// offered when the app supplied those readers (the real app always does; unit tests that
+    /// only exercise the editor do not).</summary>
+    public bool CanMatchVolume =>
+        _readAmpBlob is not null && _readPresetDoc is not null && LevelField is not null && !IsLoading;
+
+    // CanDownload/CanMatchVolume depend on IsLoading, so every IsLoading transition must
+    // re-notify them — not just the ones the load path happens to pass through.
+    partial void OnIsLoadingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanDownload));
+        OnPropertyChanged(nameof(CanMatchVolume));
+    }
 
     /// <summary>Default file name offered by the download picker — the same "NN - Name.pst" form
     /// BackupService writes, so downloads drop straight into a backup folder.</summary>
@@ -115,6 +137,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     private async Task LoadCoreAsync()
     {
         Blocks.Clear();
+        LevelField = null;   // never leave a stale reference across a reload
         var records = await _client.BrowseRecordsAsync(@"root\app");
 
         // Capture BEFORE the reads: a bump that lands mid-load must not be swallowed.
@@ -154,6 +177,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                 ShowReset = true,
             };
             WireDirtyTracking(levelField);
+            LevelField = levelField;
             levelSection.Fields.Add(levelField);
             // Expanded by default — unlike every other block. This is the headline control and
             // was invisible before; a collapsed default would leave it just as hard to find.
@@ -218,6 +242,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             }
         }
         IsDirty = false;
+        OnPropertyChanged(nameof(CanMatchVolume));   // LevelField may have just been set or cleared
     }
 
     /// <summary>Subscribe a field so a genuine VALUE edit dirties the preset. Only a VALUE edit
@@ -327,6 +352,10 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         int version = _catalog.Version;
         if (version == _optionsVersion || Blocks.Count == 0) return;
 
+        // The device catalog moved (amp/IR added, deleted, or re-uploaded) — a cached blob from
+        // MatchVolumeAsync could otherwise go on serving stale content under a reused name.
+        _blobCache.Clear();
+
         var sources = AllFields().Select(f => f.RefSource)
                                  .Where(s => s is { Length: > 0 })
                                  .Distinct(StringComparer.Ordinal)
@@ -409,6 +438,125 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             _status.Failure($"Save failed: {ex.Message}");
         }
     }
+
+    /// <summary>Propose a Preset Level that makes THIS preset as loud as another one.
+    ///
+    /// Sets the slider and leaves it dirty rather than writing: the user reviews the number and
+    /// presses Save, exactly like every other parameter in this panel. The estimate is offline
+    /// (see Sonulab.Distill.LevelModel) — its amp-model term is exact, and everything it cannot
+    /// derive is reported to the user rather than silently folded in.</summary>
+    [RelayCommand]
+    public async Task MatchVolumeAsync(Func<Task<int?>> pickTarget)
+    {
+        if (LevelField is null || _readAmpBlob is null || _readPresetDoc is null) return;
+
+        int? target = await pickTarget();
+        if (target is not { } targetIndex) return;
+
+        ErrorMessage = null;
+        using var op = _status.BeginOperation("Matching volume…");
+        try
+        {
+            var mine = await EstimateLoadedAsync();
+            var theirs = await EstimateSlotAsync(targetIndex);
+
+            double proposed = theirs.RelativeLufs + theirs.CurrentTrimDb - mine.RelativeLufs;
+            double clamped = Math.Clamp(proposed, LevelField.Min, LevelField.Max);
+            LevelField.Number = clamped;
+
+            var notes = new List<string>();
+            if (Math.Abs(clamped - proposed) > 1e-6)
+                notes.Add($"that's as far as it goes ({proposed:F1} dB needed)");
+            // The assumed amp-Volume taper cancels out of the difference when both presets share
+            // a `vol`, so it is only worth mentioning when they differ.
+            foreach (var f in mine.Unmodeled.Concat(theirs.Unmodeled).Distinct(StringComparer.Ordinal))
+                if (f != Sonulab.Distill.LevelModel.AmpVolFlag
+                    || mine.Unmodeled.Contains(f) != theirs.Unmodeled.Contains(f))
+                    notes.Add(f);
+
+            _status.Success(notes.Count == 0
+                ? $"Preset Level set to {clamped:F1} dB — Save to apply"
+                : $"Preset Level set to {clamped:F1} dB — Save to apply. Check by ear: {string.Join("; ", notes)}");
+        }
+        catch (Exception ex)
+        {
+            // [RelayCommand] async: an escape here is an unhandled UI-thread rethrow.
+            Log.Warn(ex, "volume match against slot {0} failed", targetIndex);
+            ErrorMessage = $"Match failed: {ex.Message}";
+            _status.Failure($"Match failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Estimate the preset currently in the editor, using the live field values rather
+    /// than re-reading the slot — the editor already holds them, including unsaved edits, which
+    /// is what the user is actually listening to.</summary>
+    private async Task<Sonulab.Distill.PresetLevelEstimate> EstimateLoadedAsync()
+    {
+        var byPath = AllFields().ToDictionary(f => f.Path, f => f.ToJsonValue(), StringComparer.Ordinal);
+        return await EstimateAsync(byPath);
+    }
+
+    private async Task<Sonulab.Distill.PresetLevelEstimate> EstimateSlotAsync(int index)
+    {
+        var doc = await _readPresetDoc!(index, CancellationToken.None);
+        var byPath = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var p in Sonulab.Distill.LevelModel.InputPaths)
+            if (doc.GetValueJson(p) is { } v) byPath[p] = v;
+        return await EstimateAsync(byPath);
+    }
+
+    /// <summary>Resolve the preset's named amp and IRs to slot blobs, then run the model.</summary>
+    private async Task<Sonulab.Distill.PresetLevelEstimate> EstimateAsync(
+        IReadOnlyDictionary<string, string> byPath)
+    {
+        byte[] amp = await BlobForAsync(@"root\amp", byPath, Sonulab.Distill.LevelModel.AmpNamePath,
+                                        _readAmpBlob!) ?? Array.Empty<byte>();
+        byte[]? ir1 = await BlobForAsync(@"root\ir", byPath, Sonulab.Distill.LevelModel.IrNamePath,
+                                         async (i, ct) => await _readIrBlob!(i, ct) ?? Array.Empty<byte>());
+        byte[]? ir2 = await BlobForAsync(@"root\ir", byPath, Sonulab.Distill.LevelModel.Ir2NamePath,
+                                         async (i, ct) => await _readIrBlob!(i, ct) ?? Array.Empty<byte>());
+
+        var defaults = AllFields()
+            .Where(f => f.Default is not null)
+            .ToDictionary(f => f.Path, f => f.Default!.Value, StringComparer.Ordinal);
+
+        return Sonulab.Distill.LevelModel.Estimate(byPath, amp, ir1, ir2, defaults);
+    }
+
+    /// <summary>A preset names its amp/IR by NAME, so resolve the name against the device list to
+    /// get a slot, then read that slot's blob. Returns null when the preset names nothing, the
+    /// name is not on the device (an orphaned reference), or no reader was supplied — the model
+    /// flags those cases rather than failing.
+    ///
+    /// Blobs are memoized per view-model instance: a 96-chunk amp read is ~3 s, and both sides of
+    /// a comparison usually name the same amp. NOT persisted across sessions — the model needs the
+    /// blob itself, so a cached scalar could not short-circuit it (see the spec correction above).
+    /// </summary>
+    private readonly Dictionary<string, byte[]> _blobCache = new(StringComparer.Ordinal);
+
+    private async Task<byte[]?> BlobForAsync(string listPath,
+        IReadOnlyDictionary<string, string> byPath, string namePath,
+        Func<int, CancellationToken, Task<byte[]>>? read)
+    {
+        if (read is null) return null;
+        string name = Unquote(byPath.GetValueOrDefault(namePath, ""));
+        if (name.Length == 0) return null;
+
+        string key = listPath + "|" + name;
+        if (_blobCache.TryGetValue(key, out var cached)) return cached;
+
+        var names = await _client.ReadListAsync(listPath);
+        int slot = -1;
+        for (int i = 0; i < names.Count; i++)
+            if (string.Equals(names[i], name, StringComparison.Ordinal)) { slot = i; break; }
+        if (slot < 0) return null;
+
+        var blob = await read(slot, CancellationToken.None);
+        _blobCache[key] = blob;
+        return blob;
+    }
+
+    private static string Unquote(string json) => json.Trim().Trim('"');
 
     private IEnumerable<ParameterFieldViewModel> AllFields() =>
         Blocks.SelectMany(b => b.Fields.Concat(b.SubGroups.SelectMany(s => s.Fields)));

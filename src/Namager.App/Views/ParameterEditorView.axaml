@@ -108,6 +108,12 @@
                               IsVisible="{Binding ShowLevelIcon}">
                     <TextBlock Classes="section-label" TextWrapping="Wrap" MaxWidth="300"
                                Text="Trims this preset's output after every effect — use it to match loudness between presets. It doesn't change the tone."/>
+                    <Button Width="26" Height="26" Padding="0" VerticalAlignment="Center"
+                            IsEnabled="{Binding $parent[views:ParameterEditorView].((vm:ParameterEditorViewModel)DataContext).CanMatchVolume}"
+                            Click="OnMatchVolumeClick"
+                            ToolTip.Tip="Match this preset's volume to another preset">
+                      <PathIcon Data="{StaticResource Icon.VolumeEqual}" Width="14" Height="14"/>
+                    </Button>
                   </StackPanel>
                   <ItemsControl ItemsSource="{Binding SubGroups}">
                     <ItemsControl.ItemTemplate>
