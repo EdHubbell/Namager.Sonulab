@@ -302,4 +302,172 @@ public class PresetUsageServiceTests
             return _inner.SendAsync(command, ct);
         }
     }
+
+    // ---- warm start from the disk cache ----
+
+    private const string IrNode = @"root\app\ir\ir:{{""value"":""{0}""}}";
+    private static string Ir(string name) => string.Format(IrNode, name);
+
+    /// <summary>Make() variant with cache seams. Seeds the same two presets as Make().</summary>
+    private static (PresetUsageService svc, FakePresetDevice dev, CountingLink link) MakeCached(
+        string? deviceId, string cachePath)
+    {
+        var dev = new FakePresetDevice();
+        dev.SeedSlot(0, "Lead", new[] { Amp("Plexi") });
+        dev.SeedSlot(1, "Rhythm", new[] { Amp("Plexi") });
+        dev.OpenAsync().GetAwaiter().GetResult();
+        var link = new CountingLink(dev);
+        var repo = new DeviceRepository(new SonuClient(link, backgroundQuietMs: 0));
+        return (new PresetUsageService(repo, deviceId, cachePath), dev, link);
+    }
+
+    private static string TempCachePath() =>
+        Path.Combine(Path.GetTempPath(), $"nmgr-usage-svc-{Guid.NewGuid():N}.json");
+
+    private static void SeedCache(string path, string deviceId, params SlotUsage[] slots) =>
+        PresetUsageCache.Load(path).WithDevice(deviceId, slots).Save(path);
+
+    [Fact]
+    public async Task Warm_start_publishes_cached_map_at_zero_dreads()
+    {
+        var path = TempCachePath();
+        try
+        {
+            SeedCache(path, "dev-1",
+                new SlotUsage(0, "Lead", "Plexi", Array.Empty<string>()),
+                new SlotUsage(1, "Rhythm", "Plexi", Array.Empty<string>()));
+            var (svc, _, link) = MakeCached("dev-1", path);
+
+            var snapshots = new List<(int Dreads, PresetUsageMap Map, bool Complete)>();
+            svc.MapUpdated += () => { lock (snapshots) snapshots.Add((link.Dreads, svc.Current, svc.IsComplete)); };
+            await svc.EnsureCompleteAsync();
+
+            (int Dreads, PresetUsageMap Map, bool Complete) first;
+            lock (snapshots) first = snapshots[0];
+            Assert.Equal(0, first.Dreads);                       // provisional publish cost no dreads
+            Assert.Equal(2, first.Map.PresetsUsingAmp("Plexi").Count);
+            Assert.False(first.Complete);                        // cached data never completes
+            Assert.True(svc.IsComplete);                         // ...but the real scan does
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Cached_slot_with_mismatched_name_is_dropped_from_the_provisional_map()
+    {
+        var path = TempCachePath();
+        try
+        {
+            SeedCache(path, "dev-1",
+                new SlotUsage(0, "Lead", "Plexi", Array.Empty<string>()),
+                new SlotUsage(1, "RENAMED-OUTSIDE", "Ghost", Array.Empty<string>()));
+            var (svc, _, link) = MakeCached("dev-1", path);
+
+            var firstMaps = new List<(int Dreads, PresetUsageMap Map)>();
+            svc.MapUpdated += () => { lock (firstMaps) firstMaps.Add((link.Dreads, svc.Current)); };
+            await svc.EnsureCompleteAsync();
+
+            (int Dreads, PresetUsageMap Map) first;
+            lock (firstMaps) first = firstMaps[0];
+            Assert.Equal(0, first.Dreads);
+            Assert.Empty(first.Map.PresetsUsingAmp("Ghost"));    // stale row dropped by name mismatch
+            Assert.Single(first.Map.PresetsUsingAmp("Plexi"));   // matching row kept
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Cache_for_a_different_device_is_ignored()
+    {
+        var path = TempCachePath();
+        try
+        {
+            SeedCache(path, "other-pedal", new SlotUsage(0, "Lead", "Plexi", Array.Empty<string>()));
+            var (svc, _, link) = MakeCached("dev-1", path);
+
+            var snapshots = new List<int>();
+            svc.MapUpdated += () => { lock (snapshots) snapshots.Add(link.Dreads); };
+            await svc.EnsureCompleteAsync();
+
+            int firstDreads; lock (snapshots) firstDreads = snapshots[0];
+            Assert.True(firstDreads > 0, "no zero-dread provisional publish for a foreign device");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Scan_corrects_a_lying_cache_and_persists_the_truth()
+    {
+        var path = TempCachePath();
+        try
+        {
+            SeedCache(path, "dev-1", new SlotUsage(0, "Lead", "WrongAmp", Array.Empty<string>()));
+            var (svc, _, _) = MakeCached("dev-1", path);
+
+            var map = await svc.EnsureCompleteAsync();
+            Assert.Empty(map.PresetsUsingAmp("WrongAmp"));
+            Assert.Equal(2, map.PresetsUsingAmp("Plexi").Count);
+
+            var persisted = PresetUsageCache.Load(path).SlotsFor("dev-1");
+            Assert.DoesNotContain(persisted, s => s.Amp == "WrongAmp");
+            Assert.Equal(2, persisted.Count(s => s.Amp == "Plexi"));   // completion persisted truth
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Provisional_entries_survive_progressive_publishes()
+    {
+        var path = TempCachePath();
+        try
+        {
+            // Cache knows slot 1; the scan reads slot 0 first. The slot-0 publish must not
+            // flash slot 1's provisional highlight off.
+            SeedCache(path, "dev-1", new SlotUsage(1, "Rhythm", "Plexi", Array.Empty<string>()));
+            var (svc, _, _) = MakeCached("dev-1", path);
+
+            var everyMapHadSlot1 = true;
+            svc.MapUpdated += () =>
+            {
+                if (!svc.Current.PresetsUsingAmp("Plexi").Any(r => r.Index == 1))
+                    everyMapHadSlot1 = false;
+            };
+            await svc.EnsureCompleteAsync();
+            Assert.True(everyMapHadSlot1, "a progressive publish dropped the provisional slot-1 entry");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task No_deviceId_means_no_cache_reads_or_writes()
+    {
+        var path = TempCachePath();
+        try
+        {
+            var (svc, _, _) = MakeCached(deviceId: null, path);
+            await svc.EnsureCompleteAsync();
+            Assert.False(File.Exists(path), "cacheless service must not write the cache file");
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Targeted_notify_on_a_complete_map_updates_the_persisted_cache()
+    {
+        var path = TempCachePath();
+        try
+        {
+            var dev = new FakePresetDevice();
+            dev.SeedSlot(0, "Lead", new[] { Amp("Plexi") });
+            await dev.OpenAsync();
+            var repo = new DeviceRepository(new SonuClient(dev, backgroundQuietMs: 0));
+            var svc = new PresetUsageService(repo, "dev-1", path);
+            await svc.EnsureCompleteAsync();
+
+            svc.NotifyPresetRenamed(0, "Lead V2");
+            var persisted = PresetUsageCache.Load(path).SlotsFor("dev-1");
+            Assert.Equal("Lead V2", Assert.Single(persisted).PresetName);
+        }
+        finally { File.Delete(path); }
+    }
 }

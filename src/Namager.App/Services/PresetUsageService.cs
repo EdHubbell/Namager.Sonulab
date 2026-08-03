@@ -71,8 +71,21 @@ public sealed class PresetUsageService : IPresetUsageService
     private volatile bool _urgent;         // EnsureCompleteAsync: use the foreground lane
     private volatile PresetUsageMap _current = PresetUsageMap.Empty;
     private volatile bool _isComplete;
+    private readonly string? _deviceId;
+    private readonly string? _cachePath;      // null = PresetUsageCache.DefaultPath
+    private readonly object _saveLock = new();
+    private bool _cacheSeedConsumed;          // the disk cache is read at most once per service
 
-    public PresetUsageService(DeviceRepository repo) => _repo = repo;
+    /// <summary>Cache seams: <paramref name="deviceId"/> (root\sys\_id) keys the per-device disk
+    /// cache; blank/null disables ALL cache behavior (reads and writes) — existing callers and
+    /// tests construct with repo only and see the old behavior exactly. <paramref name="usageCachePath"/>
+    /// overrides the cache file location (tests; null = the real %APPDATA% file).</summary>
+    public PresetUsageService(DeviceRepository repo, string? deviceId = null, string? usageCachePath = null)
+    {
+        _repo = repo;
+        _deviceId = string.IsNullOrWhiteSpace(deviceId) ? null : deviceId;
+        _cachePath = usageCachePath;
+    }
 
     public PresetUsageMap Current => _current;
     public bool IsComplete => _isComplete;
@@ -147,9 +160,12 @@ public sealed class PresetUsageService : IPresetUsageService
     // Transform Current in place and notify. IsComplete is intentionally UNTOUCHED: if the map was
     // complete it stays complete (targeted maintenance); if a rescan is mid-flight it stays
     // incomplete and that scan re-derives the truth. Safe to call from the UI thread post-mutation.
+    // Persisting a partial map would overwrite a previously complete cache with less data, so the
+    // cache is only refreshed here when the map is already complete.
     private void Apply(Func<PresetUsageMap, PresetUsageMap> transform)
     {
         _current = transform(_current);
+        if (_isComplete) PersistCache();
         MapUpdated?.Invoke();
     }
 
@@ -191,16 +207,43 @@ public sealed class PresetUsageService : IPresetUsageService
 
     /// <summary>One scan pass: list the occupied slots, then head-read each one, restarting from
     /// the top whenever Invalidate() bumps the version mid-pass. Exceptions propagate to the
-    /// caller's retry loop; this method makes no attempt to swallow them.</summary>
+    /// caller's retry loop; this method makes no attempt to swallow them.
+    ///
+    /// The pass accumulates per-slot rows in <c>working</c>. On the first list read the disk
+    /// cache seeds provisional rows (slot+name must match the live list) and publishes them
+    /// immediately — the warm start: highlights at zero dreads. Fresh head reads then OVERWRITE
+    /// rows slot-by-slot; a version-restart re-filters existing rows against the fresh list
+    /// instead of starting empty (no highlight flash). _isComplete is only set after every
+    /// occupied slot was freshly read in a stable-version pass, so no provisional row can
+    /// survive into a complete map — cached data never satisfies the guards.</summary>
     private async Task RunScanPassAsync(CancellationToken ct)
     {
+        Dictionary<int, SlotUsage>? working = null;
         while (true)
         {
             int version; lock (_sync) version = _version;
             var slots = _urgent
                 ? await _repo.ListPresetsAsync(ct)
                 : await _repo.ListPresetsBackgroundAsync(ct);
-            var resolved = new List<(int, string, Sonulab.Core.Model.PresetDocument)>();
+
+            if (working is null)
+            {
+                working = new Dictionary<int, SlotUsage>();
+                foreach (var row in LoadCacheRows(slots)) working[row.Index] = row;
+                if (working.Count > 0)
+                {
+                    _current = PresetUsageMap.FromSlotUsages(working.Values);
+                    MapUpdated?.Invoke();          // the warm start — zero dreads so far
+                }
+            }
+            else
+            {
+                // Restart: keep rows still consistent with the fresh list, drop the rest.
+                working = working.Values
+                    .Where(r => Matches(slots, r))
+                    .ToDictionary(r => r.Index);
+            }
+
             bool restart = false;
             foreach (var s in slots)
             {
@@ -209,15 +252,45 @@ public sealed class PresetUsageService : IPresetUsageService
                 lock (_sync) { if (_version != version) { restart = true; } }
                 if (restart) break;
                 var doc = await _repo.ReadPresetHeadAsync(s.Index, background: !_urgent, ct);
-                resolved.Add((s.Index, s.Name, doc));
-                _current = PresetUsageMap.Build(resolved);
+                working[s.Index] = PresetUsageMap.ExtractSlotUsage(s.Index, s.Name, doc);
+                _current = PresetUsageMap.FromSlotUsages(working.Values);
                 MapUpdated?.Invoke();
             }
             if (restart) continue;                       // stale version: rescan from the top
             lock (_sync) { if (_version == version) _isComplete = true; else continue; }
+            PersistCache();
             MapUpdated?.Invoke();
             return;
         }
+    }
+
+    /// <summary>The disk-cache rows valid for the CURRENT slot list: same device, slot still
+    /// occupied by a preset of the same name. Read at most once per service instance — a retry
+    /// or restart must not resurrect rows the scan already corrected.</summary>
+    private IReadOnlyList<SlotUsage> LoadCacheRows(IReadOnlyList<PresetSlot> slots)
+    {
+        if (_deviceId is null || _cacheSeedConsumed) return Array.Empty<SlotUsage>();
+        _cacheSeedConsumed = true;
+        return PresetUsageCache.Load(_cachePath).SlotsFor(_deviceId)
+            .Where(r => Matches(slots, r))
+            .ToList();
+    }
+
+    private static bool Matches(IReadOnlyList<PresetSlot> slots, SlotUsage row) =>
+        row.Index >= 0 && row.Index < slots.Count &&
+        !slots[row.Index].IsEmpty &&
+        string.Equals(slots[row.Index].Name, row.PresetName, StringComparison.Ordinal);
+
+    /// <summary>Write Current's rows under this device id. Read-modify-write so other devices'
+    /// entries survive; the lock serializes the scan-completion thread against UI-thread Apply
+    /// saves. No-op when caching is disabled.</summary>
+    private void PersistCache()
+    {
+        if (_deviceId is null) return;
+        lock (_saveLock)
+            PresetUsageCache.Load(_cachePath)
+                .WithDevice(_deviceId, _current.ToSlotUsages())
+                .Save(_cachePath);
     }
 }
 

@@ -27,6 +27,41 @@ public class UsageScanEndToEndTests
         Assert.InRange(counter.Dreads, 1, DeviceRepository.HeadChunkCap);
     }
 
+    [Fact]
+    public async Task Warm_start_over_a_real_document_costs_zero_dreads_then_verifies_within_budget()
+    {
+        var blob = File.ReadAllBytes(Path.Combine("Fixtures", "QuadReverbSM57.pst"));
+        var cachePath = Path.Combine(Path.GetTempPath(), $"nmgr-e2e-{Guid.NewGuid():N}.json");
+        try
+        {
+            // First connection: scan to completion, which persists the cache.
+            var dev1 = new FakePresetDevice();
+            dev1.SeedSlot(0, "Quad Reverb SM57", PresetDocument.Parse(blob).Lines);
+            await dev1.OpenAsync();
+            var svc1 = new PresetUsageService(
+                new DeviceRepository(new SonuClient(dev1, backgroundQuietMs: 0)), "dev-1", cachePath);
+            await svc1.EnsureCompleteAsync();
+
+            // Simulated reconnect: fresh device, fresh counting link, same cache.
+            var dev2 = new FakePresetDevice();
+            dev2.SeedSlot(0, "Quad Reverb SM57", PresetDocument.Parse(blob).Lines);
+            await dev2.OpenAsync();
+            var counter = new CountingLink(dev2);
+            var svc2 = new PresetUsageService(
+                new DeviceRepository(new SonuClient(counter, backgroundQuietMs: 0)), "dev-1", cachePath);
+
+            (int Dreads, bool HasAmp)? first = null;
+            svc2.MapUpdated += () => first ??= (counter.Dreads,
+                svc2.Current.PresetsUsingAmp("Quad Reverb Randall Head SM57").Count == 1);
+            await svc2.EnsureCompleteAsync();
+
+            Assert.Equal(0, first!.Value.Dreads);
+            Assert.True(first.Value.HasAmp);
+            Assert.InRange(counter.Dreads, 1, DeviceRepository.HeadChunkCap);
+        }
+        finally { File.Delete(cachePath); }
+    }
+
     private sealed class CountingLink : Sonulab.Core.Transport.ISonuLink
     {
         private readonly Sonulab.Core.Transport.ISonuLink _inner;
