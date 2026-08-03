@@ -112,11 +112,15 @@ public partial class MainWindow : Window
             if (files.Count != 1 || files[0].TryGetLocalPath() is not { } path) return;
 
             var manifest = await vm.ImportSnapshotAsync(path);
+            int presetCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Preset);
+            int ampCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Amp);
             int irCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Ir);
             await ConfirmDialog.ShowAsync(this, "Snapshot imported",
                 $"Read a snapshot of a {manifest.Device.Model} (firmware {manifest.Device.Fw}), " +
-                $"captured {manifest.CreatedUtc}: {manifest.Slots.Count} slot{(manifest.Slots.Count == 1 ? "" : "s")}" +
-                $" ({irCount} IR{(irCount == 1 ? "" : "s")}).\n\n" +
+                $"captured {manifest.CreatedUtc}: {manifest.Slots.Count} file{(manifest.Slots.Count == 1 ? "" : "s")} total — " +
+                $"{presetCount} Preset{(presetCount == 1 ? "" : "s")}, " +
+                $"{ampCount} Amp{(ampCount == 1 ? "" : "s")}, " +
+                $"{irCount} IR{(irCount == 1 ? "" : "s")}.\n\n" +
                 "This only reads and validates the file — nothing was written to the pedal.",
                 confirmText: null, cancelText: "Close");
         }

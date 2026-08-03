@@ -569,7 +569,15 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
         }
         index.Save(_irIndexPath);
 
-        Status.Success($"Read snapshot from {manifest.CreatedUtc} — learned {learned} IR identit{(learned == 1 ? "y" : "ies")}");
+        // Same per-kind vocabulary as the export progress line. Import is a local file read
+        // (nothing is written to the pedal), so it finishes too fast for per-file progress —
+        // the breakdown lands in this one summary instead.
+        int presets = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Preset);
+        int ampCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Amp);
+        int irCount = manifest.Slots.Count(s => s.Kind == SnapshotSlotKind.Ir);
+        Status.Success(
+            $"Read {manifest.Slots.Count} files from snapshot ({presets} Presets, {ampCount} Amps, {irCount} IRs) — " +
+            $"learned {learned} IR identit{(learned == 1 ? "y" : "ies")}");
         return manifest;
     }
 }
