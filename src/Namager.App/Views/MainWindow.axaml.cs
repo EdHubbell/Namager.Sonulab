@@ -44,6 +44,7 @@ public partial class MainWindow : Window
         RestoreMenuItem.Click += async (_, _) => await RestoreAsync();
         RestorePresetMenuItem.Click += async (_, _) => await RestoreSinglePresetAsync();
         ExportSnapshotMenuItem.Click += async (_, _) => await ExportSnapshotFlowAsync();
+        RestoreSnapshotMenuItem.Click += async (_, _) => await RestoreSnapshotFlowAsync();
     }
 
     /// <summary>The single .namsnap file type offered by both the save and open pickers below.</summary>
@@ -74,6 +75,12 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel vm) return;
         try
         {
+            var proceed = await ConfirmDialog.ShowAsync(this, "Export Snapshot",
+                "Exports all the presets, amps and IR files so you can restore them to this pedal " +
+                "or another pedal at a later date.\n\nReading the pedal takes about 3 minutes.",
+                confirmText: "Continue", cancelText: "Cancel");
+            if (!proceed) return;
+
             var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
                 Title = "Export Snapshot",
@@ -89,6 +96,82 @@ public partial class MainWindow : Window
         {
             // async void-style handler: never let this escape onto the UI thread.
             vm.Status.Failure($"Export failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>File ▸ Restore Snapshot… — pick a .namsnap, plan it against the connected pedal,
+    /// get explicit consent (with the safety-backup checkbox), then execute with a cancelable
+    /// progress dialog. Restore is the app's most destructive operation: the consent dialog is
+    /// the device-write gate, and every overwritten/cleared slot is archived first (safety
+    /// snapshot and/or per-slot -prerestore files).</summary>
+    private async System.Threading.Tasks.Task RestoreSnapshotFlowAsync()
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Restore Snapshot",
+                AllowMultiple = false,
+                FileTypeFilter = new[] { NamsnapFileType },
+            });
+            if (files.Count != 1 || files[0].TryGetLocalPath() is not { } path) return;
+
+            var plan = await vm.PlanRestoreAsync(path);
+            var m = plan.Manifest;
+            var mismatch = vm.Connection.FirmwareVersion is { } fw && fw != m.Device.Fw
+                ? $"\n\nNOTE: the snapshot was taken on firmware {m.Device.Fw}; this pedal runs {fw}."
+                : "";
+            var (confirmed, backupFirst) = await RestoreConfirmDialog.ShowAsync(this,
+                $"Snapshot of a {m.Device.Model} (firmware {m.Device.Fw}), captured {m.CreatedUtc}.\n\n" +
+                $"Restoring will make this pedal EXACTLY match the snapshot: " +
+                $"{plan.WriteCount} file{(plan.WriteCount == 1 ? "" : "s")} will be written and " +
+                $"{plan.ClearCount} slot{(plan.ClearCount == 1 ? "" : "s")} not in the snapshot will be cleared. " +
+                $"This takes roughly {(plan.WriteCount * 8 + 59) / 60 + 1} minutes; slots already " +
+                "identical to the snapshot are skipped, so re-running after an interruption is fast." +
+                mismatch);
+            if (!confirmed) return;
+
+            try
+            {
+                (RestoreResult Result, string? SafetyPath) outcome = default;
+                await RestoreProgressDialog.RunWithCountsAsync(this, async (progress, ct) =>
+                {
+                    outcome = await vm.ExecuteRestoreAsync(plan, backupFirst,
+                        new Progress<SnapshotRestoreProgress>(p => progress.Report(
+                            (MainWindowViewModel.FormatRestoreProgress(p), p.Done, p.Total))),
+                        ct);
+                });
+                var (result, safetyPath) = outcome;
+                await ConfirmDialog.ShowAsync(this, "Restore complete",
+                    $"{result.Written} file{(result.Written == 1 ? "" : "s")} written, " +
+                    $"{result.SkippedIdentical} already identical, {result.Cleared} cleared." +
+                    (safetyPath is null ? "" : $"\n\nSafety backup: {safetyPath}"),
+                    confirmText: null, cancelText: "Close");
+            }
+            catch (OperationCanceledException)
+            {
+                await ConfirmDialog.ShowAsync(this, "Restore canceled",
+                    "Restore stopped between files — every file already written was verified. " +
+                    "Run Restore Snapshot again with the same file to finish; already-restored " +
+                    "files are skipped automatically.",
+                    confirmText: null, cancelText: "Close");
+            }
+        }
+        catch (SnapshotArchiveException ex)
+        {
+            vm.Status.Failure($"Restore failed: {ex.Message}");
+            await ConfirmDialog.ShowAsync(this, "Restore failed",
+                $"This file isn't a usable .namsnap snapshot:\n\n{ex.Message}",
+                confirmText: null, cancelText: "Close");
+        }
+        catch (System.Exception ex)
+        {
+            vm.Status.Failure($"Restore failed: {ex.Message}");
+            await ConfirmDialog.ShowAsync(this, "Restore failed",
+                $"{ex.Message}\n\nEvery file already written was verified. Run Restore Snapshot " +
+                "again with the same file to resume; already-restored files are skipped.",
+                confirmText: null, cancelText: "Close");
         }
     }
 

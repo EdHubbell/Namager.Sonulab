@@ -61,6 +61,32 @@ public partial class RestoreProgressDialog : Window
         }
     }
 
+    /// <summary>Counts-driven variant for runs that report several messages per work item
+    /// (snapshot restore emits phase + completion events per slot, so message-count can't drive
+    /// the bar). Unlike RunAsync, this RETHROWS the run's failure/cancellation — the snapshot
+    /// flow turns OperationCanceledException into its own "canceled between files" dialog.
+    /// Same race discipline as RunAsync: the work starts from Opened, never before ShowDialog.</summary>
+    public static async Task RunWithCountsAsync(Window owner,
+        Func<IProgress<(string Message, int Done, int Total)>, CancellationToken, Task> run)
+    {
+        var dlg = new RestoreProgressDialog();
+        var progress = new Progress<(string Message, int Done, int Total)>(p =>
+            Dispatcher.UIThread.Post(() =>
+            {
+                dlg.ProgressText.Text = p.Message;
+                dlg.Bar.Value = p.Total > 0 ? (double)p.Done / p.Total : 0;
+            }));
+        Task? work = null;
+        dlg.Opened += (_, _) =>
+        {
+            work = run(progress, dlg._cts.Token);
+            _ = work.ContinueWith(_ => Dispatcher.UIThread.Post(dlg.SafeClose),
+                                  TaskScheduler.Default);
+        };
+        await dlg.ShowDialog(owner);
+        if (work is not null) await work;          // rethrow cancel/failure to the caller
+    }
+
     /// <summary>Idempotent: the continuation and a user-initiated Closing can each try to close
     /// the window; only the first one should actually call Close().</summary>
     private void SafeClose()
@@ -74,6 +100,6 @@ public partial class RestoreProgressDialog : Window
     {
         _cts.Cancel();
         CancelButton.IsEnabled = false;
-        ProgressText.Text = "Cancelling — finishing the current preset…";
+        ProgressText.Text = "Cancelling — finishing the current file…";
     }
 }
