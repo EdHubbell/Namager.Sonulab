@@ -211,14 +211,23 @@ Simulates `DriveSignal.Get()` through:
 | `amp\sag/depth/presence` | not modeled; flag when ≠ `def` |
 | `output\pst\level` | **excluded** from the estimate and returned separately — the proposal is arithmetic on top of it |
 
-### `src/Namager.App/Services/AmpLoudnessCache.cs` (new)
+### Caching (corrected 2026-08-03, during writing-plans)
 
-An amp blob is 96 chunks (~3 s), so the scalar result is cached. Mirrors
-`src/Namager.App/Services/PresetUsageCache.cs`: keyed by `root\sys\_id` because the value belongs to
-a pedal rather than to this PC; rows `(slot, ampName, lufs)`; schema-versioned; stored at
-`%APPDATA%\Namager\amp-loudness-cache.json`; every failure mode (missing, corrupt, unknown schema,
-unwritable) degrades to "empty" rather than throwing. Rows whose slot no longer holds an amp of the
-recorded name drop out on load. Names stay local — the file is never transmitted (PRIVACY.md).
+An amp blob is 96 chunks (~3 s), so it is worth not re-reading. This spec originally called for an
+`AmpLoudnessCache` — a persistent per-device store of each amp slot's loudness, mirroring
+`PresetUsageCache`. **That does not work and is not being built.** `LevelModel.Estimate` needs the
+amp *blob*: the model is nonlinear (`nlmix` sits mid-chain between the two FIRs), so the amp's
+contribution is not a scalar offset that can be added after the fact, and a cached loudness cannot
+short-circuit the read it was meant to avoid.
+
+What is built instead: amp and IR blobs are **memoized per view-model instance**, keyed by
+`(list path, slot name)`. Both sides of a comparison usually name the same amp, so a match costs
+one 96-chunk read rather than two, and a second match in the same session costs none.
+
+If the deferred bulk-normalize feature later wants persistence, the correct shape is a
+**preset-keyed estimate cache** — key `(deviceId, slot, presetName, hash of the level-relevant
+parameter values)`, value `RelativeLufs` — which short-circuits the whole chain rather than one
+term of it.
 
 ## Deferred — normalize the whole bank
 
@@ -242,9 +251,10 @@ not for a single preset the user is already editing.
   `RelativeLufs`; each unmodeled condition (comp ON, reverb ON, an EQ band ≠ `def`) raises its flag.
 - **`Namager.App.Tests`** — the Level block is `Blocks[0]`, expanded by default, and holds exactly
   one field at `PresetLevelPath` and **not** `…\pst\tmp`; a browse response lacking the node loads
-  the editor without it; editing the slider sets `IsDirty` and Save writes that path.
-  `AmpLoudnessCache` round-trip plus degradation on a corrupt/missing file. Match arithmetic
-  including ±20 saturation reporting and a no-op when the target equals the source.
+  the editor without it; editing the slider sets `IsDirty` and Save writes that path. Match
+  arithmetic including ±20 saturation reporting, a cancelled picker changing nothing, a failing
+  target read reporting rather than throwing, and the amp blob being read once per session rather
+  than once per estimate.
 
 ## Hardware validation
 
