@@ -29,5 +29,5 @@ public sealed class IrService
 
     public Task UploadIrAsync(int slot, byte[] irBytes, string name,
         IProgress<SlotUploadProgress>? progress = null, CancellationToken ct = default) =>
-        _inner.UploadAsync(slot, irBytes, name, progress, ct);
+        _inner.UploadAsync(slot, irBytes, name, progress, ct: ct);
 }

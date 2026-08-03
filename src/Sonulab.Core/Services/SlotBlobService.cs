@@ -8,11 +8,13 @@ namespace Sonulab.Core.Services;
 
 /// <summary>Identifies a blob-slot list's on-device shape (path, chunk/size layout) plus the
 /// user-facing/backup-file vocabulary. Amp = root\amp (96 chunks x128B = 12288B payload),
-/// Ir = root\ir (32 chunks x128B = 4096B payload).</summary>
+/// Ir = root\ir (32 chunks x128B = 4096B payload), Preset = root\presets (64 chunks x128B =
+/// 8192B payload — the restore-snapshot engine's upload target).</summary>
 public sealed record SlotBlobKind(string ListPath, int Chunks, int SlotBytes, string Noun, string BackupPrefix, string BackupExtension)
 {
     public static readonly SlotBlobKind Amp = new(@"root\amp", 96, 12288, "Amp", "amp", ".vxamp");
     public static readonly SlotBlobKind Ir = new(@"root\ir", 32, 4096, "IR", "ir", ".irblob");
+    public static readonly SlotBlobKind Preset = new(@"root\presets", 64, 8192, "Preset", "preset", ".pst");
 }
 
 // Member ORDER must match AmpUploadStage (AmpService.cs) — AmpService casts between them.
@@ -119,10 +121,12 @@ public sealed class SlotBlobService
     private async Task<IReadOnlyList<string>> ReadNamesAsync(CancellationToken ct) =>
         (await ListAsync(ct)).Select(s => s.Name).ToArray();
 
-    /// <summary>Dread the slot and save it under the backup dir. Callers must ensure the
-    /// slot is OCCUPIED first — dreading an empty slot is one timeout per chunk and is the
-    /// prime suspect for killing a following commit (see HwCheck upload notes).</summary>
-    private async Task<byte[]> BackupSlotAsync(int index, string suffix, CancellationToken ct)
+    /// <summary>Dread the slot, save it under the backup dir, and return the blob. Public so the
+    /// restore engine can use one validated read as BOTH its pre-overwrite backup and its
+    /// skip-if-identical compare input. Callers must ensure the slot is OCCUPIED first — dreading
+    /// an empty slot is one timeout per chunk and is the prime suspect for killing a following
+    /// commit (see HwCheck upload notes).</summary>
+    public async Task<byte[]> ReadAndArchiveAsync(int index, string suffix = "", CancellationToken ct = default)
     {
         Directory.CreateDirectory(_backupDir);
         // Validated read: a truncated backup silently written to disk right before an
@@ -160,10 +164,10 @@ public sealed class SlotBlobService
     /// delete). Every chunk's ACK is checked; abort on mismatch leaves the slot uncommitted.
     /// Read-back verify; on mismatch the slot is CLEARED so a corrupt slot is never selectable.</summary>
     public async Task UploadAsync(int slot, byte[] payload, string name,
-        IProgress<SlotUploadProgress>? progress = null, CancellationToken ct = default)
+        IProgress<SlotUploadProgress>? progress = null, bool skipBackup = false, CancellationToken ct = default)
     {
         var writing = new StrongBox<bool>(false);
-        try { await UploadCoreAsync(slot, payload, name, writing, progress, ct); }
+        try { await UploadCoreAsync(slot, payload, name, writing, progress, skipBackup, ct); }
         catch (DeviceDisconnectedException ex) when (!ex.WasWriting)
         {
             // The link died mid-upload. The rollback path is dead too, so the honest thing is to
@@ -175,7 +179,7 @@ public sealed class SlotBlobService
     }
 
     private async Task UploadCoreAsync(int slot, byte[] payload, string name,
-        StrongBox<bool> writing, IProgress<SlotUploadProgress>? progress, CancellationToken ct)
+        StrongBox<bool> writing, IProgress<SlotUploadProgress>? progress, bool skipBackup, CancellationToken ct)
     {
         if (slot is < 0 or >= SlotCount)
             throw _raise($"Slot must be 0..{SlotCount - 1}, got {slot}.");
@@ -185,14 +189,19 @@ public sealed class SlotBlobService
         var nameBuf = NamePad(cleanName);
         int totalChunks = _kind.Chunks + 2;                        // name + payload + commit
 
-        // 1. Backup — ONLY if the name table says the slot is occupied. Skipping the dread on
-        // empty slots is not an optimization: a full-slot dread right before the write burst is
-        // the prime suspect for the commit being silently discarded (HwCheck finding).
-        var names = await _client.ReadListAsync(_kind.ListPath, ct);
-        if (slot >= 0 && slot < names.Count && !string.IsNullOrEmpty(names[slot]))
+        // 1. Backup — ONLY if the name table says the slot is occupied, and only when the caller
+        // hasn't already read+archived the slot itself (restore does: skipBackup avoids paying the
+        // same full-slot dread twice per slot). Skipping the dread on empty slots is not an
+        // optimization: a full-slot dread right before the write burst is the prime suspect for
+        // the commit being silently discarded (HwCheck finding).
+        if (!skipBackup)
         {
-            progress?.Report(new(SlotUploadStage.BackingUp, 0, totalChunks));
-            await BackupSlotAsync(slot, "", ct);
+            var names = await _client.ReadListAsync(_kind.ListPath, ct);
+            if (slot >= 0 && slot < names.Count && !string.IsNullOrEmpty(names[slot]))
+            {
+                progress?.Report(new(SlotUploadStage.BackingUp, 0, totalChunks));
+                await ReadAndArchiveAsync(slot, "", ct);
+            }
         }
 
         // 2. ACK-verified write burst.

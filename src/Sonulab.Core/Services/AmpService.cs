@@ -46,7 +46,7 @@ public sealed class AmpService
     public Task UploadAmpAsync(int slot, byte[] vxampBytes, string name,
         IProgress<AmpUploadProgress>? progress = null, CancellationToken ct = default) =>
         _inner.UploadAsync(slot, vxampBytes, name,
-            progress is null ? null : new Adapter(progress), ct);
+            progress is null ? null : new Adapter(progress), ct: ct);
 
     /// <summary>Trim + validate an amp name: non-empty, ASCII, truncated to 31 chars.</summary>
     internal static string ValidateName(string name) =>
