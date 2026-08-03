@@ -257,6 +257,13 @@ public sealed class PresetUsageService : IPresetUsageService
                 MapUpdated?.Invoke();
             }
             if (restart) continue;                       // stale version: rescan from the top
+            // Rebuild from `working` here (not just inside the foreach) so a pass with ZERO
+            // occupied slots — the device emptied out between the warm start and this stable
+            // pass — still replaces Current with the truth instead of certifying whatever
+            // (possibly cache-seeded/provisional) map the last publish left behind. Doing this
+            // before the completion lock also closes the window where a reader could observe
+            // IsComplete==true against a not-yet-final Current.
+            _current = PresetUsageMap.FromSlotUsages(working.Values);
             lock (_sync) { if (_version == version) _isComplete = true; else continue; }
             PersistCache();
             MapUpdated?.Invoke();

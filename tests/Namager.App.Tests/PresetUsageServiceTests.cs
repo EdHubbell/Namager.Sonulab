@@ -470,4 +470,43 @@ public class PresetUsageServiceTests
         }
         finally { File.Delete(path); }
     }
+
+    /// <summary>Regression for a bug found in review: if the device empties out (all presets
+    /// deleted outside the app) between a cache-seeded warm-start publish and the final stable
+    /// pass, the final pass's occupied-slot loop runs zero times. Before the fix, nothing
+    /// reassigned Current in that pass, so the stale/provisional map from the warm start rode
+    /// through into a map marked IsComplete AND got persisted as "verified truth". The scan must
+    /// instead certify (and persist) the actually-empty map.</summary>
+    [Fact]
+    public async Task Emptying_the_device_mid_scan_completes_to_an_empty_map_and_persists_it()
+    {
+        var path = TempCachePath();
+        try
+        {
+            SeedCache(path, "dev-1", new SlotUsage(0, "Lead", "Plexi", Array.Empty<string>()));
+
+            var dev = new FakePresetDevice();
+            dev.SeedSlot(0, "Lead", new[] { Amp("Plexi") });
+            await dev.OpenAsync();
+            var repo = new DeviceRepository(new SonuClient(dev, backgroundQuietMs: 0));
+            var svc = new PresetUsageService(repo, "dev-1", path);
+
+            bool triggered = false;
+            svc.MapUpdated += () =>
+            {
+                if (triggered) return;
+                triggered = true;
+                dev.SeedSlot(0, "", Array.Empty<string>());   // preset deleted outside the app
+                svc.Invalidate();
+            };
+
+            var map = await svc.EnsureCompleteAsync();
+
+            Assert.Empty(map.PresetsUsingAmp("Plexi"));          // no phantom ref survives
+            Assert.True(svc.IsComplete);
+            var persisted = PresetUsageCache.Load(path).SlotsFor("dev-1");
+            Assert.Empty(persisted);                             // persisted truth is empty, not stale
+        }
+        finally { File.Delete(path); }
+    }
 }
