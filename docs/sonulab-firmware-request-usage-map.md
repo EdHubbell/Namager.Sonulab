@@ -18,8 +18,9 @@ hazards"). Lockstep round-trip cost is ~57 ms/chunk; a paced-overlap send (≥30
 sustains ~33 ms/chunk (~1.75x), but there is no way to ask for more than one chunk per command.
 The three reference nodes are not clustered at the front of the document — measured on real
 device captures, the amp ref lands around chunk 7, the primary IR around chunk 11, and the
-secondary IR around chunk 23 (of 64 total, 8192 B / 128 B per preset). A head-read stopping as
-soon as all three ref lines are complete needs roughly 14–25 chunks per preset in practice.
+secondary IR around chunk 23 (of 64 total, 8192 B / 128 B per preset) — so the head read must be
+prepared to fetch up to ~25 chunks in the worst case; in the measured bank the average was
+~14–16 chunks per preset (~0.5 s paced / ~0.8–0.9 s lockstep per preset).
 
 Scanning every occupied slot to build the full map is correspondingly expensive even with the
 trimmed head-read: measured on a bank of ~25–30 occupied presets, the scan costs ~14 s with
