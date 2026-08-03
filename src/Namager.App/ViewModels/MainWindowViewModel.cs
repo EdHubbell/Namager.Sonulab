@@ -193,14 +193,23 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
     /// or exports a snapshot must never touch the developer's own index.</summary>
     private readonly string? _irIndexPath;
 
-    public MainWindowViewModel() : this(null, null) { }
+    /// <summary>Where the preset-usage warm-start cache is read from and written to. Null = the
+    /// real %APPDATA%\Namager\preset-usage-cache.json (PresetUsageCache.DefaultPath). Tests pass
+    /// a temp path — a test that connects must never touch the developer's own cache.</summary>
+    private readonly string? _usageCachePath;
 
-    public MainWindowViewModel(string? settingsPath) : this(settingsPath, null) { }
+    public MainWindowViewModel() : this(null, null, null) { }
+
+    public MainWindowViewModel(string? settingsPath) : this(settingsPath, null, null) { }
 
     public MainWindowViewModel(string? settingsPath, string? irIndexPath)
+        : this(settingsPath, irIndexPath, null) { }
+
+    public MainWindowViewModel(string? settingsPath, string? irIndexPath, string? usageCachePath)
     {
         _settingsPath = settingsPath;
         _irIndexPath = irIndexPath;
+        _usageCachePath = usageCachePath;
         // Tone3000 (Browse Tones) exists from startup - browsing needs no pedal. Null config
         // = the tab shows its "add your keys" card.
         var t3kConfig = Namager.Tone3000.T3kConfig.TryLoad();
@@ -243,7 +252,9 @@ public partial class MainWindowViewModel : ObservableObject, Namager.App.Service
             // One scanner per connection. Stop the previous connection's background scan first —
             // its link is gone and its task must not linger into the new session.
             _usageService?.Stop();
-            var usage = _usageService = new PresetUsageService(_connection.Repository!);
+            // Device id keys the warm-start cache; a blank id (unknown firmware) disables it.
+            var usage = _usageService = new PresetUsageService(
+                _connection.Repository!, _connection.DeviceId, _usageCachePath);
             var catalog = _catalog = new Namager.App.Services.CatalogVersion();
 
             var presets = new PresetListViewModel(

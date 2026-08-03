@@ -46,6 +46,11 @@ public partial class ConnectionViewModel : ObservableObject
     /// session state through every caller that just wants this one string (e.g. snapshot export).</summary>
     public string? FirmwareVersion { get; private set; }
 
+    /// <summary>The connected pedal's id (root\sys\_id), set alongside FirmwareVersion on a
+    /// successful connect. Null until then; may be empty on firmware that reports no id —
+    /// consumers must treat blank as "no id" (PresetUsageService disables caching for it).</summary>
+    public string? DeviceId { get; private set; }
+
     public event EventHandler? Connected;
 
     /// <summary>Raised once when the link dies mid-session, after the VM has entered its dead
@@ -77,6 +82,7 @@ public partial class ConnectionViewModel : ObservableObject
 
             WritesAllowed = state.Compatibility!.WritesAllowed;
             FirmwareVersion = state.Device!.Version;
+            DeviceId = state.Device!.Id;
             Status = $"{state.Device!.Name} {state.Device.Version} — {state.Compatibility!.Message} ({state.Transport})";
             Client = _session.Client;
             Client!.Disconnected += OnDeviceDisconnected;
