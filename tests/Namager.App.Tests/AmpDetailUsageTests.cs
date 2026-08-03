@@ -94,6 +94,55 @@ public class AmpDetailUsageTests
         Assert.Equal((2, "Crunch"), Assert.Single(nav.Calls));
     }
 
+    [Fact] public async Task Incomplete_map_with_entries_shows_them_as_verifying()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((0, "Lead", new[] { FakePresetUsageService.AmpLine("Plexi") })),
+            Complete = false,
+        };
+        var vm = NewDetail(usage);
+        await vm.LoadAsync(0, "Plexi", isEmpty: false);
+
+        Assert.Equal(AmpUsageState.Verifying, vm.UsageState);
+        Assert.True(vm.IsUsageVerifying);
+        Assert.False(vm.IsUsageChecking);
+        Assert.False(vm.IsUsageEmpty);
+        Assert.Equal("Lead", Assert.Single(vm.UsedInPresets).Name);
+    }
+
+    [Fact] public async Task Incomplete_map_with_no_entries_for_this_amp_stays_checking()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((0, "Lead", new[] { FakePresetUsageService.AmpLine("SomeOtherAmp") })),
+            Complete = false,
+        };
+        var vm = NewDetail(usage);
+        await vm.LoadAsync(0, "Plexi", isEmpty: false);
+
+        Assert.Equal(AmpUsageState.Checking, vm.UsageState);
+        Assert.Empty(vm.UsedInPresets);
+    }
+
+    [Fact] public async Task Verifying_entries_promote_to_complete_when_the_scan_finishes()
+    {
+        var usage = new FakePresetUsageService
+        {
+            Map = FakePresetUsageService.MapFor((0, "Lead", new[] { FakePresetUsageService.AmpLine("Plexi") })),
+            Complete = false,
+        };
+        var vm = NewDetail(usage);
+        await vm.LoadAsync(0, "Plexi", isEmpty: false);
+        Assert.Equal(AmpUsageState.Verifying, vm.UsageState);
+
+        usage.Complete = true;
+        usage.RaiseMapUpdated();
+
+        Assert.Equal(AmpUsageState.Complete, vm.UsageState);
+        Assert.Equal("Lead", Assert.Single(vm.UsedInPresets).Name);
+    }
+
     [Fact] public async Task Clearing_the_pane_drops_the_usage_list()
     {
         var usage = new FakePresetUsageService

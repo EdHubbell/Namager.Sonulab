@@ -11,9 +11,12 @@ using Sonulab.Distill;
 namespace Namager.App.ViewModels;
 
 /// <summary>Whether the preset-usage answer for an amp is known yet. <see cref="Checking"/> and an
-/// empty <see cref="AmpDetailViewModel.UsedInPresets"/> mean "we don't know"; <see cref="Complete"/>
-/// with an empty list means "genuinely unused". Conflating the two misleads a delete decision.</summary>
-public enum AmpUsageState { Checking, Complete }
+/// empty <see cref="AmpDetailViewModel.UsedInPresets"/> mean "we don't know"; <see cref="Verifying"/>
+/// means "here's what the cache / partial scan says, the scan hasn't confirmed it yet";
+/// <see cref="Complete"/> with an empty list means "genuinely unused". Only Complete may be
+/// trusted for a delete decision — and the guards independently enforce that via
+/// EnsureCompleteAsync.</summary>
+public enum AmpUsageState { Checking, Verifying, Complete }
 
 /// <summary>The amp *detail* concern, lifted out of AmpListViewModel so it can render in more than
 /// one place: inline on the Amps tab, and in the preset editor's flyout (#9). Knows nothing about
@@ -180,26 +183,43 @@ public sealed partial class AmpDetailViewModel : ObservableObject
     /// tell someone deciding whether to delete an amp.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsUsageChecking))]
+    [NotifyPropertyChangedFor(nameof(IsUsageVerifying))]
     [NotifyPropertyChangedFor(nameof(IsUsageEmpty))]
     private AmpUsageState _usageState = AmpUsageState.Checking;
 
     public ObservableCollection<PresetRef> UsedInPresets { get; } = new();
 
     public bool IsUsageChecking => UsageState == AmpUsageState.Checking;
+    public bool IsUsageVerifying => UsageState == AmpUsageState.Verifying;
     public bool IsUsageEmpty => UsageState == AmpUsageState.Complete && UsedInPresets.Count == 0;
 
-    /// <summary>Recompute the usage section from the current map for whatever amp is displayed.</summary>
+    /// <summary>Recompute the usage section from the current map for whatever amp is displayed.
+    /// Incomplete map + entries = Verifying (warm-start cache or mid-scan partial — show them,
+    /// badged); incomplete + nothing = Checking (unknown ≠ unused); complete = the truth.</summary>
     private void RefreshUsage()
     {
         UsedInPresets.Clear();
-        if (Name is not { Length: > 0 } name || !_usage.IsComplete)
+        if (Name is not { Length: > 0 } name)
         {
             UsageState = AmpUsageState.Checking;
             OnPropertyChanged(nameof(IsUsageEmpty));
             return;
         }
-        foreach (var r in _usage.Current.PresetsUsingAmp(name)) UsedInPresets.Add(r);
-        UsageState = AmpUsageState.Complete;
+        var refs = _usage.Current.PresetsUsingAmp(name);
+        if (_usage.IsComplete)
+        {
+            foreach (var r in refs) UsedInPresets.Add(r);
+            UsageState = AmpUsageState.Complete;
+        }
+        else if (refs.Count > 0)
+        {
+            foreach (var r in refs) UsedInPresets.Add(r);
+            UsageState = AmpUsageState.Verifying;
+        }
+        else
+        {
+            UsageState = AmpUsageState.Checking;
+        }
         OnPropertyChanged(nameof(IsUsageEmpty));
     }
 

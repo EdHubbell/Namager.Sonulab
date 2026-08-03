@@ -54,7 +54,13 @@
     <!-- #14: which presets use this amp. "Checking…" and "Not used" are deliberately distinct —
          an empty list during a scan would read as "unused" and mislead a delete decision. -->
     <Border Classes="rule"/>
-    <TextBlock Classes="section-label" Text="USED IN PRESETS"/>
+    <StackPanel Orientation="Horizontal" Spacing="6">
+      <TextBlock Classes="section-label" Text="USED IN PRESETS"/>
+      <TextBlock Text="verifying…" FontSize="11" FontStyle="Italic"
+                 VerticalAlignment="Center"
+                 Foreground="{DynamicResource Sonulab.TextMutedBrush}"
+                 IsVisible="{Binding IsUsageVerifying}"/>
+    </StackPanel>
     <TextBlock Text="Checking preset usage…" FontSize="11"
                Foreground="{DynamicResource Sonulab.TextMutedBrush}"
                IsVisible="{Binding IsUsageChecking}"/>
