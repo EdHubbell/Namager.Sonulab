@@ -264,4 +264,81 @@ public class SnapshotRestoreServiceTests
         Assert.Equal(new RestoreResult(Written: 0, SkippedIdentical: 1, Cleared: 0), result);
         Directory.Delete(rig.BackupDir, recursive: true);
     }
+
+    [Fact]
+    public async Task Cancellation_lands_between_slots_and_a_rerun_resumes_via_skip()
+    {
+        var rig = MakeRig();
+        var (manifest, blobs) = Snap(
+            (SnapshotSlotKind.Ir, 0, "IrA", Blob(4096, 1)),
+            (SnapshotSlotKind.Ir, 1, "IrB", Blob(4096, 2)));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+
+        using var cts = new CancellationTokenSource();
+        var seen = new List<SnapshotRestoreProgress>();
+        var progress = new SyncProgress<SnapshotRestoreProgress>(p =>
+        {
+            seen.Add(p);
+            if (p.Done == 1) cts.Cancel();                     // cancel after the first slot completes
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => rig.Svc.ExecuteAsync(plan, progress: progress, ct: cts.Token));
+
+        Assert.Equal("IrA", rig.Irs.SlotNames[0]);             // slot 0 fully committed
+        Assert.Null(rig.Irs.SlotNames[1]);                     // slot 1 never started
+
+        // Re-run: slot 0 now matches the snapshot → skipped; only slot 1 is written.
+        var plan2 = await rig.Svc.PlanAsync(manifest, blobs);
+        var result = await rig.Svc.ExecuteAsync(plan2);
+        Assert.Equal(new RestoreResult(Written: 1, SkippedIdentical: 1, Cleared: 0), result);
+        Directory.Delete(rig.BackupDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task A_verify_failure_stops_the_run_and_names_the_slot()
+    {
+        var rig = MakeRig();
+        rig.Amps.CorruptAckAtChunk = 5;                        // fake: ACK mismatch at chunk 5
+        var (manifest, blobs) = Snap(
+            (SnapshotSlotKind.Amp, 3, "BadAmp", Blob(12288, 9)),
+            (SnapshotSlotKind.Preset, 0, "NeverReached", Blob(8192, 8)));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+
+        var ex = await Assert.ThrowsAsync<SnapshotRestoreException>(() => rig.Svc.ExecuteAsync(plan));
+
+        Assert.Contains("chunk 5", ex.Message);                // the upload's own slot-naming message
+        Assert.Null(rig.Presets.SlotNames[0]);                 // later actions never ran
+        // Both slots were empty (no compare-read backup), so no backup dir was ever created.
+        if (Directory.Exists(rig.BackupDir)) Directory.Delete(rig.BackupDir, recursive: true);
+    }
+
+    [Fact]
+    public async Task Progress_counter_is_operation_wide_and_stages_run_ir_amp_preset()
+    {
+        var rig = MakeRig();
+        var (manifest, blobs) = Snap(
+            (SnapshotSlotKind.Preset, 0, "P", Blob(8192, 1)),
+            (SnapshotSlotKind.Amp, 0, "A", Blob(12288, 2)),
+            (SnapshotSlotKind.Ir, 0, "I", Blob(4096, 3)));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+        var seen = new List<SnapshotRestoreProgress>();
+
+        await rig.Svc.ExecuteAsync(plan, progress: new SyncProgress<SnapshotRestoreProgress>(seen.Add));
+
+        Assert.All(seen, p => Assert.Equal(3, p.Total));
+        Assert.Equal(new[] { 1, 2, 3 }, seen.GroupBy(p => p.Done).Select(g => g.Key).Where(d => d > 0));
+        Assert.Equal(new[] { SnapshotSlotKind.Ir, SnapshotSlotKind.Amp, SnapshotSlotKind.Preset },
+                     seen.Select(p => p.Stage).Distinct());
+        // All three slots were empty (no compare-read backup), so no backup dir was ever created.
+        if (Directory.Exists(rig.BackupDir)) Directory.Delete(rig.BackupDir, recursive: true);
+    }
+}
+
+/// <summary>Reports synchronously on the calling thread — Progress&lt;T&gt; posts to a
+/// SynchronizationContext (thread-pool queued when none is ambient, as in xUnit tests), which races
+/// with assertions made right after the awaited call returns. Mirrors AmpServiceTests' SyncProgress.</summary>
+file sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
+{
+    public void Report(T value) => handler(value);
 }
