@@ -153,21 +153,13 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                 Label = _labels.Label(levelSchema.Path, levelSchema.Desc.Length > 0 ? levelSchema.Desc : null),
                 ShowReset = true,
             };
-            levelField.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName is nameof(ParameterFieldViewModel.Number)
-                                   or nameof(ParameterFieldViewModel.Text)) IsDirty = true;
-            };
+            WireDirtyTracking(levelField);
             levelSection.Fields.Add(levelField);
             // Expanded by default — unlike every other block. This is the headline control and
             // was invisible before; a collapsed default would leave it just as hard to find.
             // The per-session memory still wins once the user has collapsed it.
             levelSection.IsExpanded = !_expansion.TryGetValue(levelKey, out var lexp) || lexp;
-            levelSection.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(BlockSectionViewModel.IsExpanded) && s is BlockSectionViewModel b)
-                    _expansion[levelKey] = b.IsExpanded;
-            };
+            WireExpansionMemory(levelSection, levelKey);
             Blocks.Add(levelSection);
         }
 
@@ -198,14 +190,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                 // the 4 EQ bands default to 0 — 58 of the rest do not (gate threshold -60 dB, comp
                 // release 400 ms), so this is the only way back to factory without a manual.
                 labeled.ShowReset = labeled.Kind == "float";
-                labeled.PropertyChanged += (_, e) =>
-                {
-                    // Only a VALUE edit dirties the preset. Options/Kind change when the device's
-                    // amp or IR list is refreshed under us (RefreshRefOptionsAsync -> SetRefOptions),
-                    // which is not a user edit.
-                    if (e.PropertyName is nameof(ParameterFieldViewModel.Number)
-                                       or nameof(ParameterFieldViewModel.Text)) IsDirty = true;
-                };
+                WireDirtyTracking(labeled);
 
                 if (seg.Length == 4)                                     // root\app\block\leaf
                 {
@@ -228,17 +213,35 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             if (section.Fields.Count > 0 || section.SubGroups.Count > 0)
             {
                 section.IsExpanded = _expansion.TryGetValue(prefix, out var exp) && exp;
-                var key = prefix;
-                section.PropertyChanged += (s, e) =>
-                {
-                    if (e.PropertyName == nameof(BlockSectionViewModel.IsExpanded) && s is BlockSectionViewModel b)
-                        _expansion[key] = b.IsExpanded;
-                };
+                WireExpansionMemory(section, prefix);
                 Blocks.Add(section);
             }
         }
         IsDirty = false;
     }
+
+    /// <summary>Subscribe a field so a genuine VALUE edit dirties the preset. Only a VALUE edit
+    /// dirties the preset: Options/Kind change when the device's amp or IR list is refreshed under
+    /// us (RefreshRefOptionsAsync -> SetRefOptions), which is not a user edit. Shared by the Level
+    /// block and every <see cref="Blocks_InScope"/> field so the save-dirtying rule cannot drift
+    /// between them.</summary>
+    private void WireDirtyTracking(ParameterFieldViewModel field) =>
+        field.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(ParameterFieldViewModel.Number)
+                               or nameof(ParameterFieldViewModel.Text)) IsDirty = true;
+        };
+
+    /// <summary>Persist <paramref name="section"/>'s expansion into <see cref="_expansion"/> under
+    /// <paramref name="key"/> (a stable block PATH, not the header — see the field's own comment)
+    /// whenever the user toggles it. Shared by the Level block and every
+    /// <see cref="Blocks_InScope"/> block.</summary>
+    private void WireExpansionMemory(BlockSectionViewModel section, string key) =>
+        section.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(BlockSectionViewModel.IsExpanded) && s is BlockSectionViewModel b)
+                _expansion[key] = b.IsExpanded;
+        };
 
     /// <summary>Activate <paramref name="target"/> on the device, then load its params.
     /// The content load is skipped when the same preset is already loaded, but the slot index is
