@@ -11,7 +11,7 @@ public enum RestoreAction { Write, Clear }
 public sealed record RestoreSlotAction(
     SnapshotSlotKind Kind, int Index, string Name, RestoreAction Action, bool PedalOccupied);
 
-public sealed record RestorePlan(
+public sealed record SnapshotRestorePlan(
     SnapshotManifest Manifest,
     IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]> Blobs,
     IReadOnlyList<RestoreSlotAction> Actions)
@@ -38,7 +38,7 @@ public sealed record RestoreResult(int Written, int SkippedIdentical, int Cleare
 public sealed class SnapshotRestoreService(
     SlotBlobService presets, SlotBlobService amps, SlotBlobService irs)
 {
-    public async Task<RestorePlan> PlanAsync(
+    public async Task<SnapshotRestorePlan> PlanAsync(
         SnapshotManifest manifest,
         IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]> blobs,
         CancellationToken ct = default)
@@ -59,7 +59,7 @@ public sealed class SnapshotRestoreService(
                     actions.Add(new RestoreSlotAction(kind, i, pedal[i].Name, RestoreAction.Clear, true));
             }
         }
-        return new RestorePlan(manifest, blobs, actions);
+        return new SnapshotRestorePlan(manifest, blobs, actions);
     }
 
     /// <summary>IRs → Amps → Presets: referenced content lands before the presets that name it,

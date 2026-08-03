@@ -219,7 +219,7 @@ public partial class MainWindow : Window
     /// inspection only, no I/O) by design, and stays that way. This method already has file-system
     /// access — it runs immediately after the Directory.GetFiles call that built the raw plan — so
     /// the length check belongs here, where the plan is consumed, not inside the pure planner.</summary>
-    private static Namager.App.Services.RestorePlan RejectWrongSizedFiles(Namager.App.Services.RestorePlan plan)
+    private static RestorePlan RejectWrongSizedFiles(RestorePlan plan)
     {
         var items = new List<RestoreItem>();
         var skipped = new List<string>(plan.Skipped);
@@ -230,7 +230,7 @@ public partial class MainWindow : Window
             else
                 skipped.Add(System.IO.Path.GetFileName(item.Path));
         }
-        return new Namager.App.Services.RestorePlan(items, skipped);
+        return new RestorePlan(items, skipped);
     }
 
     private void OnNavSelectionChanged(object? sender, SelectionChangedEventArgs e)

@@ -185,7 +185,7 @@ public enum RestoreAction { Write, Clear }
 public sealed record RestoreSlotAction(
     SnapshotSlotKind Kind, int Index, string Name, RestoreAction Action, bool PedalOccupied);
 
-public sealed record RestorePlan(
+public sealed record SnapshotRestorePlan(
     SnapshotManifest Manifest,
     IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]> Blobs,
     IReadOnlyList<RestoreSlotAction> Actions)
@@ -206,7 +206,7 @@ public sealed record RestoreResult(int Written, int SkippedIdentical, int Cleare
 public sealed class SnapshotRestoreService(
     SlotBlobService presets, SlotBlobService amps, SlotBlobService irs)
 {
-    public async Task<RestorePlan> PlanAsync(
+    public async Task<SnapshotRestorePlan> PlanAsync(
         SnapshotManifest manifest,
         IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]> blobs,
         CancellationToken ct = default);
@@ -315,7 +315,7 @@ NOTE: check `SnapshotManifest`'s actual constructor signature and `SnapshotArchi
 - [ ] **Step 3: Implement** `SnapshotRestoreService.cs` with the records/enums above and:
 
 ```csharp
-    public async Task<RestorePlan> PlanAsync(
+    public async Task<SnapshotRestorePlan> PlanAsync(
         SnapshotManifest manifest,
         IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]> blobs,
         CancellationToken ct = default)
@@ -336,7 +336,7 @@ NOTE: check `SnapshotManifest`'s actual constructor signature and `SnapshotArchi
                     actions.Add(new RestoreSlotAction(kind, i, pedal[i].Name, RestoreAction.Clear, true));
             }
         }
-        return new RestorePlan(manifest, blobs, actions);
+        return new SnapshotRestorePlan(manifest, blobs, actions);
     }
 
     /// <summary>IRs → Amps → Presets: referenced content lands before the presets that name it,
@@ -372,7 +372,7 @@ git commit -m "feat(restore): SnapshotRestoreService plan phase — 90-slot writ
 
 ```csharp
     public async Task<RestoreResult> ExecuteAsync(
-        RestorePlan plan,
+        SnapshotRestorePlan plan,
         IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]>? currentBlobs = null,
         IProgress<SnapshotRestoreProgress>? progress = null,
         CancellationToken ct = default);
@@ -485,7 +485,7 @@ git commit -m "feat(restore): SnapshotRestoreService plan phase — 90-slot writ
 
 ```csharp
     public async Task<RestoreResult> ExecuteAsync(
-        RestorePlan plan,
+        SnapshotRestorePlan plan,
         IReadOnlyDictionary<(SnapshotSlotKind, int), byte[]>? currentBlobs = null,
         IProgress<SnapshotRestoreProgress>? progress = null,
         CancellationToken ct = default)
@@ -663,7 +663,7 @@ git commit -m "test(restore): pin cancellation, failure-identity, and progress c
     /// <summary>Reads + validates the .namsnap at <paramref name="path"/> and plans the restore
     /// against the connected pedal. Read-only. Throws SnapshotArchiveException (bad file) or
     /// InvalidOperationException (no connection) — the view surfaces both.</summary>
-    public async Task<RestorePlan> PlanRestoreAsync(string path);
+    public async Task<SnapshotRestorePlan> PlanRestoreAsync(string path);
 
     /// <summary>Executes a restore plan. When <paramref name="backupFirst"/> is true, first
     /// captures a safety .namsnap of the pedal's current state to Documents\NAMager Backups and
@@ -671,7 +671,7 @@ git commit -m "test(restore): pin cancellation, failure-identity, and progress c
     /// when skipped). Throws on failure — the view shows the reason; completed slots stay
     /// verified and a re-run resumes via skip-if-identical.</summary>
     public async Task<(RestoreResult Result, string? SafetyPath)> ExecuteRestoreAsync(
-        RestorePlan plan, bool backupFirst,
+        SnapshotRestorePlan plan, bool backupFirst,
         IProgress<SnapshotRestoreProgress>? progress = null, CancellationToken ct = default);
 ```
 
@@ -760,7 +760,7 @@ Helpers to add to the test class:
         var snapPath = WriteSnapshotFile((SnapshotSlotKind.Ir, 0, "IrZero", FilledBlob(4096, 7)));
         try
         {
-            RestorePlan plan;
+            SnapshotRestorePlan plan;
             try { plan = await vm.PlanRestoreAsync(snapPath); }
             catch (IOException) { return; }   // if the plan itself trips the fault first, the guarantee holds trivially — but assert the write never happened below either way
             await Assert.ThrowsAnyAsync<Exception>(() => vm.ExecuteRestoreAsync(plan, backupFirst: true));
@@ -793,7 +793,7 @@ NOTE: `FakePresetDevice` may not expose `CommandLog` — check; if not, subclass
 (b) `PlanRestoreAsync`:
 
 ```csharp
-    public async Task<RestorePlan> PlanRestoreAsync(string path)
+    public async Task<SnapshotRestorePlan> PlanRestoreAsync(string path)
     {
         if (Connection.Client is null)
             throw new InvalidOperationException("Connect to the pedal first.");
@@ -817,7 +817,7 @@ NOTE: `FakePresetDevice` may not expose `CommandLog` — check; if not, subclass
 
 ```csharp
     public async Task<(RestoreResult Result, string? SafetyPath)> ExecuteRestoreAsync(
-        RestorePlan plan, bool backupFirst,
+        SnapshotRestorePlan plan, bool backupFirst,
         IProgress<SnapshotRestoreProgress>? progress = null, CancellationToken ct = default)
     {
         FileOperationInFlight = true;
@@ -866,7 +866,7 @@ NOTE: `FakePresetDevice` may not expose `CommandLog` — check; if not, subclass
 
     /// <summary>Restore replaces Import's one useful behavior: any restored IR that carries a
     /// Tone3000 identity in the manifest is recorded in the local index, keyed by blob content.</summary>
-    private void RecordRestoredIrIdentities(RestorePlan plan)
+    private void RecordRestoredIrIdentities(SnapshotRestorePlan plan)
     {
         var index = IrIndex.Load(_irIndexPath);
         int learned = 0;

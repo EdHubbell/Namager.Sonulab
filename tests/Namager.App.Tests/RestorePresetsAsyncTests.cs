@@ -103,7 +103,7 @@ public class RestorePresetsAsyncTests
         // Fresh VM: its own real (never-connected) Connection has Repository == null. Must not
         // throw and must not attempt any device I/O.
         var vm = new MainWindowViewModel();
-        var plan = new Namager.App.Services.RestorePlan(Array.Empty<RestoreItem>(), Array.Empty<string>());
+        var plan = new RestorePlan(Array.Empty<RestoreItem>(), Array.Empty<string>());
 
         var summary = await vm.RestorePresetsAsync(plan, progress: null, CancellationToken.None);
 
@@ -122,7 +122,7 @@ public class RestorePresetsAsyncTests
         Assert.NotNull(connVm.Repository);
 
         var vm = new MainWindowViewModel { Connection = connVm };
-        var plan = new Namager.App.Services.RestorePlan(Array.Empty<RestoreItem>(), Array.Empty<string>());
+        var plan = new RestorePlan(Array.Empty<RestoreItem>(), Array.Empty<string>());
 
         var summary = await vm.RestorePresetsAsync(plan, progress: null, CancellationToken.None);
 
