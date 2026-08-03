@@ -18,6 +18,9 @@ restore, riding review minors): `docs/superpowers/2026-07-24-post-scan-fix-next-
 - Preset-usage warm start: reconnect seeds highlights from `%APPDATA%\Namager\preset-usage-cache.json`
   (keyed by pedal id, per-slot name match); the background scan still runs to completion and corrects.
   Pipelining the scan (groups of 4, ~14 s → ~8 s) remains open and composes with this.
+- Restore Snapshot SHIPPED (exact-mirror, byte-exact staged writes incl. presets, skip-if-identical
+  resume, safety backup checkbox); Import Snapshot removed. On-device checks pending in
+  `docs/HARDWARE-VALIDATION-restore.md` — the active-slot-write probe is the open risk.
 
 Amp metadata hardware validation (docs/HARDWARE-VALIDATION-amp-metadata.md) pending — run before relying on SSMD blocks on-device. IR-slot metadata not designed.
 UI-polish visual checklist (docs/HARDWARE-VALIDATION-ui-polish.md) pending.
