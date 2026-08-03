@@ -187,4 +187,66 @@ public class MatchVolumeTests
         // Four estimates (two matches x two presets), all naming "TestAmp": one 96-chunk read.
         Assert.Equal(1, reads);
     }
+
+    [Fact]
+    public async Task Catalog_version_bump_forces_a_fresh_amp_blob_read()
+    {
+        var d = Dev(); await d.OpenAsync();
+        int reads = 0;
+        var catalog = new CatalogVersion();
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()), ParameterExposure.Default,
+            status: new FakeStatusService(),
+            repo: new Sonulab.Core.Services.DeviceRepository(new SonuClient(d)),
+            catalog: catalog,
+            readAmpBlob: (_, _) => { reads++; return Task.FromResult(FlatAmpSlot()); },
+            readIrBlob: (_, _) => Task.FromResult<byte[]?>(null),
+            readPresetDoc: (_, _) => Task.FromResult(TargetPst(6.0)));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
+        Assert.Equal(1, reads);
+
+        // The amp was re-uploaded under the same name — the catalog moved, so a stale cached blob
+        // must not go on serving the next match.
+        catalog.Bump();
+        await vm.RefreshRefOptionsAsync();
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
+
+        Assert.Equal(2, reads);
+    }
+
+    [Fact]
+    public async Task Switching_presets_mid_match_abandons_the_stale_proposal()
+    {
+        // The target-slot read (readPresetDoc) is gated on a TaskCompletionSource so the test can
+        // switch the loaded preset while MatchVolumeAsync is still mid-flight — the same race the
+        // real app has since nothing sets IsLoading during a match.
+        var d = Dev(); await d.OpenAsync();
+        var status = new FakeStatusService();
+        var started = new TaskCompletionSource();
+        var release = new TaskCompletionSource<Sonulab.Core.Model.PresetDocument>();
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()), ParameterExposure.Default,
+            status: status,
+            repo: new Sonulab.Core.Services.DeviceRepository(new SonuClient(d)),
+            readAmpBlob: (_, _) => Task.FromResult(FlatAmpSlot()),
+            readIrBlob: (_, _) => Task.FromResult<byte[]?>(null),
+            readPresetDoc: (_, _) => { started.TrySetResult(); return release.Task; });
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+        var staleField = vm.Blocks[0].Fields[0];
+
+        var match = vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
+        await started.Task;                              // the target-slot read is now stuck
+
+        // The user moves on to another preset before the match finishes.
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(1, "Louder"));
+
+        release.SetResult(TargetPst(eqLevel: 6.0));
+        await match;                                      // must not throw
+
+        Assert.Equal(0.0, staleField.Number);              // the abandoned run never wrote to it
+        Assert.Equal(0.0, vm.Blocks[0].Fields[0].Number);  // the NEW preset's slider is untouched
+        Assert.False(vm.IsDirty);
+    }
 }

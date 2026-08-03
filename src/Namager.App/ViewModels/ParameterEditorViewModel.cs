@@ -451,19 +451,40 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     {
         if (LevelField is null || _readAmpBlob is null || _readPresetDoc is null) return;
 
-        int? target = await pickTarget();
-        if (target is not { } targetIndex) return;
+        // Captured before ANY await: picking a target plus two multi-second estimates gives the
+        // user plenty of time to select a different preset — nothing here sets IsLoading, so the
+        // preset list stays live the whole time (only the editor's own DockPanel gates on it).
+        // Re-checked below, right before the slider is touched, in the same "latest wins, stale
+        // work is dropped" spirit as LoadForAsync's single-flight guard.
+        var field = LevelField;
+        int at = LoadedIndex;
 
         ErrorMessage = null;
         using var op = _status.BeginOperation("Matching volume…");
+        int? targetIndex = null;
         try
         {
+            // Inside the try (not before it) so MatchVolumeCommand — nothing binds it today, but
+            // the attribute is kept for a future caller — is exception-safe on its own: a dialog
+            // that throws must not become an unhandled UI-thread rethrow.
+            int? picked = await pickTarget();
+            if (picked is not { } idx) return;
+            targetIndex = idx;
+
             var mine = await EstimateLoadedAsync();
-            var theirs = await EstimateSlotAsync(targetIndex);
+            var theirs = await EstimateSlotAsync(idx);
+
+            if (!ReferenceEquals(field, LevelField) || LoadedIndex != at)
+            {
+                // The user moved on to another preset while this match was still running — not a
+                // failure, just abandon the stale proposal rather than apply it to the wrong slider.
+                _status.Success("Preset changed while matching — nothing was applied");
+                return;
+            }
 
             double proposed = theirs.Estimate.RelativeLufs + theirs.Estimate.CurrentTrimDb - mine.Estimate.RelativeLufs;
-            double clamped = Math.Clamp(proposed, LevelField.Min, LevelField.Max);
-            LevelField.Number = clamped;
+            double clamped = Math.Clamp(proposed, field.Min, field.Max);
+            field.Number = clamped;
 
             var notes = new List<string>();
             if (Math.Abs(clamped - proposed) > 1e-6)
@@ -520,10 +541,14 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     {
         byte[] amp = await BlobForAsync(@"root\amp", byPath, Sonulab.Distill.LevelModel.AmpNamePath,
                                         _readAmpBlob!) ?? Array.Empty<byte>();
-        byte[]? ir1 = await BlobForAsync(@"root\ir", byPath, Sonulab.Distill.LevelModel.IrNamePath,
-                                         async (i, ct) => await _readIrBlob!(i, ct) ?? Array.Empty<byte>());
-        byte[]? ir2 = await BlobForAsync(@"root\ir", byPath, Sonulab.Distill.LevelModel.Ir2NamePath,
-                                         async (i, ct) => await _readIrBlob!(i, ct) ?? Array.Empty<byte>());
+        // Null (not a wrapper closing over a null delegate) when no IR reader was supplied, so
+        // BlobForAsync's own "no reader" guard handles that case instead of this wrapper NRE-ing
+        // on the first preset that actually names a resolvable IR.
+        Func<int, CancellationToken, Task<byte[]>>? readIr = _readIrBlob is { } irRead
+            ? async (i, ct) => await irRead(i, ct) ?? Array.Empty<byte>()
+            : null;
+        byte[]? ir1 = await BlobForAsync(@"root\ir", byPath, Sonulab.Distill.LevelModel.IrNamePath, readIr);
+        byte[]? ir2 = await BlobForAsync(@"root\ir", byPath, Sonulab.Distill.LevelModel.Ir2NamePath, readIr);
 
         var defaults = AllFields()
             .Where(f => f.Default is not null)
