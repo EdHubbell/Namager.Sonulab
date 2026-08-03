@@ -19,8 +19,9 @@ restore, riding review minors): `docs/superpowers/2026-07-24-post-scan-fix-next-
   (keyed by pedal id, per-slot name match); the background scan still runs to completion and corrects.
   Pipelining the scan (groups of 4, ~14 s → ~8 s) remains open and composes with this.
 - Restore Snapshot SHIPPED (exact-mirror, byte-exact staged writes incl. presets, skip-if-identical
-  resume, safety backup checkbox); Import Snapshot removed. On-device checks pending in
-  `docs/HARDWARE-VALIDATION-restore.md` — the active-slot-write probe is the open risk.
+  resume, safety backup checkbox); Import Snapshot removed. Live restore validated informally
+  2026-08-03 (worked as expected); the itemized probes in `docs/HARDWARE-VALIDATION-restore.md`
+  (notably the active-slot-write probe) remain for a methodical pass.
 
 Amp metadata hardware validation (docs/HARDWARE-VALIDATION-amp-metadata.md) pending — run before relying on SSMD blocks on-device. IR-slot metadata not designed.
 UI-polish visual checklist (docs/HARDWARE-VALIDATION-ui-polish.md) pending.

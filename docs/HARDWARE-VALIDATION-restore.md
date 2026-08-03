@@ -1,5 +1,9 @@
 # Hardware validation — Restore Snapshot
 
+> **2026-08-03 (Ed, pre-1.0):** live restore run against the bench pedal — worked as expected.
+> Informal pass; the itemized probes below were not individually recorded, so they stay
+> unchecked for a future methodical run (the active-slot probe in particular).
+
 Restore writes byte-exact slot content via the staged dwrite sequence. Presets use this path
 IN-APP FOR THE FIRST TIME here (HwCheck --preset-dwrite-probe proved the sequence on 2026-07-04;
 PROTOCOL.md VERDICT). Run top to bottom; stop on any failure.
