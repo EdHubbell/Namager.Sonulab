@@ -80,9 +80,15 @@ public sealed class SnapshotRestoreService(
     /// snapshot read) lets the caller skip a redundant compare dread for the slots it covers —
     /// the dict may be PARTIAL, and a missing key falls back to this method reading the slot
     /// itself (archiving it as a "-prerestore" file), exactly as if currentBlobs were absent.
-    /// Occupancy is re-verified fresh immediately before every such self-read (not trusted from
-    /// plan-time PedalOccupied, which can go stale on a multi-minute restore — e.g. a
-    /// front-panel edit mid-run) so this NEVER dreads a slot that is empty right now. Every
+    /// Occupancy AND name are re-verified fresh immediately before every such self-read (never
+    /// trusted from plan-time PedalOccupied/PedalName, which can go stale on a multi-minute
+    /// restore — e.g. a front-panel rename or delete mid-run): this NEVER dreads a slot that is
+    /// empty right now, and the skip-path rename decision is judged against the CURRENT name,
+    /// not the plan-time one, so an out-of-band rename between PlanAsync and this action is
+    /// still corrected. currentBlobs entries carry no such freshness guarantee of their own —
+    /// callers must read them immediately before calling ExecuteAsync (Task 5/6's caller reads
+    /// the safety snapshot right before execution); a stale dict can skip a rename or resurrect
+    /// an out-of-band-emptied slot, since a currentBlobs hit skips the fresh read entirely. Every
     /// device call inside an action runs on CancellationToken.None: an abandoned staged burst
     /// mid-slot is the one shape the write discipline can't make safe, so cancellation only
     /// lands BETWEEN actions.</summary>
@@ -102,20 +108,31 @@ public sealed class SnapshotRestoreService(
             {
                 var snapBlob = plan.Blobs[(a.Kind, a.Index)];
                 byte[]? current = null;
-                if (currentBlobs is not null) currentBlobs.TryGetValue((a.Kind, a.Index), out current);
-                if (current is null && await IsOccupiedNowAsync(svc, a.Index))
+                bool haveCurrent = currentBlobs is not null &&
+                                   currentBlobs.TryGetValue((a.Kind, a.Index), out current);
+                // Name to judge the rename-on-skip decision against: plan-time PedalName on the
+                // currentBlobs-hit path (no fresh read happens there — see the doc above), but
+                // the just-read CURRENT name whenever this method does its own self-read, so an
+                // out-of-band rename between PlanAsync and this action is still caught.
+                string? pedalName = a.PedalName;
+                if (!haveCurrent)
                 {
-                    progress?.Report(new(a.Kind, RestoreSlotPhase.Comparing, done, total, a.Name));
-                    current = await svc.ReadAndArchiveAsync(a.Index, "-prerestore", CancellationToken.None);
+                    pedalName = await CurrentNameAsync(svc, a.Index);
+                    if (pedalName is not null)
+                    {
+                        progress?.Report(new(a.Kind, RestoreSlotPhase.Comparing, done, total, a.Name));
+                        current = await svc.ReadAndArchiveAsync(a.Index, "-prerestore", CancellationToken.None);
+                    }
                 }
                 if (current is not null && current.AsSpan().SequenceEqual(snapBlob))
                 {
                     // Bytes already match, but rename on this device is a name-table-only write —
                     // a slot can be "content identical, name stale" (e.g. renamed since the
-                    // snapshot was taken). Presets reference amps/IRs BY NAME, so leaving a stale
-                    // name here would silently orphan every restored preset that names this slot.
-                    // Content matched, so this still counts as SkippedIdentical.
-                    if (a.PedalName != a.Name)
+                    // snapshot was taken, or out-of-band since PlanAsync). Presets reference
+                    // amps/IRs BY NAME, so leaving a stale name here would silently orphan every
+                    // restored preset that names this slot. Content matched, so this still counts
+                    // as SkippedIdentical.
+                    if (pedalName != a.Name)
                         await svc.RenameAsync(a.Index, a.Name, CancellationToken.None);
                     skipped++;
                 }
@@ -135,7 +152,7 @@ public sealed class SnapshotRestoreService(
                 // occupied RIGHT NOW. DeleteAsync itself already no-ops safely on an empty slot
                 // (one cheap list read, no dwrite), so it still runs unconditionally below —
                 // only the archive dread is skipped when there's nothing left to archive.
-                if (!haveCurrent && await IsOccupiedNowAsync(svc, a.Index))
+                if (!haveCurrent && await CurrentNameAsync(svc, a.Index) is not null)
                     await svc.ReadAndArchiveAsync(a.Index, "-prerestore", CancellationToken.None);
                 await svc.DeleteAsync(a.Index, CancellationToken.None);
                 cleared++;
@@ -148,12 +165,16 @@ public sealed class SnapshotRestoreService(
         return new RestoreResult(written, skipped, cleared);
     }
 
-    /// <summary>Fresh occupancy check for one slot, used immediately before a self-read so a
-    /// slot that emptied after PlanAsync (front-panel edit mid-restore) is never dreaded.</summary>
-    private static async Task<bool> IsOccupiedNowAsync(SlotBlobService svc, int index)
+    /// <summary>Fresh name-table read for one slot, returning null when the slot is empty right
+    /// now. Used immediately before a self-read: as the occupancy gate (non-null = safe to
+    /// dread), and — on the Write path — as the up-to-date name for the rename-on-skip decision,
+    /// so a slot renamed out-of-band between PlanAsync and this action isn't judged against a
+    /// stale plan-time name.</summary>
+    private static async Task<string?> CurrentNameAsync(SlotBlobService svc, int index)
     {
         var pedal = await svc.ListAsync(CancellationToken.None);
-        return !string.IsNullOrEmpty(pedal[index].Name);
+        var name = pedal[index].Name;
+        return string.IsNullOrEmpty(name) ? null : name;
     }
 
     private SlotBlobService ServiceFor(SnapshotSlotKind kind) => kind switch

@@ -241,4 +241,27 @@ public class SnapshotRestoreServiceTests
         Assert.Equal(new RestoreResult(Written: 1, SkippedIdentical: 0, Cleared: 0), result);
         Directory.Delete(rig.BackupDir, recursive: true);
     }
+
+    // IMPORTANT (re-review) — the rename-on-skip decision must use the FRESH name-table read on
+    // the self-read path, not the plan-time PedalName: a slot renamed out-of-band between
+    // PlanAsync and this action, where the plan-time name happened to already match the
+    // snapshot's, must still be corrected.
+    [Fact]
+    public async Task Execute_uses_fresh_name_for_rename_decision_after_out_of_band_rename()
+    {
+        var rig = MakeRig();
+        var same = Blob(4096, 5);
+        rig.Irs.SeedSlot(0, "Match", same);
+        var (manifest, blobs) = Snap((SnapshotSlotKind.Ir, 0, "Match", same));
+        var plan = await rig.Svc.PlanAsync(manifest, blobs);
+        Assert.Equal("Match", plan.Actions.Single().PedalName);      // plan-time name already matches...
+
+        rig.Irs.SeedSlot(0, "RenamedOOB", same);                     // ...but renamed out-of-band before execute (content unchanged)
+
+        var result = await rig.Svc.ExecuteAsync(plan);
+
+        Assert.Equal("Match", rig.Irs.SlotNames[0]);                 // fresh-name compare caught the stale plan-time name
+        Assert.Equal(new RestoreResult(Written: 0, SkippedIdentical: 1, Cleared: 0), result);
+        Directory.Delete(rig.BackupDir, recursive: true);
+    }
 }
