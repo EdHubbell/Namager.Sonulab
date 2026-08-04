@@ -741,4 +741,134 @@ public class ParameterEditorViewModelTests
         Assert.Equal("Good", vm.PresetName);           // and the queue still drained
         Assert.Equal(1, vm.LoadedIndex);
     }
+
+    // ---- generic recursive nesting (Modulation spec, Task 4) ----
+
+    /// <summary>A delay block shaped like the real firmware: a container (`dlytime`) that arrives
+    /// BEFORE its children and is itself `type:"item"`, plus a folder with a nested container.</summary>
+    static FakeSonuLink NestedDev()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\delay\\on_off:{\"desc\":\"Enable\",\"value\":\"ON\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}",
+            "root\\app\\delay\\dlytime:{\"desc\":\"Time\",\"value\":\"partempo\",\"type\":\"item\",\"item_type\":\"module\"}",
+            "root\\app\\delay\\fdbk:{\"desc\":\"Feedback\",\"value\":30.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0}",
+            "root\\app\\delay\\ddfolder:{\"desc\":\"Dual Delay\",\"value\":\"\",\"type\":\"item\",\"item_type\":\"vfolder\"}",
+            "root\\app\\delay\\dlytime\\rawdata:{\"desc\":\"Time\",\"value\":300.0,\"type\":\"float\",\"min\":1.0,\"max\":2000.0,\"unit\":\"ms\"}",
+            "root\\app\\delay\\dlytime\\sbdv:{\"desc\":\"Time Subdivision\",\"value\":\"1/4\",\"type\":\"enum\",\"options\":[\"1/4\",\"1/8\"]}",
+            "root\\app\\delay\\ddfolder\\on_off:{\"desc\":\"Enable\",\"value\":\"OFF\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}",
+            "root\\app\\delay\\ddfolder\\rtime:{\"desc\":\"Time R\",\"value\":\"partempo\",\"type\":\"item\",\"item_type\":\"module\"}",
+            "root\\app\\delay\\ddfolder\\rtime\\rawdata:{\"desc\":\"Time R\",\"value\":300.0,\"type\":\"float\",\"min\":1.0,\"max\":2000.0,\"unit\":\"ms\"}");
+        return d;
+    }
+
+    [Fact] public async Task Nesting_goes_three_levels_deep_instead_of_flattening()
+    {
+        var d = NestedDev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var delay = vm.Blocks.Single(b => b.Path == @"root\app\delay");
+        var dual = delay.Groups.Single(g => g.Path == @"root\app\delay\ddfolder");
+        var rtime = dual.Groups.Single(g => g.Path == @"root\app\delay\ddfolder\rtime");
+        Assert.Equal("Time R", rtime.Header);
+        Assert.Equal(@"root\app\delay\ddfolder\rtime\rawdata", Assert.Single(rtime.Fields).Path);
+        // The grandchild must NOT have been flattened into ddfolder alongside its own leaves.
+        Assert.DoesNotContain(dual.Fields, f => f.Path.EndsWith(@"\rtime\rawdata"));
+    }
+
+    [Fact] public async Task A_container_node_produces_a_group_and_no_field_row()
+    {
+        var d = NestedDev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var delay = vm.Blocks.Single(b => b.Path == @"root\app\delay");
+        // `dlytime` is type:"item" — a container. It is a group, never a row.
+        Assert.Contains(delay.Groups, g => g.Path == @"root\app\delay\dlytime");
+        Assert.DoesNotContain(delay.Fields, f => f.Path == @"root\app\delay\dlytime");
+    }
+
+    [Fact] public async Task Groups_interleave_with_fields_in_firmware_browse_order()
+    {
+        var d = NestedDev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        // Firmware order is on_off, dlytime(folder), fdbk, ddfolder(folder) — the folders sit
+        // where the device puts them, not appended after every field.
+        var delay = vm.Blocks.Single(b => b.Path == @"root\app\delay");
+        Assert.Equal(
+            new[] { @"root\app\delay\on_off", @"root\app\delay\dlytime", @"root\app\delay\fdbk", @"root\app\delay\ddfolder" },
+            delay.Items.Select(i => i is ParameterFieldViewModel f ? f.Path : ((ParameterGroupViewModel)i).Path).ToArray());
+    }
+
+    [Fact] public async Task A_nested_group_gets_its_own_enable_toggle()
+    {
+        var d = NestedDev(); await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var delay = vm.Blocks.Single(b => b.Path == @"root\app\delay");
+        Assert.True(delay.Enabled);                                                  // block's own on_off
+        Assert.False(delay.Groups.Single(g => g.Path.EndsWith(@"\ddfolder")).Enabled); // folder's own on_off
+        Assert.Null(delay.Groups.Single(g => g.Path.EndsWith(@"\dlytime")).Enabled);   // has none
+    }
+
+    [Fact] public async Task A_folder_whose_every_leaf_is_hidden_produces_no_group()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\delay\\fdbk:{\"desc\":\"Feedback\",\"value\":30.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0}",
+            "root\\app\\delay\\ghost:{\"desc\":\"Ghost\",\"value\":\"\",\"type\":\"item\",\"item_type\":\"vfolder\"}",
+            "root\\app\\delay\\ghost\\_st:{\"desc\":\"State\",\"value\":0.0,\"type\":\"float\",\"min\":0.0,\"max\":1.0}");
+        await d.OpenAsync();
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()),
+            new ParameterExposure(new[] { @"*\_st" }));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var delay = vm.Blocks.Single(b => b.Path == @"root\app\delay");
+        Assert.Empty(delay.Groups);
+        Assert.Single(delay.Fields);
+    }
+
+    [Fact] public async Task An_editable_container_puts_its_own_value_first_inside_its_group()
+    {
+        // Does not occur on fw 2.5.1 — every container is type:"item". This is the guard that a
+        // future firmware making one of them editable renders its value with its own children
+        // rather than adrift in the parent's list.
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\delay\\dlytime:{\"desc\":\"Time\",\"value\":\"partempo\",\"type\":\"enum\",\"options\":[\"partempo\",\"ms\"]}",
+            "root\\app\\delay\\dlytime\\rawdata:{\"desc\":\"Time\",\"value\":300.0,\"type\":\"float\",\"min\":1.0,\"max\":2000.0}");
+        await d.OpenAsync();
+        var vm = Vm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var delay = vm.Blocks.Single(b => b.Path == @"root\app\delay");
+        Assert.DoesNotContain(delay.Fields, f => f.Path == @"root\app\delay\dlytime");
+        var time = delay.Groups.Single(g => g.Path == @"root\app\delay\dlytime");
+        Assert.Equal(new[] { @"root\app\delay\dlytime", @"root\app\delay\dlytime\rawdata" },
+                     time.Fields.Select(f => f.Path).ToArray());
+    }
+
+    [Fact] public async Task Save_writes_a_field_nested_three_levels_deep()
+    {
+        var d = NestedDev(); await d.OpenAsync();
+        var vm = Vm(d);
+        vm.PresetName = "P";
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+
+        var deep = vm.Blocks.Single(b => b.Path == @"root\app\delay")
+                     .Groups.Single(g => g.Path.EndsWith(@"\ddfolder"))
+                     .Groups.Single(g => g.Path.EndsWith(@"\rtime"))
+                     .Fields.Single();
+        deep.Number = 450.0;
+        Assert.True(vm.IsDirty);
+
+        await vm.SaveCommand.ExecuteAsync(null);
+        Assert.Contains(d.CommandLog,
+            c => c.StartsWith(@"write root\app\delay\ddfolder\rtime\rawdata:", StringComparison.Ordinal));
+    }
 }

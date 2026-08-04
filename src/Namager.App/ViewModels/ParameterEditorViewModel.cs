@@ -196,6 +196,11 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             Blocks.Add(levelSection);
         }
 
+        // Which paths are containers: any node that some other node hangs off. Derived from the
+        // records rather than from `item_type`, so a firmware that invents a new folder flavour
+        // still nests correctly.
+        var parentPaths = new HashSet<string>(records.Select(r => ParentOf(r.Path)), StringComparer.Ordinal);
+
         foreach (var block in Blocks_InScope)
         {
             var prefix = @"root\app\" + block;
@@ -204,16 +209,27 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                 // `eq` is the only block with no on_off field, so its header icon slot is free.
                 ShowEqIcon = string.Equals(block, "eq", StringComparison.OrdinalIgnoreCase),
             };
-            var subgroups = new Dictionary<string, ParameterGroupViewModel>(StringComparer.Ordinal);
+            var byPath = new Dictionary<string, ParameterGroupViewModel>(StringComparer.Ordinal) { [prefix] = section };
 
+            // ONE pass, in browse order, doing both jobs per record. A container's OWN record
+            // always arrives before its children (mod: on_off, mode, rate, dpth, mix, tcfolder,
+            // trfolder, then rate's own leaves), so creating its group right here — rather than
+            // lazily on its first child — already places it where the firmware put it relative to
+            // its siblings. Splitting this into a groups-first pass and a fields-second pass would
+            // put every group before every field regardless of firmware order, which is not the
+            // same thing: interleaving needs both jobs to advance through the SAME iteration.
+            // Groups that end up empty (every leaf hidden, or a container the firmware never
+            // fills) are pruned below.
             foreach (var rec in records)
             {
-                if (rec.Path != prefix && !rec.Path.StartsWith(prefix + "\\", StringComparison.Ordinal)) continue;
+                if (!InBlock(rec.Path, prefix) || rec.Path == prefix) continue;
+
+                if (parentPaths.Contains(rec.Path)) EnsureGroup(rec.Path, byPath, records);
+
                 var schema = NodeSchema.FromRecord(rec);
                 if (!EditableTypes.Contains(schema.Type)) continue;     // skip folders/containers/modules
                 if (_exposure.IsHidden(rec.Path)) continue;
 
-                var seg = rec.Path.Split('\\');                          // [root, app, block, (folder?), leaf]
                 var value = rec.Json.TryGetProperty("value", out var v) ? v.GetRawText() : "\"\"";
                 var labeled = new ParameterFieldViewModel(schema, value,
                     schema.Ref is { Length: > 0 } fr && refOptions.TryGetValue(fr, out var opts) && opts.Count > 0
@@ -225,24 +241,20 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
                 labeled.ShowReset = labeled.Kind == "float";
                 WireDirtyTracking(labeled);
 
-                if (seg.Length == 4)                                     // root\app\block\leaf
-                {
-                    section.Add(labeled);
-                }
-                else                                                     // root\app\block\folder\...\leaf
-                {
-                    var folderPath = prefix + "\\" + seg[3];
-                    if (!subgroups.TryGetValue(folderPath, out var sub))
-                    {
-                        sub = new ParameterGroupViewModel(_labels.Label(folderPath, DescOf(records, folderPath)), folderPath);
-                        subgroups[folderPath] = sub;
-                        section.Add(sub);
-                    }
-                    sub.Add(labeled);
-                }
+                // An editable node that is ALSO a container keeps its value with its own children
+                // instead of in the parent's list. No fw 2.5.1 node is both (every container is
+                // type:"item"); this is the guard for a firmware that changes that. The group for
+                // rec.Path (if any) was just created above in this same iteration, so byPath
+                // already has it.
+                if (byPath.TryGetValue(rec.Path, out var own)) own.InsertFirst(labeled);
+                else EnsureGroup(ParentOf(rec.Path), byPath, records).Add(labeled);
             }
 
-            section.AttachEnableField();
+            Prune(section);
+            // Walk the PRUNED tree, not byPath.Values — that dictionary still holds the groups
+            // Prune just detached, and wiring anything onto those leaks handlers into nothing.
+            foreach (var g in SelfAndDescendants(section)) g.AttachEnableField();
+
             if (section.Items.Count > 0)
             {
                 section.IsExpanded = _expansion.TryGetValue(prefix, out var exp) && exp;
@@ -663,5 +675,44 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             if (r.Path == path && r.Json.TryGetProperty("desc", out var d) && d.ValueKind == System.Text.Json.JsonValueKind.String)
                 return d.GetString();
         return null;
+    }
+
+    private static string ParentOf(string path)
+    {
+        int i = path.LastIndexOf('\\');
+        return i > 0 ? path[..i] : path;
+    }
+
+    private static bool InBlock(string path, string prefix) =>
+        path == prefix || path.StartsWith(prefix + "\\", StringComparison.Ordinal);
+
+    /// <summary>Find or create the group for <paramref name="path"/>, creating any missing ancestors
+    /// on the way. Recursion terminates because <paramref name="byPath"/> is pre-seeded with the
+    /// block's own prefix, which every path here is under.</summary>
+    private ParameterGroupViewModel EnsureGroup(string path,
+        Dictionary<string, ParameterGroupViewModel> byPath, IReadOnlyList<NodeRecord> records)
+    {
+        if (byPath.TryGetValue(path, out var existing)) return existing;
+        var parent = EnsureGroup(ParentOf(path), byPath, records);
+        var group = new ParameterGroupViewModel(_labels.Label(path, DescOf(records, path)), path);
+        parent.Add(group);
+        byPath[path] = group;
+        return group;
+    }
+
+    /// <summary>This group and every group beneath it, in tree order.</summary>
+    private static IEnumerable<ParameterGroupViewModel> SelfAndDescendants(ParameterGroupViewModel g) =>
+        new[] { g }.Concat(g.Groups.SelectMany(SelfAndDescendants));
+
+    /// <summary>Drop groups that ended up with nothing in them — a folder whose every leaf is
+    /// blocklisted, or a container the firmware publishes but never fills. Bottom-up, so a folder
+    /// holding only empty folders goes too.</summary>
+    private static void Prune(ParameterGroupViewModel group)
+    {
+        foreach (var child in group.Groups.ToArray())
+        {
+            Prune(child);
+            if (child.Items.Count == 0) group.Items.Remove(child);
+        }
     }
 }
