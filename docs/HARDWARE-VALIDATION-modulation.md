@@ -6,12 +6,12 @@ sanity check. Backups land in `docs/backups/` (gitignored).
 
 ## Structure
 
-- [ ] Modulation appears between Impulse Response and Delay.
-- [ ] Its header carries the power glyph, lit per `mod\on_off`.
-- [ ] Expanding it shows, in order: Enable, Mode, ▸ Rate, Depth, Dry-Wet, ▸ Tone and Character, ▸ Tremolo.
-- [ ] Tremolo has its own power glyph and its own ▸ Rate inside it.
-- [ ] Rate (both of them) holds Rate, Time Subdivision, Lock Options — and nothing else.
-- [ ] The two Rate groups expand independently; collapsing one does not move the other.
+- [x] Modulation appears between Impulse Response and Delay.
+- [x] Its header carries the power glyph, lit per `mod\on_off`.
+- [x] Expanding it shows, in order: Enable, Mode, ▸ Rate, Depth, Dry-Wet, ▸ Tone and Character, ▸ Tremolo.
+- [x] Tremolo has its own power glyph and its own ▸ Rate inside it.
+- [x] Rate (both of them) holds Rate, Time Subdivision, Lock Options — and nothing else.
+- [x] The two Rate groups expand independently; collapsing one does not move the other.
 - [ ] Select a preset with Tremolo ON: Tremolo is already expanded when you open Modulation.
       Select one with it OFF: collapsed.
 - [ ] Collapse an auto-opened Tremolo, switch presets, return — it stays collapsed.
@@ -23,8 +23,8 @@ For each of `mode`, `dpth`, `mix`, `rate\rawdata`, `rate\sbdv`, `rate\lock`, `tc
 `trfolder\dpt`, `trfolder\wave`, `trfolder\sphase`, `trfolder\rate\rawdata`, `trfolder\rate\sbdv`,
 `trfolder\rate\lock`:
 
-- [ ] Change it, Save, select another preset, come back — the value persisted.
-- [ ] Confirm against the device: `dotnet run --project tools/HwCheck -- --browse root\app\mod`.
+- [x] Change it, Save, select another preset, come back — the value persisted.
+- [x] Confirm against the device: `dotnet run --project tools/HwCheck -- --browse root\app\mod`.
 
 ## Audible
 
@@ -37,16 +37,16 @@ For each of `mode`, `dpth`, `mix`, `rate\rawdata`, `rate\sbdv`, `rate\lock`, `tc
 
 ## Readout
 
-- [ ] Hi-Cut reads `18000 Hz`, not `18000.00`. Modulation Depth (`mod\dpth`) reads `50%`. Tremolo Depth (`trfolder\dpt`) reads `25%`. Stereo Phase reads `0 deg`.
-- [ ] Delay time reads `300 ms`; gate threshold reads `-60 dB`.
-- [ ] At the narrowest usable window width, the widened value column (52 → 64 px) has not pushed the reset button out of view.
+- [x] Hi-Cut reads `18000 Hz`, not `18000.00`. Modulation Depth (`mod\dpth`) reads `50%`. Tremolo Depth (`trfolder\dpt`) reads `25%`. Stereo Phase reads `0 deg`.
+- [x] Delay time reads `300 ms`; gate threshold reads `-60 dB`.
+- [x] At the narrowest usable window width, the widened value column (52 → 64 px) has not pushed the reset button out of view.
 
 ## No regressions elsewhere
 
-- [ ] Delay renders with Time / Tone and Character / Modulation / Dual Delay as expanders, Time
+- [x] Delay renders with Time / Tone and Character / Modulation / Dual Delay as expanders, Time
       second, and every field it had before is still present and still saves.
-- [ ] Dual Delay's own Time R group is nested inside it, not flattened alongside its leaves.
-- [ ] Expression's Wah and Volume folders still render and save.
-- [ ] The Level block is still first, still expanded, still explains itself, and match-volume still
+- [x] Dual Delay's own Time R group is nested inside it, not flattened alongside its leaves.
+- [x] Expression's Wah and Volume folders still render and save.
+- [x] The Level block is still first, still expanded, still explains itself, and match-volume still
       opens the preset picker and applies a proposal.
-- [ ] The amp picker's detail flyout still opens from the Amp block.
+- [x] The amp picker's detail flyout still opens from the Amp block.
