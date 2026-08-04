@@ -76,7 +76,11 @@ public class ReorderServiceTests
     {
         var d = Dev(); await d.OpenAsync(); var r = Repo(d);
         var seen = new List<ReorderProgress>();
-        await new ReorderService(r).MoveAsync(3, 1, new Progress<ReorderProgress>(p => { lock (seen) seen.Add(p); }));
+        // NOT System.Progress<T>: it posts each callback to the captured SynchronizationContext
+        // (the ThreadPool under xUnit), so delivery races this assertion — the same defect that
+        // made RestorePresetsAsyncTests fail intermittently in CI with an empty list. SyncProgress
+        // reports inline on the awaited call, which also makes the lock unnecessary.
+        await new ReorderService(r).MoveAsync(3, 1, new SyncProgress<ReorderProgress>(seen.Add));
         Assert.NotEmpty(seen);
     }
 
@@ -195,4 +199,9 @@ public class ReorderServiceTests
         Assert.Equal(new[] { "B", "A", "C", "D" }, names);   // only the first swap applied: a valid partial order
         Assert.Equal(new[] { "A", "B", "C", "D" }, names.OrderBy(n => n));   // no preset lost or duplicated
     }
+}
+
+file sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
+{
+    public void Report(T value) => handler(value);
 }
