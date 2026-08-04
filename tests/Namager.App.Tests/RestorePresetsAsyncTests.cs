@@ -153,7 +153,13 @@ public class RestorePresetsAsyncTests
         var vm = new MainWindowViewModel { Connection = connVm };
         var progressLines = new System.Collections.Generic.List<string>();
         var summary = await vm.RestorePresetsAsync(
-            plan, progress: new Progress<string>(s => progressLines.Add(s)), CancellationToken.None);
+            // NOT System.Progress<string>: it posts each callback to the captured
+            // SynchronizationContext (the ThreadPool under xUnit), so delivery races the
+            // assertion below and this test failed intermittently in CI with an EMPTY list
+            // while the restore itself had succeeded. SyncProgress reports inline, which is
+            // what an assertion on the exact sequence needs. Same pattern as AmpServiceTests
+            // and SnapshotRestoreServiceTests.
+            plan, progress: new SyncProgress<string>(s => progressLines.Add(s)), CancellationToken.None);
 
         Assert.Equal("Restored 2 presets.", summary);
         Assert.Equal(new[] { "1/2 — Restored A", "2/2 — Restored B" }, progressLines);
@@ -193,4 +199,9 @@ public class RestorePresetsAsyncTests
         var names = await repo.ListPresetsAsync();
         Assert.Equal("", names[5].Name);   // untouched: never renamed, let alone half-written
     }
+}
+
+file sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
+{
+    public void Report(T value) => handler(value);
 }
