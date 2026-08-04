@@ -133,7 +133,7 @@ public class MatchVolumeTests
 
         await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
 
-        Assert.Equal(6.0, vm.Blocks[0].Fields[0].Number, 3);
+        Assert.Equal(6.0, vm.Blocks[0].Fields.First().Number, 3);
         Assert.True(vm.IsDirty);                       // proposed, NOT written
         Assert.DoesNotContain(d.CommandLog, c => c.StartsWith(@"write root\app\output\pst\level:", StringComparison.Ordinal));
     }
@@ -147,7 +147,7 @@ public class MatchVolumeTests
 
         await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
 
-        Assert.Equal(4.0, vm.Blocks[0].Fields[0].Number, 3);   // 6 dB louder, trimmed 2 dB down
+        Assert.Equal(4.0, vm.Blocks[0].Fields.First().Number, 3);   // 6 dB louder, trimmed 2 dB down
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class MatchVolumeTests
 
         await vm.MatchVolumeAsync(() => Task.FromResult<int?>(null));
 
-        Assert.Equal(0.0, vm.Blocks[0].Fields[0].Number);
+        Assert.Equal(0.0, vm.Blocks[0].Fields.First().Number);
         Assert.False(vm.IsDirty);
     }
 
@@ -173,7 +173,7 @@ public class MatchVolumeTests
 
         await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
 
-        Assert.Equal(20.0, vm.Blocks[0].Fields[0].Number, 3);
+        Assert.Equal(20.0, vm.Blocks[0].Fields.First().Number, 3);
         Assert.Contains(status.Succeeded, m => m.Contains("as far as it goes", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -192,7 +192,7 @@ public class MatchVolumeTests
 
         await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));   // must not throw
 
-        Assert.Equal(0.0, vm.Blocks[0].Fields[0].Number);
+        Assert.Equal(0.0, vm.Blocks[0].Fields.First().Number);
         Assert.NotNull(vm.ErrorMessage);
     }
 
@@ -293,7 +293,7 @@ public class MatchVolumeTests
             readIrBlob: (_, _) => Task.FromResult<byte[]?>(null),
             readPresetDoc: (_, _) => { started.TrySetResult(); return release.Task; });
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
-        var staleField = vm.Blocks[0].Fields[0];
+        var staleField = vm.Blocks[0].Fields.First();
 
         var match = vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
         await started.Task;                              // the target-slot read is now stuck
@@ -305,7 +305,7 @@ public class MatchVolumeTests
         await match;                                      // must not throw
 
         Assert.Equal(0.0, staleField.Number);              // the abandoned run never wrote to it
-        Assert.Equal(0.0, vm.Blocks[0].Fields[0].Number);  // the NEW preset's slider is untouched
+        Assert.Equal(0.0, vm.Blocks[0].Fields.First().Number);  // the NEW preset's slider is untouched
         Assert.False(vm.IsDirty);
     }
 
@@ -360,7 +360,7 @@ public class MatchVolumeTests
 
         // Loaded is +4 dB louder than its own stored .pst (and than the flat target), so matching
         // a flat target must propose -4 dB — proof the live edit, not the stored 0, was used.
-        Assert.Equal(-4.0, vm.Blocks[0].Fields[0].Number, 3);
+        Assert.Equal(-4.0, vm.Blocks[0].Fields.First().Number, 3);
     }
 
     [Fact]
@@ -379,7 +379,7 @@ public class MatchVolumeTests
 
         await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
 
-        Assert.Equal(0.0, vm.Blocks[0].Fields[0].Number);   // slider left exactly where it was
+        Assert.Equal(0.0, vm.Blocks[0].Fields.First().Number);   // slider left exactly where it was
         Assert.False(vm.IsDirty);
         Assert.NotNull(vm.ErrorMessage);
         Assert.Contains("silent", vm.ErrorMessage, StringComparison.OrdinalIgnoreCase);

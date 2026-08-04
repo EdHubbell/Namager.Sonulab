@@ -35,7 +35,7 @@ public class AmpDetailFlyoutTests
     static async Task<ParameterFieldViewModel> AmpRefFieldAsync(ParameterEditorViewModel vm, string name)
     {
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
-        var f = vm.Blocks.SelectMany(b => b.Fields.Concat(b.SubGroups.SelectMany(s => s.Fields)))
+        var f = vm.Blocks.SelectMany(b => b.Fields.Concat(b.Groups.SelectMany(s => s.Fields)))
                          .Single(x => x.RefSource == @"root\amp");
         f.Text = name;
         return f;

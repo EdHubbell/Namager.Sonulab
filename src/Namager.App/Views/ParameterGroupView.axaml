@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Namager.App.ViewModels" xmlns:conv="using:Namager.App.Converters"
+             xmlns:views="using:Namager.App.Views"
+             x:Class="Namager.App.Views.ParameterGroupView" x:DataType="vm:ParameterGroupViewModel">
+  <!-- One group, at ANY depth. Nested groups are rendered by instantiating this same control —
+       a self-instantiating UserControl rather than a self-referencing DataTemplate resource,
+       which Avalonia resolves reliably. -->
+  <Expander IsExpanded="{Binding IsExpanded}" Margin="4,2"
+            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+    <Expander.Header>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <PathIcon Data="{StaticResource Icon.Power}" Width="14" Height="14"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding Enabled, Converter={x:Static conv:NotNull.Instance}}"
+                  Foreground="{Binding Enabled, Converter={x:Static conv:EnabledToBrush.Instance}}"
+                  ToolTip.Tip="{Binding Enabled, Converter={x:Static conv:EnabledToTooltip.Instance}}"/>
+        <PathIcon Data="{StaticResource Icon.Equalizer}" Width="14" Height="14"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding ShowEqIcon}"
+                  Foreground="{Binding IsEqActive, Converter={x:Static conv:ActiveToBrush.Instance}}"
+                  ToolTip.Tip="Equalizer is not flat"/>
+        <PathIcon Data="{StaticResource Icon.VolumeHigh}" Width="14" Height="14"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding ShowLevelIcon}"
+                  Foreground="{Binding IsEqActive, Converter={x:Static conv:ActiveToBrush.Instance}}"
+                  ToolTip.Tip="Lights up when this preset is trimmed away from 0 dB"/>
+        <TextBlock Text="{Binding Header}" VerticalAlignment="Center"/>
+      </StackPanel>
+    </Expander.Header>
+    <StackPanel>
+      <!-- Fields and nested groups come out of ONE ordered collection so they interleave in
+           firmware order. Two DataTemplates pick the renderer by item type. -->
+      <ItemsControl ItemsSource="{Binding Items}">
+        <ItemsControl.DataTemplates>
+          <DataTemplate DataType="vm:ParameterFieldViewModel">
+            <views:ParameterFieldView/>
+          </DataTemplate>
+          <DataTemplate DataType="vm:ParameterGroupViewModel">
+            <views:ParameterGroupView Margin="12,0,0,0"/>
+          </DataTemplate>
+        </ItemsControl.DataTemplates>
+      </ItemsControl>
+      <!-- Only the Level block explains itself: it is the one control whose PURPOSE is not
+           obvious from its label, and it was invisible before this change. -->
+      <StackPanel Orientation="Horizontal" Spacing="8" Margin="4,2,4,4"
+                  IsVisible="{Binding ShowLevelIcon}">
+        <TextBlock Classes="section-label" TextWrapping="Wrap" MaxWidth="300"
+                   Text="Trims this preset's output after every effect — use it to match loudness between presets. It doesn't change the tone."/>
+        <Button Width="26" Height="26" Padding="0" VerticalAlignment="Center"
+                IsEnabled="{Binding $parent[views:ParameterEditorView].((vm:ParameterEditorViewModel)DataContext).CanMatchVolume}"
+                Click="OnMatchVolumeClick"
+                ToolTip.Tip="Match this preset's volume to another preset">
+          <PathIcon Data="{StaticResource Icon.VolumeEqual}" Width="14" Height="14"/>
+        </Button>
+      </StackPanel>
+    </StackPanel>
+  </Expander>
+</UserControl>

@@ -92,7 +92,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         }
     }
 
-    public ObservableCollection<BlockSectionViewModel> Blocks { get; } = new();
+    public ObservableCollection<ParameterGroupViewModel> Blocks { get; } = new();
     [ObservableProperty] private bool _isDirty;
     [ObservableProperty] private string _presetName = "";
     [ObservableProperty] private bool _isLoading;
@@ -178,7 +178,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         if (levelRec is not null)
         {
             var levelSchema = NodeSchema.FromRecord(levelRec);
-            var levelSection = new BlockSectionViewModel(LevelBlockHeader) { ShowLevelIcon = true };
+            var levelSection = new ParameterGroupViewModel(LevelBlockHeader, levelKey) { ShowLevelIcon = true };
             var levelValue = levelRec.Json.TryGetProperty("value", out var lv) ? lv.GetRawText() : "0";
             var levelField = new ParameterFieldViewModel(levelSchema, levelValue)
             {
@@ -187,7 +187,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             };
             WireDirtyTracking(levelField);
             LevelField = levelField;
-            levelSection.Fields.Add(levelField);
+            levelSection.Add(levelField);
             // Expanded by default — unlike every other block. This is the headline control and
             // was invisible before; a collapsed default would leave it just as hard to find.
             // The per-session memory still wins once the user has collapsed it.
@@ -199,12 +199,12 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
         foreach (var block in Blocks_InScope)
         {
             var prefix = @"root\app\" + block;
-            var section = new BlockSectionViewModel(_labels.Label(prefix, DescOf(records, prefix)))
+            var section = new ParameterGroupViewModel(_labels.Label(prefix, DescOf(records, prefix)), prefix)
             {
                 // `eq` is the only block with no on_off field, so its header icon slot is free.
                 ShowEqIcon = string.Equals(block, "eq", StringComparison.OrdinalIgnoreCase),
             };
-            var subgroups = new Dictionary<string, SubGroupViewModel>();
+            var subgroups = new Dictionary<string, ParameterGroupViewModel>(StringComparer.Ordinal);
 
             foreach (var rec in records)
             {
@@ -227,23 +227,23 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
                 if (seg.Length == 4)                                     // root\app\block\leaf
                 {
-                    section.Fields.Add(labeled);
+                    section.Add(labeled);
                 }
                 else                                                     // root\app\block\folder\...\leaf
                 {
                     var folderPath = prefix + "\\" + seg[3];
                     if (!subgroups.TryGetValue(folderPath, out var sub))
                     {
-                        sub = new SubGroupViewModel(_labels.Label(folderPath, DescOf(records, folderPath)));
+                        sub = new ParameterGroupViewModel(_labels.Label(folderPath, DescOf(records, folderPath)), folderPath);
                         subgroups[folderPath] = sub;
-                        section.SubGroups.Add(sub);
+                        section.Add(sub);
                     }
-                    sub.Fields.Add(labeled);
+                    sub.Add(labeled);
                 }
             }
 
-            section.EnableField = section.Fields.FirstOrDefault(f => f.Path.EndsWith("\\on_off", StringComparison.Ordinal));
-            if (section.Fields.Count > 0 || section.SubGroups.Count > 0)
+            section.AttachEnableField();
+            if (section.Items.Count > 0)
             {
                 section.IsExpanded = _expansion.TryGetValue(prefix, out var exp) && exp;
                 WireExpansionMemory(section, prefix);
@@ -270,10 +270,10 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     /// <paramref name="key"/> (a stable block PATH, not the header — see the field's own comment)
     /// whenever the user toggles it. Shared by the Level block and every
     /// <see cref="Blocks_InScope"/> block.</summary>
-    private void WireExpansionMemory(BlockSectionViewModel section, string key) =>
+    private void WireExpansionMemory(ParameterGroupViewModel section, string key) =>
         section.PropertyChanged += (s, e) =>
         {
-            if (e.PropertyName == nameof(BlockSectionViewModel.IsExpanded) && s is BlockSectionViewModel b)
+            if (e.PropertyName == nameof(ParameterGroupViewModel.IsExpanded) && s is ParameterGroupViewModel b)
                 _expansion[key] = b.IsExpanded;
         };
 
@@ -649,8 +649,13 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
     private static string Unquote(string json) => json.Trim().Trim('"');
 
-    private IEnumerable<ParameterFieldViewModel> AllFields() =>
-        Blocks.SelectMany(b => b.Fields.Concat(b.SubGroups.SelectMany(s => s.Fields)));
+    /// <summary>Every field in the editor, at every nesting depth. Save, dirty tracking, the
+    /// ref-option refresh and the volume-match overlay all walk this, so a field the tree builder
+    /// nested three levels down must be as visible here as a top-level one.</summary>
+    private IEnumerable<ParameterFieldViewModel> AllFields() => Blocks.SelectMany(FieldsOf);
+
+    private static IEnumerable<ParameterFieldViewModel> FieldsOf(ParameterGroupViewModel g) =>
+        g.Fields.Concat(g.Groups.SelectMany(FieldsOf));
 
     private static string? DescOf(IReadOnlyList<NodeRecord> recs, string path)
     {

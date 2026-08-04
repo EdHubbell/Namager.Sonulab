@@ -60,7 +60,7 @@ public class ParameterEditorViewModelTests
         var vm = Vm(d);
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         var delay = vm.Blocks.First(b => b.Header.Equals("delay", StringComparison.OrdinalIgnoreCase));
-        var sub = Assert.Single(delay.SubGroups);
+        var sub = Assert.Single(delay.Groups);
         Assert.Contains(sub.Fields, f => f.Path.EndsWith(@"\tape"));
     }
 
@@ -105,7 +105,7 @@ public class ParameterEditorViewModelTests
         var d = Dev(); await d.OpenAsync();
         var vm = Vm(d);
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
-        var all = vm.Blocks.SelectMany(b => b.Fields.Concat(b.SubGroups.SelectMany(s => s.Fields)));
+        var all = vm.Blocks.SelectMany(b => b.Fields.Concat(b.Groups.SelectMany(s => s.Fields)));
         Assert.DoesNotContain(all, f => f.Path == @"root\app\output\pst\tmp");
         Assert.DoesNotContain(all, f => f.Path == @"root\app\output\vol");
     }
@@ -129,7 +129,7 @@ public class ParameterEditorViewModelTests
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
         Assert.False(vm.IsDirty);
 
-        vm.Blocks[0].Fields[0].Number = -6.0;
+        vm.Blocks[0].Fields.First().Number = -6.0;
         Assert.True(vm.IsDirty);
 
         await vm.SaveCommand.ExecuteAsync(null);
@@ -198,7 +198,7 @@ public class ParameterEditorViewModelTests
         var amp = vm.Blocks.First(b => b.Header.Equals("amp", StringComparison.OrdinalIgnoreCase));
         Assert.True(amp.Enabled);
         bool raised = false;
-        amp.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(BlockSectionViewModel.Enabled)) raised = true; };
+        amp.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ParameterGroupViewModel.Enabled)) raised = true; };
         amp.EnableField!.Text = "OFF";
         Assert.False(amp.Enabled);
         Assert.True(raised);
@@ -573,7 +573,7 @@ public class ParameterEditorViewModelTests
         var vm = Vm(d);
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
 
-        var all = vm.Blocks.SelectMany(b => b.Fields.Concat(b.SubGroups.SelectMany(s => s.Fields))).ToList();
+        var all = vm.Blocks.SelectMany(b => b.Fields.Concat(b.Groups.SelectMany(s => s.Fields))).ToList();
         Assert.NotEmpty(all.Where(f => f.Kind == "float"));
         Assert.All(all, f => Assert.Equal(f.Kind == "float", f.ShowReset));
     }
@@ -585,7 +585,7 @@ public class ParameterEditorViewModelTests
         var vm = Vm(d);
         await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
 
-        var tape = vm.Blocks.SelectMany(b => b.SubGroups).SelectMany(s => s.Fields)
+        var tape = vm.Blocks.SelectMany(b => b.Groups).SelectMany(s => s.Fields)
                             .Single(f => f.Path.EndsWith(@"\tape"));
         Assert.True(tape.ShowReset);
     }
