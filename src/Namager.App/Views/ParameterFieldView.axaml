@@ -1,0 +1,54 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Namager.App.ViewModels" xmlns:conv="using:Namager.App.Converters"
+             xmlns:views="using:Namager.App.Views"
+             x:Class="Namager.App.Views.ParameterFieldView" x:DataType="vm:ParameterFieldViewModel">
+  <!-- ONE field row, used at every nesting depth. There were two copies of this markup (block
+       level and sub-group level) and they had already drifted apart: different label-column
+       widths, and only the block copy offered the amp-detail flyout. -->
+  <Grid ColumnDefinitions="180,*" Margin="4,2">
+    <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center"
+               ToolTip.Tip="{Binding Label}" TextTrimming="CharacterEllipsis"/>
+    <Panel Grid.Column="1">
+      <StackPanel Orientation="Horizontal" Spacing="6"
+                  IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Float}}">
+        <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
+        <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
+                   VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
+        <!-- Back to the firmware default. Most are not 0, so the tooltip names the actual value
+             rather than claiming "(0)". -->
+        <Button Width="24" Height="24" Padding="0" VerticalAlignment="Center"
+                IsVisible="{Binding ShowReset}"
+                Command="{Binding ResetCommand}"
+                ToolTip.Tip="{Binding ResetTooltip}">
+          <PathIcon Data="{StaticResource Icon.Reset}" Width="13" Height="13"
+                    Foreground="{Binding IsChangedFromDefault, Converter={x:Static conv:ActiveToBrush.Instance}}"/>
+        </Button>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="6"
+                  IsVisible="{Binding Kind, Converter={x:Static conv:Eq.EnumOrPlist}}">
+        <ComboBox ItemsSource="{Binding Options}" SelectedItem="{Binding Text}"/>
+        <!-- #9: amp detail without leaving the editor. Only the amp picker gets it; loaded on
+             open so browsing presets stays read-free. -->
+        <Button Width="26" Height="26" Padding="0" VerticalAlignment="Center"
+                ToolTip.Tip="Amp details"
+                IsVisible="{Binding RefSource, Converter={x:Static conv:Eq.AmpRef}}"
+                Command="{Binding $parent[views:ParameterEditorView].((vm:ParameterEditorViewModel)DataContext).ShowAmpDetailCommand}"
+                CommandParameter="{Binding}">
+          <PathIcon Data="{StaticResource Icon.Amp}" Width="13" Height="13"/>
+          <Button.Flyout>
+            <Flyout Placement="RightEdgeAlignedTop">
+              <!-- Bounded + scrolling: amp metadata can carry an arbitrary number of NAM fields,
+                   and an unbounded flyout would run off-screen (the same clipping class of bug
+                   as #12). -->
+              <ScrollViewer MaxHeight="420" MaxWidth="420" HorizontalScrollBarVisibility="Disabled">
+                <views:AmpDetailView
+                    DataContext="{Binding $parent[views:ParameterEditorView].((vm:ParameterEditorViewModel)DataContext).AmpDetail}"/>
+              </ScrollViewer>
+            </Flyout>
+          </Button.Flyout>
+        </Button>
+      </StackPanel>
+      <TextBox Text="{Binding Text}" IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Str}}"/>
+    </Panel>
+  </Grid>
+</UserControl>
