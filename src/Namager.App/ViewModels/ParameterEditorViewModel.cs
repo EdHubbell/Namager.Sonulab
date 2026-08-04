@@ -449,7 +449,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     [RelayCommand]
     public async Task MatchVolumeAsync(Func<Task<int?>> pickTarget)
     {
-        if (LevelField is null || _readAmpBlob is null || _readPresetDoc is null) return;
+        if (LevelField is null || _readAmpBlob is null || _readPresetDoc is null || LoadedIndex < 0) return;
 
         // Captured before ANY await: picking a target plus two multi-second estimates gives the
         // user plenty of time to select a different preset — nothing here sets IsLoading, so the
@@ -518,22 +518,47 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     /// whether each one individually happens to differ from ITS OWN default.</summary>
     private readonly record struct SideEstimate(Sonulab.Distill.PresetLevelEstimate Estimate, double AmpVolPercent);
 
-    /// <summary>Estimate the preset currently in the editor, using the live field values rather
-    /// than re-reading the slot — the editor already holds them, including unsaved edits, which
-    /// is what the user is actually listening to.</summary>
+    /// <summary>Estimate the preset currently in the editor. The base layer is the loaded slot's
+    /// OWN `.pst` — read via <see cref="Sonulab.Distill.LevelModel.InputPaths"/>, exactly like
+    /// <see cref="EstimateSlotAsync"/> builds the target's — rather than <c>AllFields()</c>, which
+    /// only covers <see cref="Blocks_InScope"/> (gate, exp, comp, amp, eq, ir, delay, reverb).
+    /// `mod` (and any future LevelModel term outside that list) is not in scope, so a path like
+    /// `root\app\mod\on_off` would be silently ABSENT from an AllFields()-only dictionary — and
+    /// LevelModel.IsOff treats an absent path as OFF regardless of the device's real value. That
+    /// made the caveat direction-dependent: a preset with chorus on was flagged only when it was
+    /// the TARGET, never when it was the one loaded. Reading both sides through the same
+    /// InputPaths contract keeps the caveat symmetric.
+    ///
+    /// Live field values are then overlaid on top of the `.pst` base for every path the editor
+    /// actually exposes, so an unsaved edit still wins — the editor already holds the values the
+    /// user is actually listening to, and that is what should be estimated.</summary>
     private async Task<SideEstimate> EstimateLoadedAsync()
     {
-        var byPath = AllFields().ToDictionary(f => f.Path, f => f.ToJsonValue(), StringComparer.Ordinal);
+        var doc = await _readPresetDoc!(LoadedIndex, CancellationToken.None);
+        var byPath = ByPathFrom(doc);
+        foreach (var f in AllFields())
+            if (Sonulab.Distill.LevelModel.InputPaths.Contains(f.Path, StringComparer.Ordinal))
+                byPath[f.Path] = f.ToJsonValue();
         return await EstimateAsync(byPath);
     }
 
     private async Task<SideEstimate> EstimateSlotAsync(int index)
     {
         var doc = await _readPresetDoc!(index, CancellationToken.None);
+        return await EstimateAsync(ByPathFrom(doc));
+    }
+
+    /// <summary>Read exactly the paths <see cref="Sonulab.Distill.LevelModel.InputPaths"/>
+    /// documents as its contract out of a preset document. Shared by
+    /// <see cref="EstimateLoadedAsync"/> (as its base layer, before the live-field overlay) and
+    /// <see cref="EstimateSlotAsync"/> (as the whole thing) so the two can never read the model's
+    /// inputs two different ways.</summary>
+    private static Dictionary<string, string> ByPathFrom(Sonulab.Core.Model.PresetDocument doc)
+    {
         var byPath = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var p in Sonulab.Distill.LevelModel.InputPaths)
             if (doc.GetValueJson(p) is { } v) byPath[p] = v;
-        return await EstimateAsync(byPath);
+        return byPath;
     }
 
     /// <summary>Resolve the preset's named amp and IRs to slot blobs, then run the model.</summary>

@@ -48,6 +48,25 @@ public class MatchVolumeTests
         return Sonulab.Core.Model.PresetDocument.Parse(blob);
     }
 
+    // A .pst with its Modulation block ON. `mod` is outside Blocks_InScope, so nothing the editor
+    // builds from AllFields() ever carries this path — only reading the .pst directly can see it.
+    static Sonulab.Core.Model.PresetDocument PstWithModOn()
+    {
+        var text = string.Join("\r\n", new[]
+        {
+            "root\\app\\amp\\on_off:{\"value\":\"ON\"}",
+            "root\\app\\amp\\amp:{\"value\":\"TestAmp\"}",
+            "root\\app\\amp\\gain:{\"value\":0.000000}",
+            "root\\app\\amp\\vol:{\"value\":50.000000}",
+            "root\\app\\eq\\level:{\"value\":0.000000}",
+            "root\\app\\output\\pst\\level:{\"value\":0.000000}",
+            "root\\app\\mod\\on_off:{\"value\":\"ON\"}",
+        });
+        var blob = new byte[Sonulab.Core.Model.PresetDocument.BlobSize];
+        System.Text.Encoding.ASCII.GetBytes(text).CopyTo(blob, 0);
+        return Sonulab.Core.Model.PresetDocument.Parse(blob);
+    }
+
     static byte[] FlatAmpSlot()
     {
         var pre = new float[1024]; pre[0] = 1f;
@@ -248,5 +267,59 @@ public class MatchVolumeTests
         Assert.Equal(0.0, staleField.Number);              // the abandoned run never wrote to it
         Assert.Equal(0.0, vm.Blocks[0].Fields[0].Number);  // the NEW preset's slider is untouched
         Assert.False(vm.IsDirty);
+    }
+
+    [Fact]
+    public async Task A_mod_block_on_the_loaded_preset_surfaces_the_caveat()
+    {
+        // mod is outside Blocks_InScope, so the editor never builds a field for it — only the
+        // .pst document carries it. Before the fix, EstimateLoadedAsync built its dictionary from
+        // AllFields() alone and so never saw this path at all (absent reads as OFF to
+        // LevelModel), even though the TARGET side (built from the target's own .pst) would
+        // correctly see the same flag when it sat on that side of the match instead. The caveat
+        // must surface regardless of which side of the match carries it.
+        var d = Dev(); await d.OpenAsync();
+        var status = new FakeStatusService();
+        var loadedPst = PstWithModOn();
+        var targetPst = TargetPst(eqLevel: 6.0);
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()), ParameterExposure.Default,
+            status: status,
+            repo: new Sonulab.Core.Services.DeviceRepository(new SonuClient(d)),
+            readAmpBlob: (_, _) => Task.FromResult(FlatAmpSlot()),
+            readIrBlob: (_, _) => Task.FromResult<byte[]?>(null),
+            readPresetDoc: (index, _) => Task.FromResult(index == 0 ? loadedPst : targetPst));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
+
+        Assert.Contains(status.Succeeded, m => m.Contains("Modulation", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_unsaved_live_edit_still_wins_over_the_stored_pst_value()
+    {
+        // The .pst on disk says eq\level = 0 on both sides, but the user nudged the LIVE slider
+        // to +4 dB without saving. The estimate must reflect what they are actually hearing, not
+        // the stored value — the whole reason EstimateLoadedAsync overlays live fields on top of
+        // the .pst base rather than just reading the document as-is.
+        var d = Dev(); await d.OpenAsync();
+        var loadedPst = TargetPst(eqLevel: 0.0);     // matches the stored/on-disk state
+        var targetPst = TargetPst(eqLevel: 0.0);     // flat target: any proposal is purely the live edit
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()), ParameterExposure.Default,
+            status: new FakeStatusService(),
+            repo: new Sonulab.Core.Services.DeviceRepository(new SonuClient(d)),
+            readAmpBlob: (_, _) => Task.FromResult(FlatAmpSlot()),
+            readIrBlob: (_, _) => Task.FromResult<byte[]?>(null),
+            readPresetDoc: (index, _) => Task.FromResult(index == 0 ? loadedPst : targetPst));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+        vm.Blocks.SelectMany(b => b.Fields).First(f => f.Path == @"root\app\eq\level").Number = 4.0;
+
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
+
+        // Loaded is +4 dB louder than its own stored .pst (and than the flat target), so matching
+        // a flat target must propose -4 dB — proof the live edit, not the stored 0, was used.
+        Assert.Equal(-4.0, vm.Blocks[0].Fields[0].Number, 3);
     }
 }
