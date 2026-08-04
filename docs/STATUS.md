@@ -44,17 +44,7 @@ loudness estimate (`Sonulab.Distill.Loudness` / `LevelModel`). Hardware checks p
 The `amp\vol` %→dB taper in `LevelModel.AmpVolGainDb` is an ASSUMPTION (50 % treated as unity)
 and is the first thing to calibrate against the device VU meters.
 
-## Ranked follow-ups
-
-1. **`mod` (Modulation) block is not editable in NAMager — pre-existing gap, not caused by the
-   Preset Level work.** `ParameterEditorViewModel.Blocks_InScope` is
-   `{ gate, exp, comp, amp, eq, ir, delay, reverb }` — it omits `mod`. The pedal's Modulation
-   block (chorus/flanger/tremolo, plus its Tone-and-Character and Tremolo sub-folders) is real,
-   appears in every `.pst`, and even has a label entry in `labels.en.json`, but has never been
-   surfaced as a block in the parameter editor. Discovered incidentally while building Preset
-   Level's volume-match feature (`EstimateLoadedAsync` needed to read `mod\on_off` regardless of
-   editor scope to keep its "check by ear" caveat symmetric — see
-   `src/Namager.App/ViewModels/ParameterEditorViewModel.cs`), but the gap itself predates that
-   feature and the owner declined to widen this cycle's scope to fix it. Adding `"mod"` to
-   `Blocks_InScope` is presumably most of the fix; needs its own scoping pass for the sub-folders
-   and any hidden-params entries.
+Modulation block SHIPPED (2026-08-04): `root\app\mod` is now editable in the parameter editor,
+positioned between Impulse Response and Delay. The parameter editor's nesting is now recursive,
+enabling the Modulation block's sub-folders (Tone and Character, Tremolo) and the Tremolo block's
+nested Rate sub-folder. Hardware validation checklist in `docs/HARDWARE-VALIDATION-modulation.md`.
