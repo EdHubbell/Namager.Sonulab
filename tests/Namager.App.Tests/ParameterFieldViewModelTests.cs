@@ -1,4 +1,3 @@
-using System.Globalization;
 using Namager.App.ViewModels;
 using Sonulab.Core.Model;
 using Xunit;
@@ -345,7 +344,10 @@ public class ParameterFieldViewModelTests
     {
         var hicut = FromJson(@"root\app\mod\tcfolder\hicut",
             @"{""desc"":""Hi-Cut"",""value"":18000.0,""type"":""float"",""min"":900.0,""max"":20000.0,""def"":18000.0,""unit"":""Hz"",""dec"":0}",
-            "18000.0");
-        Assert.Equal($"Reset to default ({hicut.Display})", hicut.ResetTooltip);
+            "12000.0");
+        // Display formats the CURRENT value (12000 Hz); ResetTooltip formats the DEFAULT (18000 Hz).
+        // Both must use the same formatter (unit + dec rules), or they would diverge.
+        Assert.Equal("12000 Hz", hicut.Display);
+        Assert.Equal("Reset to default (18000 Hz)", hicut.ResetTooltip);
     }
 }

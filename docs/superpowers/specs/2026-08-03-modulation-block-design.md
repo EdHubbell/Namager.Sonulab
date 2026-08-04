@@ -172,7 +172,7 @@ Extract that into a shared `Format(double)`, add `Display => Format(Number)` (re
 `OnNumberChanged`), and bind the readout to it. The readout column widens 52 → 64 px for
 `18000 Hz`. The reset tooltip keeps using the same formatter, so the two can never disagree.
 
-This affects every block: `50%`, `300 ms`, `0 deg`, `-60 dB`, and `1.00 Hz` where the schema omits
+This affects every block: `50%`, `300 ms`, `0 deg`, `-60 dB`, and `1 Hz` where the schema omits
 `dec` (the existing `0.##` fallback). Percent has no space before the sign; every other unit does —
 that is `FormatDefault()`'s existing rule, inherited rather than redecided.
 

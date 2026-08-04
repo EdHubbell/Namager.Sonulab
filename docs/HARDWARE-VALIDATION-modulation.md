@@ -37,7 +37,7 @@ For each of `mode`, `dpth`, `mix`, `rate\rawdata`, `rate\sbdv`, `rate\lock`, `tc
 
 ## Readout
 
-- [ ] Hi-Cut reads `18000 Hz`, not `18000.00`. Depth reads `50%`. Stereo Phase reads `0 deg`.
+- [ ] Hi-Cut reads `18000 Hz`, not `18000.00`. Modulation Depth (`mod\dpth`) reads `50%`. Tremolo Depth (`trfolder\dpt`) reads `25%`. Stereo Phase reads `0 deg`.
 - [ ] Delay time reads `300 ms`; gate threshold reads `-60 dB`.
 - [ ] At the narrowest usable window width, the widened value column (52 → 64 px) has not pushed the reset button out of view.
 

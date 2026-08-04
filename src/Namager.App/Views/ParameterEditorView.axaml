@@ -1,5 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:Namager.App.ViewModels" xmlns:conv="using:Namager.App.Converters"
+             xmlns:vm="using:Namager.App.ViewModels"
              xmlns:views="using:Namager.App.Views"
              x:Class="Namager.App.Views.ParameterEditorView" x:DataType="vm:ParameterEditorViewModel">
   <Grid>

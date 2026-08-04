@@ -128,8 +128,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
     public string SuggestedFileName => LoadedIndex >= 0
         ? PresetFileNaming.FileNameFor(LoadedIndex, PresetName) : "preset.pst";
 
-    // Per-session expansion memory, keyed by block path (root\app\<block>) so it survives
-    // header relabeling; reapplied on every rebuild (preset switch). Intentionally NOT
+    // Per-session expansion memory, keyed by node path at every depth (e.g.
+    // root\app\mod\trfolder\rate), not just block path, so two groups with the same header can be
+    // remembered independently. Reapplied on every rebuild (preset switch). Intentionally NOT
     // persisted to disk (spec decision).
     private readonly Dictionary<string, bool> _expansion = new(StringComparer.Ordinal);
 
@@ -283,8 +284,9 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
     /// <summary>Persist <paramref name="section"/>'s expansion into <see cref="_expansion"/> under
     /// <paramref name="key"/> (a stable block PATH, not the header — see the field's own comment)
-    /// whenever the user toggles it. Shared by the Level block and every
-    /// <see cref="Blocks_InScope"/> block.</summary>
+    /// whenever the user toggles it. Shared by the Level block, every
+    /// <see cref="Blocks_InScope"/> block, and nested groups — which are the reason the memory key
+    /// had to be a node PATH rather than a block name.</summary>
     private void WireExpansionMemory(ParameterGroupViewModel section, string key) =>
         section.PropertyChanged += (s, e) =>
         {
