@@ -22,4 +22,11 @@ public class LabelServiceTests
 
     [Fact] public void Default_loads_embedded_map() =>
         Assert.False(string.IsNullOrEmpty(LabelService.Default.Label(@"root\app\gate", "Gate")));
+
+    [Fact] public void Embedded_labels_rename_the_mod_block_to_Modulation()
+    {
+        // The firmware calls it "Mod". Every other node under it self-describes correctly, so this
+        // is the only override the Modulation block needs.
+        Assert.Equal("Modulation", LabelService.Default.Label(@"root\app\mod", "Mod"));
+    }
 }

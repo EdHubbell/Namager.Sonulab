@@ -14,7 +14,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 {
     private static readonly NLog.Logger Log = NLog.LogManager.GetCurrentClassLogger();
 
-    public static IReadOnlyList<string> Blocks_InScope { get; } = new[] { "gate", "exp", "comp", "amp", "eq", "ir", "delay", "reverb" };
+    public static IReadOnlyList<string> Blocks_InScope { get; } = new[] { "gate", "exp", "comp", "amp", "eq", "ir", "mod", "delay", "reverb" };
 
     /// <summary>Header for the synthetic block that fronts the pedal's per-preset output trim.</summary>
     public const string LevelBlockHeader = "Level";
@@ -556,14 +556,15 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
 
     /// <summary>Estimate the preset currently in the editor. The base layer is the loaded slot's
     /// OWN `.pst` — read via <see cref="Sonulab.Distill.LevelModel.InputPaths"/>, exactly like
-    /// <see cref="EstimateSlotAsync"/> builds the target's — rather than <c>AllFields()</c>, which
-    /// only covers <see cref="Blocks_InScope"/> (gate, exp, comp, amp, eq, ir, delay, reverb).
-    /// `mod` (and any future LevelModel term outside that list) is not in scope, so a path like
-    /// `root\app\mod\on_off` would be silently ABSENT from an AllFields()-only dictionary — and
+    /// <see cref="EstimateSlotAsync"/> builds the target's — rather than <c>AllFields()</c>.
+    /// `InputPaths` is not guaranteed to be a subset of what the editor exposes: a leaf can be
+    /// blocklisted in hidden-params.json, and a firmware revision can omit a node the model reads.
+    /// Any such path would be silently ABSENT from an AllFields()-only dictionary, and
     /// LevelModel.IsOff treats an absent path as OFF regardless of the device's real value. That
     /// made the caveat direction-dependent: a preset with chorus on was flagged only when it was
-    /// the TARGET, never when it was the one loaded. Reading both sides through the same
-    /// InputPaths contract keeps the caveat symmetric.
+    /// the TARGET, never when it was the one loaded. (`mod` itself was the original case, before
+    /// it joined Blocks_InScope; the hazard is structural, not specific to that block.) Reading
+    /// both sides through the same InputPaths contract keeps the caveat symmetric.
     ///
     /// Live field values are then overlaid on top of the `.pst` base for every path the editor
     /// actually exposes, so an unsaved edit still wins — the editor already holds the values the

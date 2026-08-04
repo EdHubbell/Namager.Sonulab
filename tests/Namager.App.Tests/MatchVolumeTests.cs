@@ -66,8 +66,11 @@ public class MatchVolumeTests
         return Sonulab.Core.Model.PresetDocument.Parse(blob);
     }
 
-    // A .pst with its Modulation block ON. `mod` is outside Blocks_InScope, so nothing the editor
-    // builds from AllFields() ever carries this path — only reading the .pst directly can see it.
+    // A .pst with its Modulation block ON. Dev()'s browse response carries no `mod` node, so the
+    // editor builds no field for it even though `mod` IS in Blocks_InScope — exactly the shape
+    // this guards: LevelModel.InputPaths is not guaranteed to be a subset of what the editor
+    // exposes (a blocklisted leaf, a firmware that omits a node), and LevelModel.IsOff reads an
+    // absent path as OFF. Only the .pst carries the truth here.
     static Sonulab.Core.Model.PresetDocument PstWithModOn()
     {
         var text = string.Join("\r\n", new[]
@@ -312,12 +315,10 @@ public class MatchVolumeTests
     [Fact]
     public async Task A_mod_block_on_the_loaded_preset_surfaces_the_caveat()
     {
-        // mod is outside Blocks_InScope, so the editor never builds a field for it — only the
-        // .pst document carries it. Before the fix, EstimateLoadedAsync built its dictionary from
-        // AllFields() alone and so never saw this path at all (absent reads as OFF to
-        // LevelModel), even though the TARGET side (built from the target's own .pst) would
-        // correctly see the same flag when it sat on that side of the match instead. The caveat
-        // must surface regardless of which side of the match carries it.
+        // Before the fix, EstimateLoadedAsync built its dictionary from AllFields() alone, so a
+        // path the editor does not expose was silently absent — and absent reads as OFF. The
+        // TARGET side (built from the target's own .pst) saw the same flag correctly, which made
+        // the caveat direction-dependent. It must surface regardless of which side carries it.
         var d = Dev(); await d.OpenAsync();
         var status = new FakeStatusService();
         var loadedPst = PstWithModOn();
@@ -334,6 +335,39 @@ public class MatchVolumeTests
         await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
 
         Assert.Contains(status.Succeeded, m => m.Contains("Modulation", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_live_mod_edit_overrides_the_stored_pst_value()
+    {
+        // `mod` is in Blocks_InScope now, so the editor holds a live mod\on_off. The .pst says ON;
+        // the user has switched it OFF and not saved. The estimate must describe what the user is
+        // hearing, so the caveat must NOT appear.
+        var d = Dev();
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\on_off:{\"desc\":\"Enable\",\"value\":\"ON\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}",
+            "root\\app\\amp\\amp:{\"desc\":\"Amp\",\"value\":\"TestAmp\",\"type\":\"plist\",\"ref\":\"root\\\\amp\"}",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0,\"def\":0.0}",
+            "root\\app\\amp\\vol:{\"desc\":\"Volume\",\"value\":50.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0,\"def\":50.0}",
+            "root\\app\\eq\\level:{\"desc\":\"Level\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0,\"def\":0.0}",
+            "root\\app\\mod\\on_off:{\"desc\":\"Enable\",\"value\":\"OFF\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}",
+            "root\\app\\output\\pst\\level:{\"desc\":\"Preset Level\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0,\"def\":0.0,\"unit\":\"dB\",\"dec\":1}");
+        await d.OpenAsync();
+        var status = new FakeStatusService();
+        var loadedPst = PstWithModOn();
+        var targetPst = TargetPst(eqLevel: 6.0);
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()), ParameterExposure.Default,
+            status: status,
+            repo: new Sonulab.Core.Services.DeviceRepository(new SonuClient(d)),
+            readAmpBlob: (_, _) => Task.FromResult(FlatAmpSlot()),
+            readIrBlob: (_, _) => Task.FromResult<byte[]?>(null),
+            readPresetDoc: (index, _) => Task.FromResult(index == 0 ? loadedPst : targetPst));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
+
+        Assert.DoesNotContain(status.Succeeded, m => m.Contains("Modulation", StringComparison.Ordinal));
     }
 
     [Fact]

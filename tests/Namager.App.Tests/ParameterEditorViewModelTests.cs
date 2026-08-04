@@ -871,4 +871,97 @@ public class ParameterEditorViewModelTests
         Assert.Contains(d.CommandLog,
             c => c.StartsWith(@"write root\app\delay\ddfolder\rtime\rawdata:", StringComparison.Ordinal));
     }
+
+    // ---- Modulation block (the real firmware tree) ----
+
+    static ParameterEditorViewModel ModVm(FakeSonuLink d) =>
+        new(new SonuClient(d),
+            new LabelService(new Dictionary<string, string> { [@"root\app\mod"] = "Modulation" }),
+            new ParameterExposure(new[] { @"*\_st" }));
+
+    static async Task<ParameterGroupViewModel> LoadModAsync(string[] records)
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app", records);
+        await d.OpenAsync();
+        var vm = ModVm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        return vm.Blocks.Single(b => b.Path == @"root\app\mod");
+    }
+
+    [Fact] public async Task Mod_renders_between_ir_and_delay()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app", ModBrowseFixture.Records
+            .Append("root\\app\\ir\\on_off:{\"desc\":\"Enable\",\"value\":\"ON\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}")
+            .Append("root\\app\\delay\\fdbk:{\"desc\":\"Feedback\",\"value\":30.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0}")
+            .ToArray());
+        await d.OpenAsync();
+        var vm = ModVm(d);
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P"));
+        Assert.Equal(new[] { @"root\app\ir", @"root\app\mod", @"root\app\delay" },
+                     vm.Blocks.Select(b => b.Path).ToArray());
+    }
+
+    [Fact] public async Task Mod_block_header_comes_from_the_label_map_not_the_firmware_desc()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.Records);
+        Assert.Equal("Modulation", mod.Header);      // firmware desc is the unhelpful "Mod"
+    }
+
+    [Fact] public async Task Mod_renders_rate_third_with_its_folders_in_firmware_order()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.Records);
+        Assert.Equal(
+            new[] { @"root\app\mod\on_off", @"root\app\mod\mode", @"root\app\mod\rate",
+                    @"root\app\mod\dpth", @"root\app\mod\mix",
+                    @"root\app\mod\tcfolder", @"root\app\mod\trfolder" },
+            mod.Items.Select(i => i is ParameterFieldViewModel f ? f.Path : ((ParameterGroupViewModel)i).Path).ToArray());
+    }
+
+    [Fact] public async Task Mod_folder_headers_come_from_the_firmware_desc()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.Records);
+        Assert.Equal(new[] { "Rate", "Tone and Character", "Tremolo" },
+                     mod.Groups.Select(g => g.Header).ToArray());
+    }
+
+    [Fact] public async Task Tremolo_holds_its_own_Rate_group_three_levels_down()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.Records);
+        var tremolo = mod.Groups.Single(g => g.Path == @"root\app\mod\trfolder");
+        var rate = tremolo.Groups.Single(g => g.Path == @"root\app\mod\trfolder\rate");
+        Assert.Equal(new[] { @"root\app\mod\trfolder\rate\rawdata",
+                             @"root\app\mod\trfolder\rate\lock",
+                             @"root\app\mod\trfolder\rate\sbdv" },
+                     rate.Fields.Select(f => f.Path).ToArray());
+        // Rate is Tremolo's SECOND item, after its Enable — firmware order again.
+        Assert.Equal(@"root\app\mod\trfolder\rate",
+                     ((ParameterGroupViewModel)tremolo.Items[1]).Path);
+    }
+
+    [Fact] public async Task The_two_Rate_groups_are_distinct_nodes_despite_the_same_header()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.Records);
+        var top = mod.Groups.Single(g => g.Path == @"root\app\mod\rate");
+        var nested = mod.Groups.Single(g => g.Path == @"root\app\mod\trfolder")
+                       .Groups.Single(g => g.Path == @"root\app\mod\trfolder\rate");
+        Assert.Equal(top.Header, nested.Header);
+        Assert.NotEqual(top.Path, nested.Path);
+        // Their rawdata ranges differ (0.05–8 Hz vs 0.7–15 Hz) — proof they are not the same node.
+        Assert.Equal(8.0, top.Fields.First(f => f.Path.EndsWith(@"\rawdata")).Max);
+        Assert.Equal(15.0, nested.Fields.First(f => f.Path.EndsWith(@"\rawdata")).Max);
+    }
+
+    [Fact] public async Task The_rate_module_node_is_never_a_field()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.Records);
+        var all = vmAllPaths(mod);
+        Assert.DoesNotContain(@"root\app\mod\rate", all);
+        Assert.DoesNotContain(@"root\app\mod\trfolder\rate", all);
+        Assert.Contains(@"root\app\mod\rate\rawdata", all);
+
+        static IEnumerable<string> vmAllPaths(ParameterGroupViewModel g) =>
+            g.Fields.Select(f => f.Path).Concat(g.Groups.SelectMany(vmAllPaths));
+    }
 }
