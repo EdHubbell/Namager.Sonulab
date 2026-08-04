@@ -12,7 +12,7 @@
 
 - **Avalonia 12 + built-in `FluentTheme`. Do NOT add FluentAvalonia** — it targets Avalonia 11 and crashes at runtime on 12. Icons are built-in `PathIcon` geometries.
 - **No hex colour literals in `.axaml`** — use `Styles/SonulabTheme.axaml` tokens (`Sonulab.*Brush`). The firmware's `style:"color:#00FFFF;"` hints on `mod`/`trfolder` are explicitly NOT used.
-- `dotnet build` must stay warning-clean; `dotnet test` must stay green (1054 tests before this work).
+- `dotnet build` must introduce **no new warnings** (the baseline is not warning-clean — the test project already emits CA1416 and xUnit analyzer warnings); `dotnet test` must stay green (1054 tests before this work).
 - Parameter exposure is a **blocklist** (`hidden-params.json`), never an allowlist — new firmware params must auto-appear.
 - Paths in this codebase use **backslash** separators (`root\app\mod\trfolder`) and are compared with `StringComparison.Ordinal`.
 - Editable node types are exactly `float`, `enum`, `plist` (`ParameterEditorViewModel.EditableTypes`). Everything else (`item`) is a container.
@@ -1111,8 +1111,9 @@ public static class ModBrowseFixture
         "root\\app\\mod\\trfolder\\rate\\sbdv:{\"desc\":\"Time Subdivision\",\"value\":\"1/4\",\"type\":\"enum\",\"def\":\"1/4\",\"options\":[\"4/4\",\"2/4\",\"1/4\",\"Dotted 8th\",\"1/8\",\"1/16\",\"1/32\",\"Triplet\"]}",
     };
 
-    /// <summary>The same records with `mod\on_off` and `trfolder\on_off` flipped to ON, for the
-    /// auto-open and volume-match cases.</summary>
+    /// <summary>The same records with `trfolder\on_off` (Tremolo's own enable) flipped to ON, for
+    /// the auto-open cases. `mod\on_off` is left OFF — a test that needs the BLOCK on flips it
+    /// itself, so the two switches never move together by accident.</summary>
     public static string[] WithTremoloOn() =>
         Records.Select(r => r.StartsWith("root\\app\\mod\\trfolder\\on_off:", StringComparison.Ordinal)
                                 ? r.Replace("\"value\":\"OFF\"", "\"value\":\"ON\"")
