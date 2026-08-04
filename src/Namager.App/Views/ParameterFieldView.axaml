@@ -12,7 +12,7 @@
       <StackPanel Orientation="Horizontal" Spacing="6"
                   IsVisible="{Binding Kind, Converter={x:Static conv:Eq.Float}}">
         <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Number}" Width="150"/>
-        <TextBlock Text="{Binding Number, StringFormat='{}{0:F2}'}" Width="52"
+        <TextBlock Text="{Binding Display}" Width="64"
                    VerticalAlignment="Center" FontFamily="Consolas,Cascadia Mono,monospace" FontSize="11"/>
         <!-- Back to the firmware default. Most are not 0, so the tooltip names the actual value
              rather than claiming "(0)". -->

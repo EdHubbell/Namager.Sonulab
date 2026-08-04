@@ -1,3 +1,4 @@
+using System.Globalization;
 using Namager.App.ViewModels;
 using Sonulab.Core.Model;
 using Xunit;
@@ -285,5 +286,66 @@ public class ParameterFieldViewModelTests
 
         Assert.Equal(0.0, f.Number);
         Assert.False(f.IsDirty);
+    }
+
+    // ---- unit-aware value readout (modulation-block Task 7) ----
+
+    static ParameterFieldViewModel FromJson(string path, string json, string value)
+    {
+        Assert.True(NodeRecord.TryParse(path + ":" + json, out var r));
+        return new ParameterFieldViewModel(NodeSchema.FromRecord(r), value);
+    }
+
+    [Fact] public void Display_uses_the_firmware_unit_and_decimal_hints()
+    {
+        var hicut = FromJson(@"root\app\mod\tcfolder\hicut",
+            @"{""desc"":""Hi-Cut"",""value"":18000.0,""type"":""float"",""min"":900.0,""max"":20000.0,""def"":18000.0,""unit"":""Hz"",""dec"":0}",
+            "18000.0");
+        Assert.Equal("18000 Hz", hicut.Display);
+    }
+
+    [Fact] public void Display_puts_no_space_before_a_percent_sign()
+    {
+        var depth = FromJson(@"root\app\mod\dpth",
+            @"{""desc"":""Depth"",""value"":50.0,""type"":""float"",""min"":0.0,""max"":100.0,""def"":50.0,""unit"":""%"",""dec"":0}",
+            "50.0");
+        Assert.Equal("50%", depth.Display);
+    }
+
+    [Fact] public void Display_falls_back_to_two_significant_decimals_when_dec_is_absent()
+    {
+        // mod\rate\rawdata publishes a unit but no `dec`.
+        var rate = FromJson(@"root\app\mod\rate\rawdata",
+            @"{""desc"":""Rate"",""value"":1.0,""type"":""float"",""min"":0.05,""max"":8.0,""def"":1.0,""unit"":""Hz""}",
+            "1.25");
+        Assert.Equal("1.25 Hz", rate.Display);
+    }
+
+    [Fact] public void Display_omits_the_unit_when_the_schema_has_none()
+    {
+        var plain = FromJson(@"root\app\eq\bass",
+            @"{""desc"":""Bass"",""value"":0.0,""type"":""float"",""min"":-12.0,""max"":12.0,""def"":0.0}",
+            "3.5");
+        Assert.Equal("3.5", plain.Display);
+    }
+
+    [Fact] public void Display_tracks_the_value_and_notifies()
+    {
+        var depth = FromJson(@"root\app\mod\dpth",
+            @"{""desc"":""Depth"",""value"":50.0,""type"":""float"",""min"":0.0,""max"":100.0,""def"":50.0,""unit"":""%"",""dec"":0}",
+            "50.0");
+        bool raised = false;
+        depth.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ParameterFieldViewModel.Display)) raised = true; };
+        depth.Number = 75.0;
+        Assert.Equal("75%", depth.Display);
+        Assert.True(raised);
+    }
+
+    [Fact] public void The_reset_tooltip_and_the_readout_use_the_same_formatter()
+    {
+        var hicut = FromJson(@"root\app\mod\tcfolder\hicut",
+            @"{""desc"":""Hi-Cut"",""value"":18000.0,""type"":""float"",""min"":900.0,""max"":20000.0,""def"":18000.0,""unit"":""Hz"",""dec"":0}",
+            "18000.0");
+        Assert.Equal($"Reset to default ({hicut.Display})", hicut.ResetTooltip);
     }
 }

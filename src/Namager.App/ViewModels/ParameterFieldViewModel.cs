@@ -20,11 +20,12 @@ public partial class ParameterFieldViewModel : ObservableObject
     /// assuming 0 — a knob's neutral is not always zero.</summary>
     public double? Default { get; }
 
-    /// <summary>The node's display unit ("dB", "ms", "%"), or null. Used by the reset tooltip.</summary>
+    /// <summary>The node's display unit ("dB", "ms", "%", "Hz", "deg"), or null. Used by the reset
+    /// tooltip and the slider readout.</summary>
     public string? Unit { get; }
 
     /// <summary>Decimal places the firmware suggests for this node, or null. Used by the reset
-    /// tooltip so a default reads the way the device would print it.</summary>
+    /// tooltip and the slider readout so a value reads the way the device would print it.</summary>
     public int? Dec { get; }
 
     /// <summary>Show a reset-to-default button beside this field's slider. Set for every float:
@@ -46,15 +47,23 @@ public partial class ParameterFieldViewModel : ObservableObject
     public bool IsChangedFromDefault =>
         Kind == "float" && Math.Abs(Number - (Default ?? 0.0)) > 1e-9;
 
-    partial void OnNumberChanged(double value) => OnPropertyChanged(nameof(IsChangedFromDefault));
+    partial void OnNumberChanged(double value)
+    {
+        OnPropertyChanged(nameof(IsChangedFromDefault));
+        OnPropertyChanged(nameof(Display));
+    }
 
     /// <summary>Names the actual default, e.g. "Reset to default (400 ms)". A fixed "(0)" would be
     /// a lie on two thirds of the pedal's sliders.</summary>
-    public string ResetTooltip => $"Reset to default ({FormatDefault()})";
+    public string ResetTooltip => $"Reset to default ({Format(Default ?? 0.0)})";
 
-    private string FormatDefault()
+    /// <summary>The current value as the device would print it — the slider readout. Shares its
+    /// formatter with <see cref="ResetTooltip"/> so "18000 Hz" and "Reset to default (18000 Hz)"
+    /// can never disagree about units or precision.</summary>
+    public string Display => Format(Number);
+
+    private string Format(double v)
     {
-        double v = Default ?? 0.0;
         // "0.##" rather than a fixed precision when the schema omits `dec`: shows 5 as "5", not "5.00".
         string num = Dec is int d and >= 0
             ? v.ToString("F" + d, CultureInfo.InvariantCulture)
