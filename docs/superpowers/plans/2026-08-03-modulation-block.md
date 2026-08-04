@@ -945,21 +945,21 @@ In `src/Namager.App/ViewModels/ParameterEditorViewModel.cs`, replace the whole p
             };
             var byPath = new Dictionary<string, ParameterGroupViewModel>(StringComparer.Ordinal) { [prefix] = section };
 
-            // PASS 1 — create a group for every container, in browse order. Order is the whole
-            // point of doing this separately: the firmware publishes containers BEFORE their
-            // children (mod: on_off, mode, rate, dpth, mix, tcfolder, trfolder, then rate's own
-            // leaves), so creating a group only when its first child appears would push every
-            // folder to the end. Groups that end up empty are pruned below.
+            // ONE pass, in browse order, doing both jobs per record. A container's OWN record
+            // always arrives before its children (mod: on_off, mode, rate, dpth, mix, tcfolder,
+            // trfolder, then rate's own leaves), so creating its group right here — rather than
+            // lazily on its first child — already places it where the firmware put it relative to
+            // its siblings. Splitting this into a groups-first pass and a fields-second pass would
+            // put every group before every field regardless of firmware order, which is not the
+            // same thing: interleaving needs both jobs to advance through the SAME iteration.
+            // Groups that end up empty (every leaf hidden, or a container the firmware never
+            // fills) are pruned below.
             foreach (var rec in records)
             {
                 if (!InBlock(rec.Path, prefix) || rec.Path == prefix) continue;
-                if (parentPaths.Contains(rec.Path)) EnsureGroup(rec.Path, byPath, records);
-            }
 
-            // PASS 2 — place every editable, non-hidden leaf under its own parent path.
-            foreach (var rec in records)
-            {
-                if (!InBlock(rec.Path, prefix) || rec.Path == prefix) continue;
+                if (parentPaths.Contains(rec.Path)) EnsureGroup(rec.Path, byPath, records);
+
                 var schema = NodeSchema.FromRecord(rec);
                 if (!EditableTypes.Contains(schema.Type)) continue;     // skip folders/containers/modules
                 if (_exposure.IsHidden(rec.Path)) continue;
@@ -977,7 +977,9 @@ In `src/Namager.App/ViewModels/ParameterEditorViewModel.cs`, replace the whole p
 
                 // An editable node that is ALSO a container keeps its value with its own children
                 // instead of in the parent's list. No fw 2.5.1 node is both (every container is
-                // type:"item"); this is the guard for a firmware that changes that.
+                // type:"item"); this is the guard for a firmware that changes that. The group for
+                // rec.Path (if any) was just created above in this same iteration, so byPath
+                // already has it.
                 if (byPath.TryGetValue(rec.Path, out var own)) own.InsertFirst(labeled);
                 else EnsureGroup(ParentOf(rec.Path), byPath, records).Add(labeled);
             }
