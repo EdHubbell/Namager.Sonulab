@@ -38,9 +38,11 @@ another" action backed by an offline K-weighted loudness estimate (`Sonulab.Dist
 - [ ] **8. No BPM control.** Search the whole UI for "Preset TEMPO" or any BPM control tied to
       `root\app\output\pst\tmp`. **Expect:** absent everywhere (it is deliberately not surfaced).
 - [ ] **9. Amp-blob memoization timing.** Press match a second time in the same session against the
-      *same* target used before. **Expect:** noticeably faster than the first match — the amp blob
-      is memoized per view-model instance, so the ~3 s 96-chunk read happens once per session, not
-      once per match. Record both durations: first ______ s, second ______ s.
+      *same* target used before. **Expect:** about 3 s faster than the first match, NOT dramatically
+      so — only the amp blob is memoized per view-model instance (the ~3 s 96-chunk read happens
+      once per session, not once per match); both presets' `.pst` documents are still re-read every
+      match (~2 s each, ~4 s total), so e.g. a 7 s → 4 s improvement is a PASS, not something to
+      record as a failure. Record both durations: first ______ s, second ______ s.
 
 ## Known limits (see spec for detail)
 
