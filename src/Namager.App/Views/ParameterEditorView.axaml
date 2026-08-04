@@ -44,7 +44,7 @@
                               VerticalAlignment="Center"
                               IsVisible="{Binding ShowLevelIcon}"
                               Foreground="{Binding IsEqActive, Converter={x:Static conv:ActiveToBrush.Instance}}"
-                              ToolTip.Tip="This preset is trimmed away from 0 dB"/>
+                              ToolTip.Tip="Lights up when this preset is trimmed away from 0 dB"/>
                     <TextBlock Text="{Binding Header}" VerticalAlignment="Center"/>
                   </StackPanel>
                 </Expander.Header>

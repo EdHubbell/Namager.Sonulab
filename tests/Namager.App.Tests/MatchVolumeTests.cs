@@ -23,6 +23,24 @@ public class MatchVolumeTests
         return d;
     }
 
+    // Same fixture as Dev(), except the amp\vol schema VALUE starts at 0 % instead of 50 % — so
+    // the loaded preset's live field is silent from the moment it loads, with no manual edit
+    // (and therefore no incidental IsDirty) needed to set up the both-sides-silent NaN case.
+    static FakeSonuLink DevWithVolAtZero()
+    {
+        var d = new FakeSonuLink();
+        d.SeedList(@"root\presets", Names("Loaded", "Louder"));
+        d.SeedList(@"root\amp", Names("TestAmp"));
+        d.SeedBrowse(@"root\app",
+            "root\\app\\amp\\on_off:{\"desc\":\"Enable\",\"value\":\"ON\",\"type\":\"enum\",\"options\":[\"ON\",\"OFF\"]}",
+            "root\\app\\amp\\amp:{\"desc\":\"Amp\",\"value\":\"TestAmp\",\"type\":\"plist\",\"ref\":\"root\\\\amp\"}",
+            "root\\app\\amp\\gain:{\"desc\":\"Gain\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0,\"def\":0.0}",
+            "root\\app\\amp\\vol:{\"desc\":\"Volume\",\"value\":0.0,\"type\":\"float\",\"min\":0.0,\"max\":100.0,\"def\":50.0}",
+            "root\\app\\eq\\level:{\"desc\":\"Level\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0,\"def\":0.0}",
+            "root\\app\\output\\pst\\level:{\"desc\":\"Preset Level\",\"value\":0.0,\"type\":\"float\",\"min\":-20.0,\"max\":20.0,\"def\":0.0,\"unit\":\"dB\",\"dec\":1}");
+        return d;
+    }
+
     static string[] Names(params string[] used)
     {
         var n = new string[30];
@@ -61,6 +79,24 @@ public class MatchVolumeTests
             "root\\app\\eq\\level:{\"value\":0.000000}",
             "root\\app\\output\\pst\\level:{\"value\":0.000000}",
             "root\\app\\mod\\on_off:{\"value\":\"ON\"}",
+        });
+        var blob = new byte[Sonulab.Core.Model.PresetDocument.BlobSize];
+        System.Text.Encoding.ASCII.GetBytes(text).CopyTo(blob, 0);
+        return Sonulab.Core.Model.PresetDocument.Parse(blob);
+    }
+
+    // A .pst that names an amp NOT on the device's root\amp list (Dev() only seeds "TestAmp") —
+    // an orphaned reference, e.g. the amp was deleted or renamed since this preset was captured.
+    static Sonulab.Core.Model.PresetDocument PstNamingMissingAmp()
+    {
+        var text = string.Join("\r\n", new[]
+        {
+            "root\\app\\amp\\on_off:{\"value\":\"ON\"}",
+            "root\\app\\amp\\amp:{\"value\":\"GhostAmp\"}",
+            "root\\app\\amp\\gain:{\"value\":0.000000}",
+            "root\\app\\amp\\vol:{\"value\":50.000000}",
+            "root\\app\\eq\\level:{\"value\":6.000000}",
+            "root\\app\\output\\pst\\level:{\"value\":0.000000}",
         });
         var blob = new byte[Sonulab.Core.Model.PresetDocument.BlobSize];
         System.Text.Encoding.ASCII.GetBytes(text).CopyTo(blob, 0);
@@ -172,7 +208,11 @@ public class MatchVolumeTests
 
         await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
 
+        // Both: the flag is absent (the thing under test), AND the match actually succeeded —
+        // without the second assertion this would pass vacuously if MatchVolumeAsync had thrown
+        // before ever calling _status.Success, leaving Succeeded empty either way.
         Assert.DoesNotContain(status.Succeeded, m => m.Contains("Amp Volume", StringComparison.Ordinal));
+        Assert.Contains(status.Succeeded, m => m.Contains("Preset Level set to", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -321,5 +361,78 @@ public class MatchVolumeTests
         // Loaded is +4 dB louder than its own stored .pst (and than the flat target), so matching
         // a flat target must propose -4 dB — proof the live edit, not the stored 0, was used.
         Assert.Equal(-4.0, vm.Blocks[0].Fields[0].Number, 3);
+    }
+
+    [Fact]
+    public async Task Both_sides_silent_reports_a_failure_instead_of_a_NaN_proposal()
+    {
+        // amp\vol parked at 0 on both sides mutes the drive signal outright (AmpVolGainDb(0) is
+        // -120 dB, comfortably under Loudness' -70 LUFS absolute gate) — both sides estimate as
+        // -Infinity, and the match arithmetic computes -Infinity - (-Infinity), which is NaN.
+        // Math.Clamp passes NaN straight through, and Save would then write it to the device as
+        // malformed JSON, so this must be caught and reported instead.
+        var d = DevWithVolAtZero(); await d.OpenAsync();
+        var status = new FakeStatusService();
+        var vm = Vm(d, status, TargetPst(eqLevel: 6.0, ampVol: 0.0));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+        Assert.False(vm.IsDirty);   // sanity: loading a preset alone never dirties it
+
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));
+
+        Assert.Equal(0.0, vm.Blocks[0].Fields[0].Number);   // slider left exactly where it was
+        Assert.False(vm.IsDirty);
+        Assert.NotNull(vm.ErrorMessage);
+        Assert.Contains("silent", vm.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(status.Succeeded);
+    }
+
+    [Fact]
+    public async Task An_orphaned_amp_reference_is_flagged_rather_than_thrown()
+    {
+        // The target names an amp that no longer exists on the device (deleted or renamed since
+        // the .pst was captured). BlobForAsync's documented contract is to degrade to a flag
+        // rather than throw or NRE — nothing pinned that before.
+        var d = Dev(); await d.OpenAsync();
+        var status = new FakeStatusService();
+        var vm = Vm(d, status, PstNamingMissingAmp());
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(1));   // must not throw
+
+        Assert.Contains(status.Succeeded, m => m.Contains("Amp model could not be read", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_catalog_bump_noticed_via_a_preset_load_also_clears_the_cache()
+    {
+        // The bump can be noticed by EITHER RefreshRefOptionsAsync (a Presets-tab revisit) or
+        // LoadCoreAsync (loading a DIFFERENT preset — e.g. the IPresetNavigator jump from the
+        // Amps tab) — whichever happens first must invalidate the blob cache itself, or the
+        // other one's own "version == _optionsVersion" guard sees the version already caught up
+        // and never clears for this catalog generation.
+        var d = Dev(); await d.OpenAsync();
+        int reads = 0;
+        var catalog = new CatalogVersion();
+        var vm = new ParameterEditorViewModel(new SonuClient(d),
+            new LabelService(new Dictionary<string, string>()), ParameterExposure.Default,
+            status: new FakeStatusService(),
+            repo: new Sonulab.Core.Services.DeviceRepository(new SonuClient(d)),
+            catalog: catalog,
+            readAmpBlob: (_, _) => { reads++; return Task.FromResult(FlatAmpSlot()); },
+            readIrBlob: (_, _) => Task.FromResult<byte[]?>(null),
+            readPresetDoc: (_, _) => Task.FromResult(TargetPst(6.0)));
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "Loaded"));
+
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(0));
+        Assert.Equal(1, reads);
+
+        // The amp was re-uploaded under the same name. Load a DIFFERENT preset — never calling
+        // RefreshRefOptionsAsync — since LoadForAsync dedupes by NAME and reselecting "Loaded"
+        // would skip LoadCoreAsync (and so this invalidation path) entirely.
+        catalog.Bump();
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(1, "Louder"));
+        await vm.MatchVolumeAsync(() => Task.FromResult<int?>(0));
+
+        Assert.Equal(2, reads);
     }
 }

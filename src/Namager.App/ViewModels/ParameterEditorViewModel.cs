@@ -159,6 +159,14 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             }
             catch { refOptions[r] = Array.Empty<string>(); }
         }
+        // This is not always the first place a catalog bump is noticed — RefreshRefOptionsAsync
+        // (Presets-tab revisit) races it — but it IS one of the two places _optionsVersion moves,
+        // so it must invalidate the blob cache itself rather than assume the other one already
+        // did: a preset load that lands after a bump but before the next tab revisit (e.g. the
+        // IPresetNavigator jump from Amps) would otherwise advance _optionsVersion here, and
+        // RefreshRefOptionsAsync's own "version == _optionsVersion" guard would then see nothing
+        // to do and never clear the stale blob for this catalog generation.
+        if (catalogAtLoad != _optionsVersion) _blobCache.Clear();
         _optionsVersion = catalogAtLoad;
 
         // The pedal's per-preset output trim, promoted to its own block at the top of the editor.
@@ -483,6 +491,22 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             }
 
             double proposed = theirs.Estimate.RelativeLufs + theirs.Estimate.CurrentTrimDb - mine.Estimate.RelativeLufs;
+            if (double.IsNaN(proposed))
+            {
+                // Loudness.IntegratedLufs returns -Infinity for a chain that falls under the
+                // absolute gate — e.g. amp\vol parked at 0 mutes the drive signal outright, which
+                // AmpVolGainDb(0) models as -120 dB. If BOTH presets estimate as silent, proposed
+                // is -Inf + trim - (-Inf) = NaN, which Math.Clamp would pass straight through to
+                // the slider, and Save would then write malformed JSON to the device. A single
+                // silent side is benign (the ±Infinity clamps to ±20 with the usual saturation
+                // note below) — only the both-silent case reaches here.
+                Log.Warn("volume match against slot {0} produced a non-finite proposal (mine={1} LUFS, theirs={2} LUFS)",
+                    targetIndex, mine.Estimate.RelativeLufs, theirs.Estimate.RelativeLufs);
+                const string msg = "Match failed: one of these presets estimates as silent — check Amp Volume.";
+                ErrorMessage = msg;
+                _status.Failure(msg);
+                return;
+            }
             double clamped = Math.Clamp(proposed, field.Min, field.Max);
             field.Number = clamped;
 

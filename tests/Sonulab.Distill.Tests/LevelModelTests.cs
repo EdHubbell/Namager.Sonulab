@@ -114,6 +114,18 @@ public class LevelModelTests
     }
 
     [Fact]
+    public void Amp_volume_parked_at_zero_reads_as_silence()
+    {
+        // AmpVolGainDb(0) takes the percent<=0 branch (-120 dB), driving the ~-10.5 dBFS drive
+        // signal down to roughly -130 dBFS — comfortably under Loudness' -70 LUFS absolute gate.
+        // This branch was untested and is the root cause of Task 5's NaN-proposal bug: if BOTH
+        // sides of a match estimate as -Infinity, the match arithmetic computes
+        // -Infinity - (-Infinity), which is NaN.
+        var e = Est(Values((@"root\app\amp\vol", "0.0")));
+        Assert.True(double.IsNegativeInfinity(e.RelativeLufs));
+    }
+
+    [Fact]
     public void Amp_volume_follows_the_documented_taper()
     {
         // 100 % is +6.02 dB relative to the 50 % default under 20*log10(pct/50).
