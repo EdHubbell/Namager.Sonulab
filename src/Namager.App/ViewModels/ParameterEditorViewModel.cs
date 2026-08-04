@@ -191,8 +191,7 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             // Expanded by default — unlike every other block. This is the headline control and
             // was invisible before; a collapsed default would leave it just as hard to find.
             // The per-session memory still wins once the user has collapsed it.
-            levelSection.IsExpanded = !_expansion.TryGetValue(levelKey, out var lexp) || lexp;
-            WireExpansionMemory(levelSection, levelKey);
+            ApplyExpansion(levelSection, autoOpen: true);
             Blocks.Add(levelSection);
         }
 
@@ -253,12 +252,16 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             Prune(section);
             // Walk the PRUNED tree, not byPath.Values — that dictionary still holds the groups
             // Prune just detached, and wiring anything onto those leaks handlers into nothing.
-            foreach (var g in SelfAndDescendants(section)) g.AttachEnableField();
+            foreach (var g in SelfAndDescendants(section))
+            {
+                g.AttachEnableField();
+                // The section itself is handled below — a BLOCK never auto-opens (see ApplyExpansion).
+                if (!ReferenceEquals(g, section)) ApplyExpansion(g, autoOpen: g.Enabled == true);
+            }
 
             if (section.Items.Count > 0)
             {
-                section.IsExpanded = _expansion.TryGetValue(prefix, out var exp) && exp;
-                WireExpansionMemory(section, prefix);
+                ApplyExpansion(section, autoOpen: false);
                 Blocks.Add(section);
             }
         }
@@ -288,6 +291,20 @@ public sealed partial class ParameterEditorViewModel : ObservableObject
             if (e.PropertyName == nameof(ParameterGroupViewModel.IsExpanded) && s is ParameterGroupViewModel b)
                 _expansion[key] = b.IsExpanded;
         };
+
+    /// <summary>Set a group's initial expansion and remember every later toggle. Per-session memory
+    /// always wins: <paramref name="autoOpen"/> is only the starting point for a group the user has
+    /// not yet had an opinion about.
+    ///
+    /// Nested groups pass autoOpen = "my own on_off is ON", so opening Modulation shows an engaged
+    /// Tremolo without a second click. Top-level BLOCKS deliberately do not — Amp, IR, Delay and
+    /// Reverb are all on in a typical preset, so the same rule there would expand the whole editor
+    /// on every preset load.</summary>
+    private void ApplyExpansion(ParameterGroupViewModel group, bool autoOpen)
+    {
+        group.IsExpanded = _expansion.TryGetValue(group.Path, out var remembered) ? remembered : autoOpen;
+        WireExpansionMemory(group, group.Path);
+    }
 
     /// <summary>Activate <paramref name="target"/> on the device, then load its params.
     /// The content load is skipped when the same preset is already loaded, but the slot index is

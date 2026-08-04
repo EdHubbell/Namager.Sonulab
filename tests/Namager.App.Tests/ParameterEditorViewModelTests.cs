@@ -964,4 +964,75 @@ public class ParameterEditorViewModelTests
         static IEnumerable<string> vmAllPaths(ParameterGroupViewModel g) =>
             g.Fields.Select(f => f.Path).Concat(g.Groups.SelectMany(vmAllPaths));
     }
+
+    // ---- expansion: collapsed by default, open what's active ----
+
+    [Fact] public async Task A_nested_group_whose_on_off_is_ON_opens_itself()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.WithTremoloOn());
+        var tremolo = mod.Groups.Single(g => g.Path == @"root\app\mod\trfolder");
+        Assert.True(tremolo.IsExpanded);
+    }
+
+    [Fact] public async Task A_nested_group_whose_on_off_is_OFF_stays_collapsed()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.Records);
+        Assert.False(mod.Groups.Single(g => g.Path == @"root\app\mod\trfolder").IsExpanded);
+    }
+
+    [Fact] public async Task A_nested_group_with_no_on_off_stays_collapsed()
+    {
+        var mod = await LoadModAsync(ModBrowseFixture.Records);
+        Assert.False(mod.Groups.Single(g => g.Path == @"root\app\mod\tcfolder").IsExpanded);
+        Assert.False(mod.Groups.Single(g => g.Path == @"root\app\mod\rate").IsExpanded);
+    }
+
+    [Fact] public async Task A_top_level_block_never_auto_opens_however_active_it_is()
+    {
+        // Amp, IR, Delay and Reverb are all ON in a typical preset — auto-opening blocks would
+        // expand the whole editor on every preset load. The rule is for nested groups only.
+        var mod = await LoadModAsync(ModBrowseFixture.WithTremoloOn()
+            .Select(r => r.StartsWith("root\\app\\mod\\on_off:", StringComparison.Ordinal)
+                             ? r.Replace("\"value\":\"OFF\"", "\"value\":\"ON\"") : r).ToArray());
+        Assert.True(mod.Enabled);
+        Assert.False(mod.IsExpanded);
+    }
+
+    [Fact] public async Task Collapsing_an_auto_opened_group_sticks_across_a_preset_switch()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app", ModBrowseFixture.WithTremoloOn());
+        await d.OpenAsync();
+        var vm = ModVm(d);
+
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P0"));
+        var tremolo = vm.Blocks.Single(b => b.Path == @"root\app\mod")
+                        .Groups.Single(g => g.Path == @"root\app\mod\trfolder");
+        Assert.True(tremolo.IsExpanded);
+        tremolo.IsExpanded = false;                     // the user disagrees
+
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(1, "P1"));
+        var again = vm.Blocks.Single(b => b.Path == @"root\app\mod")
+                      .Groups.Single(g => g.Path == @"root\app\mod\trfolder");
+        Assert.NotSame(tremolo, again);                 // rebuilt, not reused
+        Assert.False(again.IsExpanded);                 // memory beats the auto-open rule
+    }
+
+    [Fact] public async Task Expansion_memory_keeps_the_two_Rate_groups_independent()
+    {
+        var d = new FakeSonuLink();
+        d.SeedBrowse(@"root\app", ModBrowseFixture.Records);
+        await d.OpenAsync();
+        var vm = ModVm(d);
+
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(0, "P0"));
+        vm.Blocks.Single(b => b.Path == @"root\app\mod")
+          .Groups.Single(g => g.Path == @"root\app\mod\rate").IsExpanded = true;
+
+        await vm.LoadForCommand.ExecuteAsync(new PresetTarget(1, "P1"));
+        var mod = vm.Blocks.Single(b => b.Path == @"root\app\mod");
+        Assert.True(mod.Groups.Single(g => g.Path == @"root\app\mod\rate").IsExpanded);
+        Assert.False(mod.Groups.Single(g => g.Path == @"root\app\mod\trfolder")
+                       .Groups.Single(g => g.Path == @"root\app\mod\trfolder\rate").IsExpanded);
+    }
 }
