@@ -1,7 +1,11 @@
 # Spec — Preset Level: a visible control + volume matching
 
 **Date:** 2026-08-03
-**Status:** Design approved (Ed, 2026-08-03). Ready for writing-plans.
+**Status:** Design approved (Ed, 2026-08-03). Ready for writing-plans. Shipped; reconciled against
+the implementation 2026-08-03 (Task 6, documentation) — three corrections are marked inline
+where the built behaviour diverged from the original design: `Loudness.IntegratedLufs`'s
+short-signal handling, how the loaded preset's estimate is built in `MatchVolumeAsync`, and the
+precision of the `amp\vol` caveat-suppression comparison.
 
 ## Goal
 
@@ -145,9 +149,29 @@ public const string PresetLevelPath = @"root\app\output\pst\level";
 1. Opens `MatchPresetDialog` — a ComboBox of the non-empty preset slots excluding the loaded one,
    modelled on `src/Namager.App/Views/SlotPickerDialog.axaml` (same shape, same `accent-outline`
    confirm button).
-2. Under `_status.BeginOperation("Matching volume…")`: estimates **this** preset from the fields
-   already in `Blocks` plus its amp blob, then reads the target preset
-   (`DeviceRepository.ReadPresetAsync`) and its amp blob.
+2. Under `_status.BeginOperation("Matching volume…")`: estimates **this** preset, then reads the
+   target preset (`DeviceRepository.ReadPresetAsync`) and its amp blob and estimates that.
+
+   **Corrected 2026-08-03, during implementation:** this spec originally had the loaded side
+   estimated from the editor's live fields alone (`Blocks`). That does not work, because
+   `ParameterEditorViewModel.Blocks_InScope` is `{ gate, exp, comp, amp, eq, ir, delay, reverb }` —
+   it omits `mod` (and would omit any future `LevelModel` input outside that list). Reading the
+   loaded side from `AllFields()` alone would leave `LevelModel.InputPaths` entries like
+   `root\app\mod\on_off` silently absent from that side's dictionary, and `LevelModel.IsOff`
+   treats an absent path as OFF — regardless of the device's real value. The target side, by
+   contrast, is read from the full `.pst` document, which always has every path. The two sides
+   were built two different ways, and the asymmetry made the "check by ear" caveat
+   direction-dependent: a chorus/tremolo caveat surfaced when the *target* preset had modulation
+   on, never when the *loaded* preset did.
+
+   The shipped behaviour (`EstimateLoadedAsync` in `ParameterEditorViewModel.cs`) instead reads
+   the loaded slot's own `.pst` via `_readPresetDoc` as the base layer — through the same
+   `LevelModel.InputPaths`-driven `ByPathFrom` helper `EstimateSlotAsync` uses for the target — and
+   then overlays the editor's live field values for every path the editor actually exposes, so an
+   unsaved edit still wins. Both sides are now built from the same contract
+   (`LevelModel.InputPaths`), so the caveat is symmetric. This costs one extra preset read
+   (~2 s) per match on the loaded side; the project owner accepted that cost explicitly rather
+   than have the caveat be silently one-sided.
 3. Sets the Level field to `clamp(targetLufs + targetTrim − thisLufs, −20, +20)`, leaving it
    **dirty and unwritten**.
 4. Reports on the status bar: the applied delta, any "check by ear" flags from either preset, and
@@ -156,8 +180,19 @@ public const string PresetLevelPath = @"root\app\output\pst\level";
 The `amp\vol` taper flag is handled here rather than in the model. `LevelModel` raises it per-preset
 whenever `vol` ≠ `def`, which is a statement of fact; but the assumed taper **cancels out of the
 difference** when both presets share a `vol` value. `MatchVolumeCommand` therefore surfaces that
-particular flag only when the two presets' `amp\vol` values actually differ. Every other flag is
+particular flag only when the two presets' `amp\vol` values actually differ — compared directly,
+with a `1e-9` epsilon, not by whether each side happens to raise the flag. Every other flag is
 surfaced whenever either preset raises it.
+
+**Corrected 2026-08-03, during implementation:** the first implementation compared flag *presence*
+on each side (i.e., whether each preset's `vol` individually differed from *its own* `def`) rather
+than comparing the two presets' actual `vol` values against each other. That silently suppressed
+the caveat exactly when it mattered most: two presets both off-default but at *different* `vol`
+values each looked "off default" individually, so presence-on-both-sides read as "cancels," when in
+fact a taper computed at two different points does not cancel. The shipped code
+(`MatchVolumeAsync` in `ParameterEditorViewModel.cs`) carries each side's raw `amp\vol` percent
+alongside its estimate (`SideEstimate.AmpVolPercent`) specifically so the comparison can be done on
+values, not re-derived from either side's flags.
 
 Every failure path (target read fails, amp blob unreadable, link death) surfaces through
 `ErrorMessage` / `_status.Failure` and leaves the slider untouched — the same contract
@@ -176,6 +211,21 @@ gate is deliberately omitted — the input is a single fixed, continuously-excit
 program material with silence to exclude, so the relative gate would add a discontinuity in the
 measure for no benefit. Documented in the file so the omission reads as a decision, not an
 oversight.
+
+**Short-signal handling (corrected 2026-08-03, during implementation).** This spec originally had
+`IntegratedLufs` return `-Infinity` whenever the signal was shorter than one 400 ms block, on the
+assumption that a multi-block sliding window simply has nothing to average when there's less than
+one window. **That was a design error, caught only once the estimator's actual caller was wired
+up:** `DriveSignal.Get()` — the fixed signal both `LevelModel` and `Distiller.LoudnessNormalize`
+run through the DSP — is 16000 samples at 44100 Hz, i.e. ~363 ms, which is *shorter than one 400 ms
+block*. Shipped as originally specced, `IntegratedLufs`'s only caller would always have read
+`-Infinity`, silently breaking the whole feature. The shipped behaviour instead measures **a single
+block spanning the whole signal** whenever it is shorter than 400 ms: for the stationary,
+continuously-excited signal this estimator is built for, that single measurement is exactly the
+quantity the gated multi-block form converges to, and being one block it introduces no windowing
+seam. The absolute gate still applies to that single block, so a short but genuinely silent signal
+still reads `-Infinity` — only the "too short to window" case changed. See
+`src/Sonulab.Distill/Loudness.cs`.
 
 ### `src/Sonulab.Distill/LevelModel.cs` (new)
 
@@ -279,3 +329,6 @@ not for a single preset the user is already editing.
 - The VU meter stream (`root\sys\_meters\_out0/_out1`, filtered at
   `src/Sonulab.Core/Protocol/ResponseParser.cs:27`) and the `root\usb\mode` audio path are
   unexplored; either could later upgrade this from predicted to measured.
+- **Matching now performs an extra preset read on the loaded side** (see the correction to Part 2
+  above) — a match costs roughly two preset reads plus one amp read (memoized per session after
+  the first), not the one preset read originally scoped.

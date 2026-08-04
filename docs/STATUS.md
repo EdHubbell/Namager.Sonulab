@@ -28,3 +28,33 @@ UI-polish visual checklist (docs/HARDWARE-VALIDATION-ui-polish.md) pending.
 Tone3000 live checklist (docs/HARDWARE-VALIDATION-tone3000.md) pending.
 Disconnect handling is SHIPPED (typed `DeviceDisconnectedException`, `SonuClient` latch, app dead
 state, HwCheck exit 2); on-device checks pending in `docs/HARDWARE-VALIDATION-disconnect.md`.
+
+Preset Level SHIPPED: `root\app\output\pst\level` is now the top block of the parameter editor
+(slider + explanation), with "match volume to another preset" backed by an offline K-weighted
+loudness estimate (`Sonulab.Distill.Loudness` / `LevelModel`). Hardware checks pending in
+`docs/HARDWARE-VALIDATION-preset-level.md`. Two deliberate gaps:
+- The spec's `AmpLoudnessCache` was **not built** — `LevelModel` needs the amp BLOB, not a
+  scalar (the model is nonlinear), so a cached loudness cannot short-circuit the read. Amp blobs
+  are memoized per session instead. If bulk normalize later wants persistence, the right shape
+  is a preset-keyed estimate cache: `(deviceId, slot, presetName, hash of level-relevant values)`
+  → `RelativeLufs`.
+- Bulk "normalize the whole bank" is deliberately NOT built — see the Deferred section of
+  `docs/superpowers/specs/2026-08-03-preset-level-design.md`; when it is, the apply path should
+  be byte-exact dwrite, not select+save.
+The `amp\vol` %→dB taper in `LevelModel.AmpVolGainDb` is an ASSUMPTION (50 % treated as unity)
+and is the first thing to calibrate against the device VU meters.
+
+## Ranked follow-ups
+
+1. **`mod` (Modulation) block is not editable in NAMager — pre-existing gap, not caused by the
+   Preset Level work.** `ParameterEditorViewModel.Blocks_InScope` is
+   `{ gate, exp, comp, amp, eq, ir, delay, reverb }` — it omits `mod`. The pedal's Modulation
+   block (chorus/flanger/tremolo, plus its Tone-and-Character and Tremolo sub-folders) is real,
+   appears in every `.pst`, and even has a label entry in `labels.en.json`, but has never been
+   surfaced as a block in the parameter editor. Discovered incidentally while building Preset
+   Level's volume-match feature (`EstimateLoadedAsync` needed to read `mod\on_off` regardless of
+   editor scope to keep its "check by ear" caveat symmetric — see
+   `src/Namager.App/ViewModels/ParameterEditorViewModel.cs`), but the gap itself predates that
+   feature and the owner declined to widen this cycle's scope to fix it. Adding `"mod"` to
+   `Blocks_InScope` is presumably most of the fix; needs its own scoping pass for the sub-folders
+   and any hidden-params entries.

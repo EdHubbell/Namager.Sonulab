@@ -43,6 +43,9 @@ captures; **`PROTOCOL.md` is the source of truth for the wire protocol.**
   Preset content IS also dwrite-able (PROTOCOL.md VERDICT 2026-07-04: name chunk:0 → chunks 1..64 →
   name chunk:-1 commit; ~10 s/slot) — byte-exact option for restore/duplicate, but save-from-live
   remains the copy engine.
+- **Per-preset output trim** = `root\app\output\pst\level` ("Preset Level", −20…+20 dB, def 0,
+  post-everything, saved in the `.pst`). Surfaced as the editor's top `Level` block. `root\app\output`
+  itself is the GLOBAL Master block and stays out of `Blocks_InScope`.
 
 ## Critical conventions & gotchas
 - **Avalonia 12 + built-in `FluentTheme`. Do NOT add FluentAvalonia** — it targets Avalonia 11 and
