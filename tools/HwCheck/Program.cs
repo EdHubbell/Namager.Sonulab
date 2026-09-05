@@ -4,6 +4,8 @@
 //   dotnet run --project tools/HwCheck -- --dump-amps  # read-only: pull every amp slot's converted .vxamp blob
 //   dotnet run --project tools/HwCheck -- --write-test # + guarded duplicate to an empty slot, then delete
 //   dotnet run --project tools/HwCheck -- --list-amps  # read-only amp slot name table
+//   dotnet run --project tools/HwCheck -- --amp-meta   # read-only: amp slots + SSMD provenance (Tone3000 url, source .nam, sha256) -> NAMFiles/amp-manifest.json
+//   dotnet run --project tools/HwCheck -- --ir-meta    # read-only: IR slots + sha256 + ir-index.json Tone3000 identity -> NAMFiles/ir-manifest.json
 //   dotnet run --project tools/HwCheck -- --dump-irs   # read-only: pull every IR slot's 4096-byte blob
 //   dotnet run --project tools/HwCheck -- --list-irs   # read-only IR slot name table
 //   dotnet run --project tools/HwCheck -- --upload-amp <vxampPath> <slotIndex> [--name <n>]  # guarded amp upload (backup+write+verify)
@@ -151,6 +153,111 @@ if (Array.IndexOf(args, "--list-amps") >= 0)
     foreach (var s in ampSlots)
         Console.WriteLine($"  slot {s.Index + 1,2} (idx {s.Index,2}): {(s.IsEmpty ? "(empty)" : $"'{s.Name}'")}");
     Console.WriteLine("RESULT: LIST-AMPS COMPLETE");
+    session.Disconnect();
+    return 0;
+}
+
+// --amp-meta : read-only. Pull every occupied amp slot's blob and parse the SSMD provenance
+// block (Sonulab.Distill.VxampMetadata). Prints the Tone3000 url / source .nam / sha256 per
+// slot and writes NAMFiles/amp-manifest.json for migrating the amp set to another pedal.
+// Slots uploaded by VoidX-Control carry no block and report "(no metadata)".
+if (Array.IndexOf(args, "--amp-meta") >= 0)
+{
+    var ampSvc = new AmpService(session.Client!, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
+    var ampSlots = await ampSvc.ListAmpsAsync();
+    var manifestPath = System.IO.Path.GetFullPath(System.IO.Path.Combine("NAMFiles", "amp-manifest.json"));
+    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(manifestPath)!);
+    Console.WriteLine($"\n--- AMP METADATA (read-only) ---");
+    var manifest = new System.Text.Json.Nodes.JsonArray();
+    int withUrl = 0, withSource = 0, without = 0;
+    foreach (var s in ampSlots)
+    {
+        if (s.IsEmpty) continue;
+        var blob = await ampSvc.ReadAmpAsync(s.Index);
+        var meta = Sonulab.Distill.VxampMetadata.TryRead(blob);
+        var entry = new System.Text.Json.Nodes.JsonObject
+        {
+            ["slot"] = s.Index + 1, ["index"] = s.Index, ["name"] = s.Name,
+            ["blobSha256"] = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(blob)).ToLowerInvariant(),
+        };
+        if (meta is null)
+        {
+            without++;
+            Console.WriteLine($"  slot {s.Index + 1,2}: '{s.Name}'  (no metadata)");
+        }
+        else
+        {
+            if (meta.Url is not null) withUrl++; else if (meta.Source?.File is not null) withSource++; else without++;
+            entry["url"] = meta.Url;
+            entry["sourceFile"] = meta.Source?.File;
+            entry["sourceSha256"] = meta.Source?.Sha256;
+            entry["uploaded"] = meta.Uploaded;
+            entry["notes"] = meta.Notes;
+            entry["nam"] = meta.Nam?.DeepClone();
+            var namName = meta.Nam?["name"]?.ToString() ?? meta.Nam?["metadata"]?["name"]?.ToString();
+            Console.WriteLine($"  slot {s.Index + 1,2}: '{s.Name}'");
+            Console.WriteLine($"           url:    {meta.Url ?? "-"}");
+            Console.WriteLine($"           source: {meta.Source?.File ?? "-"}  sha256={(meta.Source?.Sha256 is { } sh ? sh[..Math.Min(12, sh.Length)] + "…" : "-")}");
+            if (namName is not null) Console.WriteLine($"           nam:    {namName}");
+            if (meta.Notes is not null) Console.WriteLine($"           notes:  {meta.Notes}");
+        }
+        manifest.Add(entry);
+    }
+    await System.IO.File.WriteAllTextAsync(manifestPath,
+        manifest.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine($"\n  {withUrl} with Tone3000 url, {withSource} with source .nam only, {without} with no provenance");
+    Console.WriteLine($"RESULT: AMP-META COMPLETE ({manifest.Count} amps -> {manifestPath})");
+    session.Disconnect();
+    return 0;
+}
+
+// --ir-meta : read-only. Hash every occupied IR slot's 4096-byte blob and look it up in
+// %APPDATA%\Namager\ir-index.json (the app's content-keyed Tone3000 identity map; IR blobs
+// have no room for embedded metadata). Writes NAMFiles/ir-manifest.json.
+if (Array.IndexOf(args, "--ir-meta") >= 0)
+{
+    var irSvc = new IrService(session.Client!, System.IO.Path.GetFullPath(System.IO.Path.Combine("docs", "backups")));
+    var irSlots = await irSvc.ListIrsAsync();
+    var indexPath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Namager", "ir-index.json");
+    var index = new Dictionary<string, System.Text.Json.Nodes.JsonObject>(StringComparer.Ordinal);
+    if (System.IO.File.Exists(indexPath))
+    {
+        try
+        {
+            var doc = System.Text.Json.Nodes.JsonNode.Parse(await System.IO.File.ReadAllTextAsync(indexPath)) as System.Text.Json.Nodes.JsonObject;
+            if (doc?["entries"] is System.Text.Json.Nodes.JsonArray entries)
+                foreach (var e in entries.OfType<System.Text.Json.Nodes.JsonObject>())
+                    if (e["sha"]?.ToString() is { Length: > 0 } sha) index[sha] = e;
+        }
+        catch (System.Text.Json.JsonException ex) { Console.WriteLine($"  (ir-index.json unreadable: {ex.Message})"); }
+    }
+    else Console.WriteLine($"  (no ir-index.json at {indexPath} — IRs will report names only)");
+    var manifestPath = System.IO.Path.GetFullPath(System.IO.Path.Combine("NAMFiles", "ir-manifest.json"));
+    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(manifestPath)!);
+    Console.WriteLine($"\n--- IR METADATA (read-only) ---");
+    var manifest = new System.Text.Json.Nodes.JsonArray();
+    int known = 0;
+    foreach (var s in irSlots)
+    {
+        if (s.IsEmpty) continue;
+        var blob = await irSvc.ReadIrAsync(s.Index);
+        var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(blob)).ToLowerInvariant();
+        index.TryGetValue(sha, out var hit);
+        var entry = new System.Text.Json.Nodes.JsonObject
+        {
+            ["slot"] = s.Index + 1, ["index"] = s.Index, ["name"] = s.Name, ["blobSha256"] = sha,
+            ["toneId"] = hit?["toneId"]?.DeepClone(), ["modelId"] = hit?["modelId"]?.DeepClone(),
+            ["title"] = hit?["title"]?.DeepClone(),
+        };
+        if (hit is not null) known++;
+        Console.WriteLine($"  slot {s.Index + 1,2}: '{s.Name}'  sha={sha[..12]}…  " +
+            (hit is not null ? $"tone {hit["toneId"]} model {hit["modelId"]} '{hit["title"]}'" : "(not in ir-index)"));
+        manifest.Add(entry);
+    }
+    await System.IO.File.WriteAllTextAsync(manifestPath,
+        manifest.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine($"\n  {known} of {manifest.Count} IRs have a Tone3000 identity");
+    Console.WriteLine($"RESULT: IR-META COMPLETE ({manifest.Count} irs -> {manifestPath})");
     session.Disconnect();
     return 0;
 }

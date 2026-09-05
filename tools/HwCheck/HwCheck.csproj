@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sonulab.Core\Sonulab.Core.csproj" />
     <ProjectReference Include="..\..\src\Sonulab.Transport.Wifi\Sonulab.Transport.Wifi.csproj" />
+    <ProjectReference Include="..\..\src\Sonulab.Distill\Sonulab.Distill.csproj" />
   </ItemGroup>
 </Project>
